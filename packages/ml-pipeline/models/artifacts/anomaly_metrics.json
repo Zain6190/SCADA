@@ -1,0 +1,8 @@
+{
+  "contamination": 0.05,
+  "n_rows": 1188,
+  "n_anomalies": 60,
+  "anomaly_rate": 0.0505,
+  "score_min": -0.1225,
+  "score_max": 0.1611
+}

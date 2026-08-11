@@ -1,0 +1,82 @@
+{
+  "model_version": "xgb-v1.0",
+  "n_train": 950,
+  "n_test": 238,
+  "regressor": {
+    "rmse": 6.5126,
+    "mae": 3.9772,
+    "r2": 0.5663
+  },
+  "classifier": {
+    "accuracy": 0.7806,
+    "classification_report": {
+      "Critical": {
+        "precision": 0.8,
+        "recall": 0.9565217391304348,
+        "f1-score": 0.8712871287128713,
+        "support": 46.0
+      },
+      "Moderate": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 9.0
+      },
+      "Severe": {
+        "precision": 0.7948717948717948,
+        "recall": 0.8920863309352518,
+        "f1-score": 0.8406779661016949,
+        "support": 139.0
+      },
+      "Stressed": {
+        "precision": 0.68,
+        "recall": 0.3953488372093023,
+        "f1-score": 0.5,
+        "support": 43.0
+      },
+      "accuracy": 0.7805907172995781,
+      "macro avg": {
+        "precision": 0.5687179487179488,
+        "recall": 0.5609892268187472,
+        "f1-score": 0.5529912737036415,
+        "support": 237.0
+      },
+      "weighted avg": {
+        "precision": 0.7448404197771287,
+        "recall": 0.7805907172995781,
+        "f1-score": 0.7528837350587666,
+        "support": 237.0
+      }
+    }
+  },
+  "confusion_matrix": [
+    [
+      44,
+      0,
+      2,
+      0
+    ],
+    [
+      0,
+      0,
+      6,
+      3
+    ],
+    [
+      10,
+      0,
+      124,
+      5
+    ],
+    [
+      1,
+      1,
+      24,
+      17
+    ]
+  ],
+  "test_month_range": [
+    "2025-05-01",
+    "2026-06-01"
+  ]
+}
