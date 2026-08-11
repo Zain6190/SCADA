@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyc
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+package-lock.json
+yarn.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+
+# ML Models (large files)
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+
+# Data files
+*.csv
+*.tif
+*.tiff
+*.nc
+*.hdf
+
+# Logs
+logs/
+*.log
+tmp/
+temp/
+
+# Docker
+docker-data/
+
+# Archive
+*.zip
+*.tar.gz
+*.rar
+
+# TypeScript
+*.tsbuildinfo
+
+
+packages/dashboard/.next/
+packages/dashboard/out/
+
+# GitHub Pages
+.github/pages/
