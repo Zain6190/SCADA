@@ -1,0 +1,125 @@
+# ============================================
+# IBCP-SCADA .gitignore (Short Version)
+# ============================================
+
+# ----------------------------
+# Python
+# ----------------------------
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyc
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ----------------------------
+# Node.js / Next.js
+# ----------------------------
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ----------------------------
+# Environment Variables
+# ----------------------------
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ----------------------------
+# IDEs
+# ----------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ----------------------------
+# Database
+# ----------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# ----------------------------
+# ML Models (Large Files)
+# ----------------------------
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+*.onnx
+
+# ----------------------------
+# Data Files
+# ----------------------------
+*.csv
+*.tif
+*.tiff
+*.nc
+*.hdf
+*.h5
+
+# ----------------------------
+# GEE Authentication
+# ----------------------------
+gee/auth/*.json
+gee/auth/*.pem
+
+# ----------------------------
+# Logs & Temp Files
+# ----------------------------
+logs/
+*.log
+tmp/
+temp/
+*.tmp
+
+# ----------------------------
+# Docker Volumes
+# ----------------------------
+docker-data/
+*.pid
+
+# ----------------------------
+# Archive Files
+# ----------------------------
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.bak
+
+# ----------------------------
+# TypeScript Build Info
+# ----------------------------
+*.tsbuildinfo
+
+# ----------------------------
+# Reports
+# ----------------------------
+reports/
+*.html
+*.pdf
