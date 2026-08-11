@@ -1,0 +1,126 @@
+﻿/* packages/dashboard/src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-16px);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes imageFade {
+  0%, 10% {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+  15%, 35% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  40%, 100% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes radarSweep {
+  0% {
+    opacity: 0.12;
+    transform: rotate(0deg) translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0.12;
+    transform: rotate(360deg) translateX(-50%) scale(1);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.animate-float-slow {
+  animation: float 10s ease-in-out infinite;
+}
+
+.radar-sweep::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  left: 50%;
+  top: 50%;
+  width: 240%;
+  height: 240%;
+  background: radial-gradient(circle, rgba(56,189,248,0.14) 0%, transparent 55%);
+  transform-origin: center;
+  animation: radarSweep 10s linear infinite;
+}
+
+.pulse-ring {
+  animation: pulseRing 1.4s infinite;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.9s ease-out both;
+}
+
+.image-fade {
+  opacity: 0;
+  animation: imageFade 12s ease-in-out infinite;
+}
+
+.animation-delay-500 {
+  animation-delay: 0.5s;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.55);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.85);
+}
