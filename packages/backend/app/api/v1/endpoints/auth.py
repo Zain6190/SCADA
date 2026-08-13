@@ -1,9 +1,13 @@
 # packages/backend/app/api/v1/endpoints/auth.py
+import re
 from datetime import UTC, datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.core.security import (
@@ -18,8 +22,14 @@ from app.core.rbac import (
 )
 from app.services.audit_service import log_security_event, write_audit
 from app.models import db as orm
+from app.models.user import (
+    RegisterRequest, AdminCreateUserRequest, SupervisorCreateOperatorRequest,
+    UserUpdateRequest, OperatorUpdateRequest, _validate_password, _ACCESS_STATUSES,
+    _PASSWORD_MIN,
+)
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +94,9 @@ _FORBIDDEN_ROLES = {"system_admin", "superuser", "root"}
 
 
 @router.post("/register")
+@limiter.limit("10/minute")
 async def register(
+    request: Request,
     user_data: dict,
     admin: orm.User = Depends(require_admin),
     db=Depends(get_db),
@@ -92,18 +104,32 @@ async def register(
     """Create a user. Admin-only. Public/self registration is disabled unless
     ALLOW_PUBLIC_REGISTRATION=True (explicit development flag), and even then a
     caller may NOT assign themselves roles or privileged roles."""
-    username = user_data.get("username")
-    email = user_data.get("email")
-    password = user_data.get("password")
-    full_name = user_data.get("full_name", username)
+    username = (user_data.get("username") or "").strip()
+    email = (user_data.get("email") or "").strip().lower()
+    password = user_data.get("password") or ""
+    full_name = (user_data.get("full_name") or username).strip()
     role_name = user_data.get("role") or "viewer"
     access_status = (user_data.get("access_status") or "ACTIVE").upper()
-    allowed_statuses = {"ACTIVE", "APPROVED", "PENDING", "SUSPENDED", "REVOKED", "REJECTED"}
-    if access_status not in allowed_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid access_status: {access_status}")
 
-    if not username or not email or not password:
-        raise HTTPException(status_code=400, detail="Username, email and password required")
+    errors = []
+    if len(username) < 2:
+        errors.append("username must be at least 2 characters")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        errors.append("valid email address is required")
+    if len(password) < _PASSWORD_MIN:
+        errors.append(f"password must be at least {_PASSWORD_MIN} characters")
+    if not re.search(r"[A-Z]", password):
+        errors.append("password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", password):
+        errors.append("password must contain at least one lowercase letter")
+    if not re.search(r"\d", password):
+        errors.append("password must contain at least one digit")
+    if not full_name:
+        errors.append("full_name is required")
+    if access_status not in _ACCESS_STATUSES:
+        errors.append(f"invalid access_status: {access_status}")
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
 
     if not settings.ALLOW_PUBLIC_REGISTRATION and "admin" not in get_user_roles(admin.id, db):
         raise HTTPException(status_code=403, detail="Registration is disabled for non-administrators")
@@ -146,8 +172,10 @@ async def register(
 
 
 @router.post("/token")
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_db)):
-    """Login against PostgreSQL, returns a JWT carrying the user id (sub)."""
+@limiter.limit("5/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_db)):
+    """Login against PostgreSQL, returns a JWT carrying the user id (sub).
+    Rate limited: 5 attempts per minute per IP."""
     user = db.execute(
         select(orm.User).where(orm.User.email == form_data.username)
     ).scalar_one_or_none()
@@ -265,37 +293,40 @@ def _parse_expiry(value) -> Optional[datetime]:
 
 
 @router.post("/admin/users", response_model=dict, status_code=201)
+@limiter.limit("10/minute")
 async def create_user(
+    request: Request,
     payload: dict,
     admin: orm.User = Depends(require_admin),
     db=Depends(get_db),
 ):
-    """Atomic (single-transaction) user provisioning for the admin workflow.
-
-    Creates user + role + geographic scope + asset grants + account status in
-    one commit so a failed scope/asset assignment can never leave a half
-    configured account behind. Admin only.
-
-    Payload:
-      full_name, email, password (temporary, invite link follows later)
-      role:            role name in shared.roles
-      access_status:   ACTIVE | PENDING | ... (login gates non-ACTIVE)
-      scope:           {scope_type, region_id|region_name|asset_id,
-                        expires_at}  (optional; absent FAILS CLOSED -> no access)
-      asset_ids:       [ids] extra ASSET-scope grants layered over the scope
-    """
+    """Atomic (single-transaction) user provisioning for the admin workflow."""
     full_name = (payload.get("full_name") or "").strip()
     email = (payload.get("email") or "").strip().lower()
-    password = payload.get("password")
+    password = payload.get("password") or ""
     role_name = payload.get("role") or "viewer"
     access_status = (payload.get("access_status") or "ACTIVE").upper()
 
-    if not full_name or not email or not password:
-        raise HTTPException(status_code=400, detail="full_name, email and password are required")
+    errors = []
+    if len(full_name) < 1:
+        errors.append("full_name is required")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        errors.append("valid email address is required")
+    if len(password) < _PASSWORD_MIN:
+        errors.append(f"password must be at least {_PASSWORD_MIN} characters")
+    if not re.search(r"[A-Z]", password):
+        errors.append("password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", password):
+        errors.append("password must contain at least one lowercase letter")
+    if not re.search(r"\d", password):
+        errors.append("password must contain at least one digit")
+    if access_status not in _ACCESS_STATUSES:
+        errors.append(f"invalid access_status: {access_status}")
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
     if role_name.lower() in _FORBIDDEN_ROLES:
         raise HTTPException(status_code=400, detail=f"Role '{role_name}' cannot be assigned")
-    if access_status not in {"ACTIVE", "APPROVED", "PENDING", "SUSPENDED", "REVOKED", "REJECTED"}:
-        raise HTTPException(status_code=400, detail=f"Invalid access_status: {access_status}")
 
     existing = db.execute(select(orm.User).where(orm.User.email == email)).scalar_one_or_none()
     if existing:
@@ -317,7 +348,9 @@ async def create_user(
 
     scope = payload.get("scope")
     if scope and scope.get("scope_type"):
-        _replace_user_scope(db, admin, user, {**scope, "expires_at": _parse_expiry(scope.get("expires_at"))})
+        scope_data = {k: v for k, v in scope.items() if k != "expires_at"}
+        scope_data["expires_at"] = _parse_expiry(scope.get("expires_at"))
+        _replace_user_scope(db, admin, user, scope_data)
     for asset_id in payload.get("asset_ids") or []:
         if db.get(orm.Asset, asset_id) is None:
             db.rollback()
@@ -381,7 +414,7 @@ async def list_users(admin: orm.User = Depends(require_admin), db=Depends(get_db
 @router.patch("/users/{user_id}", response_model=dict)
 async def update_user(
     user_id: int,
-    patch: dict,
+    patch: UserUpdateRequest,
     admin: orm.User = Depends(require_admin),
     db=Depends(get_db),
 ):
@@ -393,7 +426,7 @@ async def update_user(
 
     before = _user_before(target, db)
 
-    role_name = patch.get("role")
+    role_name = patch.role
     if role_name is not None:
         if role_name.lower() in _FORBIDDEN_ROLES:
             raise HTTPException(status_code=400, detail=f"Role '{role_name}' cannot be assigned")
@@ -402,19 +435,19 @@ async def update_user(
         db.flush()
         db.add(orm.UserRole(user_id=target.id, role_id=_role_id(db, role_name)))
 
-    if "is_active" in patch:
-        target.is_active = bool(patch["is_active"])
+    if patch.is_active is not None:
+        target.is_active = patch.is_active
 
-    if "access_status" in patch:
-        status = patch["access_status"].upper()
-        if status not in {"ACTIVE", "APPROVED", "PENDING", "SUSPENDED", "REVOKED", "REJECTED"}:
-            raise HTTPException(status_code=400, detail=f"Invalid access_status: {status}")
-        target.access_status = status
+    if patch.access_status is not None:
+        access_status = patch.access_status.upper()
+        if access_status not in _ACCESS_STATUSES:
+            raise HTTPException(status_code=400, detail=f"Invalid access_status: {access_status}")
+        target.access_status = access_status
 
-    if "scope" in patch:
+    if patch.scope:
         _replace_user_scope(
             db, admin, target,
-            {**patch["scope"], "expires_at": _parse_expiry((patch["scope"] or {}).get("expires_at"))},
+            {**patch.scope.model_dump(), "expires_at": _parse_expiry(patch.scope.expires_at)},
         )
 
     db.commit()
@@ -529,28 +562,39 @@ async def list_operator_roles(actor: dict = Depends(MANAGE_OPERATORS), db=Depend
 
 
 @router.post("/operators", response_model=dict, status_code=201)
+@limiter.limit("10/minute")
 async def create_operator(
+    request: Request,
     payload: dict,
     actor: dict = Depends(MANAGE_OPERATORS),
     db=Depends(get_db),
 ):
-    """Create a field operator inside the supervisor's OWN geographic scope.
-
-    The region can never be picked out of scope (the endpoint clamps the new
-    user's region to actor.region_ids). Only delegated roles may be assigned.
-
-    Payload: full_name, email, password, role, access_status, region_id,
-             expires_at (optional)
-    """
+    """Create a field operator inside the supervisor's OWN geographic scope."""
     full_name = (payload.get("full_name") or "").strip()
     email = (payload.get("email") or "").strip().lower()
-    password = payload.get("password")
+    password = payload.get("password") or ""
     role_name = (payload.get("role") or "field_officer").lower()
     access_status = (payload.get("access_status") or "ACTIVE").upper()
     region_id = payload.get("region_id")
 
-    if not full_name or not email or not password:
-        raise HTTPException(status_code=400, detail="full_name, email and password are required")
+    errors = []
+    if len(full_name) < 1:
+        errors.append("full_name is required")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        errors.append("valid email address is required")
+    if len(password) < _PASSWORD_MIN:
+        errors.append(f"password must be at least {_PASSWORD_MIN} characters")
+    if not re.search(r"[A-Z]", password):
+        errors.append("password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", password):
+        errors.append("password must contain at least one lowercase letter")
+    if not re.search(r"\d", password):
+        errors.append("password must contain at least one digit")
+    if not region_id:
+        errors.append("region_id is required")
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
     if role_name not in _DELEGATED_ROLES:
         raise HTTPException(
             status_code=400,
@@ -634,7 +678,7 @@ async def list_operators(actor: dict = Depends(MANAGE_OPERATORS), db=Depends(get
 @router.patch("/operators/{user_id}", response_model=dict)
 async def update_operator(
     user_id: int,
-    patch: dict,
+    patch: OperatorUpdateRequest,
     actor: dict = Depends(MANAGE_OPERATORS),
     db=Depends(get_db),
 ):
@@ -647,7 +691,7 @@ async def update_operator(
 
     before = _user_before(target, db)
 
-    role_name = patch.get("role")
+    role_name = patch.role
     if role_name is not None:
         role_name = role_name.lower()
         if role_name not in _DELEGATED_ROLES:
@@ -657,14 +701,14 @@ async def update_operator(
         db.flush()
         db.add(orm.UserRole(user_id=target.id, role_id=_role_id(db, role_name)))
 
-    if "is_active" in patch:
-        target.is_active = bool(patch["is_active"])
+    if patch.is_active is not None:
+        target.is_active = patch.is_active
 
-    if "access_status" in patch:
-        status = patch["access_status"].upper()
-        if status not in {"ACTIVE", "APPROVED", "PENDING", "SUSPENDED", "REVOKED"}:
-            raise HTTPException(status_code=400, detail=f"Invalid access_status: {status}")
-        target.access_status = status
+    if patch.access_status is not None:
+        access_status = patch.access_status.upper()
+        if access_status not in {"ACTIVE", "APPROVED", "PENDING", "SUSPENDED", "REVOKED"}:
+            raise HTTPException(status_code=400, detail=f"Invalid access_status: {access_status}")
+        target.access_status = access_status
 
     db.commit()
     db.refresh(target)
