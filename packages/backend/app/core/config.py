@@ -7,20 +7,17 @@ class Settings(BaseSettings):
     # Environment: "development" or "production".
     ENVIRONMENT: str = "development"
 
-    # Database (Docker PostGIS container: postgis/postgis:16-3.4 on port 5433).
-    # Must be supplied via env (DATABASE_URL) in production; the dev fallback
-    # below only applies in development.
+    # Database — set DATABASE_URL in .env. The dev fallback only works when
+    # the PostGIS container is running on port 5433.
     DATABASE_URL: str = "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
 
-    # Redis
+    # Redis / MQTT
     REDIS_URL: str = "redis://localhost:6379"
-
-    # MQTT
     MQTT_BROKER: str = "localhost"
     MQTT_PORT: int = 1883
 
-    # JWT - SECRET_KEY must be set from env in production.
-    SECRET_KEY: str = "dev-only-insecure-secret-change-me"
+    # JWT — generate for production: python -c "import secrets; print(secrets.token_urlsafe(64))"
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
@@ -40,16 +37,14 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT.lower() in ("production", "prod")
 
     def validate_security(self) -> None:
-        """Fail fast in production if insecure defaults are still in use."""
-        if self.is_production:
-            insecure = (
-                "dev-only-insecure-secret-change-me" in self.SECRET_KEY
-                or "change-in-production" in self.SECRET_KEY
+        """Fail fast if required secrets are missing or insecure defaults are
+        still in use."""
+        if not self.SECRET_KEY:
+            raise RuntimeError(
+                "SECRET_KEY is not set. Add it to your .env file.\n"
+                "  Generate one: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
             )
-            if insecure:
-                raise RuntimeError(
-                    "SECRET_KEY must be set from environment in production."
-                )
+        if self.is_production:
             if "postgres:1234@" in self.DATABASE_URL:
                 raise RuntimeError(
                     "DATABASE_URL uses the default dev password; set it from "

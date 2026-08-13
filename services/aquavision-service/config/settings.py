@@ -17,11 +17,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
-    # Database (single Postgres/PostGIS instance, own role, own schema)
-    # Local dev: container ibcp-postgis on port 5433 (postgres/1234).
-    DATABASE_URL: str = (
-        "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
-    )
+    # Database — set DATABASE_URL in .env
+    DATABASE_URL: str = ""
     DB_ECHO: bool = False
 
     # Logical schema names
@@ -32,7 +29,7 @@ class Settings(BaseSettings):
     # Cross-context access policy:
     #   write: aquavision.* only
     #   read:  shared.regions + shared.assets (never write)
-    CORS_ORIGINS: list[str] = ["*"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 settings = Settings()
