@@ -24,6 +24,11 @@ class WaterIndicator(BaseModel):
     rainfall_anomaly: Optional[float] = None
     et_mm_8day: Optional[float] = None
     et_anomaly: Optional[float] = None
+    spi_1: Optional[float] = None
+    spi_3: Optional[float] = None
+    spi_6: Optional[float] = None
+    spi_12: Optional[float] = None
+    spi_drought_class: Optional[str] = None
     wai_score: float
     severity: Optional[str] = None  # Normal, Moderate, Stressed, Critical, Severe
     data_source_version: Optional[str] = None
@@ -44,6 +49,11 @@ class WaterIndicatorCreate(BaseModel):
     rainfall_anomaly: Optional[float] = None
     et_mm_8day: Optional[float] = None
     et_anomaly: Optional[float] = None
+    spi_1: Optional[float] = None
+    spi_3: Optional[float] = None
+    spi_6: Optional[float] = None
+    spi_12: Optional[float] = None
+    spi_drought_class: Optional[str] = None
     wai_score: float
     data_source_version: Optional[str] = None
     data_status: Optional[str] = None
