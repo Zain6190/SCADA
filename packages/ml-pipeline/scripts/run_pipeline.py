@@ -29,11 +29,12 @@ Safeguards:
 
 Stages (each is idempotent - upserts, so re-runs never duplicate rows):
 
-    [optional] gee_fetch        refresh Data/raw/region_features.csv from GEE
-    sync_indicators             real WAI indicators -> water_indicators_weekly
-    predict_weekly              XGBoost forecast   -> water_predictions_weekly
-    run_risk_alerts             MODEL alerts       -> water_alerts
-    [optional] validate_preds   score forecasts against closed actuals
+    [optional] gee_fetch            refresh Data/raw/region_features.csv from GEE
+    sync_indicators                 real WAI indicators -> water_indicators_weekly
+    sync_surface_water              NDWI/MNDWI water area -> surface_water_weekly
+    predict_weekly                  XGBoost forecast   -> water_predictions_weekly
+    run_risk_alerts                 MODEL alerts       -> water_alerts
+    [optional] validate_preds       score forecasts against closed actuals
 
 gee_fetch and validate_preds are optional: fetch needs GEE credentials/network
 (SKIPPED otherwise), validation needs a closed forecast period (no-op until then).
@@ -69,8 +70,9 @@ STAGE_TIMEOUT = int(os.getenv("PIPELINE_STAGE_TIMEOUT", "1800"))  # seconds per 
 STALE_AFTER = os.getenv("PIPELINE_STALE_AFTER", "2 hours")
 MAX_CACHE_DAYS = int(os.getenv("PIPELINE_MAX_CACHE_DAYS", "7"))  # max cached-CSV age before STALE
 RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
+SURFACE_WATER_CSV = ML_ROOT / "Data" / "raw" / "surface_water.csv"
 
-STAGES = ["sync_indicators", "predict_weekly", "run_risk_alerts"]
+STAGES = ["sync_indicators", "sync_surface_water", "predict_weekly", "run_risk_alerts"]
 
 _engine = None
 
@@ -307,6 +309,7 @@ def _parse_stage(stage: str, output: str, code: int) -> dict:
         "records_read": r"Read (\d+) rows",
         "records_written": {
             "sync_indicators": r"Upserted (\d+) indicator rows",
+            "sync_surface_water": r"(\d+) inserted",
             "predict_weekly": r"Wrote (\d+) predictions",
             "run_risk_alerts": r"Wrote (\d+) alerts",
             "gee_fetch": r"Wrote (\d+) rows ->",
