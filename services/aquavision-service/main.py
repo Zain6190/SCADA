@@ -49,6 +49,7 @@ from presentation.http.routers import (  # noqa: E402
     health,
     indicators,
     map_data,
+    operational,
     overview,
     predictions,
     regions,
@@ -67,6 +68,7 @@ app.include_router(predictions.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(alerts.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(reports.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(thresholds.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(operational.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(regions.router, prefix=WATER_PREFIX, tags=TAG)
 
 
