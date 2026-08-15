@@ -49,13 +49,16 @@ export const NAV_SECTIONS: NavSection[] = [
     accent: 'text-sky-400',
     items: [
       { label: 'Overview', href: '/water', icon: Droplets, section: 'aqua' },
+      { label: 'Assets', href: '/water/operator/assets', icon: Workflow, section: 'aqua' },
+      { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, section: 'aqua' },
+      { label: 'FFD Bulletins', href: '/water/ffd', icon: FileText, section: 'aqua' },
       { label: 'Operations', href: '/water/operator', icon: Workflow, section: 'aqua' },
       { label: 'Analyst', href: '/water/analyst', icon: LineChart, section: 'aqua' },
       { label: 'Live Map', href: '/water/map', icon: MapIcon, section: 'aqua' },
       { label: 'Indicators', href: '/water/indicators', icon: Activity, section: 'aqua' },
       { label: 'Regions', href: '/water/regions', icon: MapIcon, section: 'aqua' },
       { label: 'Predictions', href: '/water/predictions', icon: LineChart, section: 'aqua' },
-      { label: 'Alerts', href: '/water/alerts', icon: ScrollText, section: 'aqua' },
+      { label: 'Alerts (Weekly)', href: '/water/alerts', icon: ScrollText, section: 'aqua' },
     ],
   },
   {

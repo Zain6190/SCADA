@@ -6,8 +6,8 @@ from datetime import date, datetime
 from typing import Optional
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint, func, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB, BYTEA
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.db.engine import Base
@@ -154,3 +154,362 @@ class WaterThreshold(Base):
     value: Mapped[float] = mapped_column(Numeric, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# WATER ASSET OBSERVATION SCHEMA (INGESTION LAYER)
+# ---------------------------------------------------------------------------
+class WaterSource(Base):
+    """Data source registry (IRSA, PMD/FFD, GEE, PCRWR, etc.)."""
+    __tablename__ = "water_sources"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    authority: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)  # PDF_DAILY_REPORT, CSV, API, SATELLITE
+    update_frequency: Mapped[Optional[str]] = mapped_column(Text)  # DAILY, WEEKLY, MONTHLY
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WaterAsset(Base):
+    """Canonical water asset registry (one row per physical asset)."""
+    __tablename__ = "water_assets"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    canonical_name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    asset_type: Mapped[str] = mapped_column(Text, nullable=False)  # reservoir, barrage, river_station, canal, lake
+    river: Mapped[Optional[str]] = mapped_column(Text)
+    province: Mapped[Optional[str]] = mapped_column(Text)
+    district: Mapped[Optional[str]] = mapped_column(Text)
+    latitude: Mapped[Optional[float]] = mapped_column(Numeric)
+    longitude: Mapped[Optional[float]] = mapped_column(Numeric)
+    capacity_maf: Mapped[Optional[float]] = mapped_column(Numeric)
+    normal_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    dead_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    warning_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    critical_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    source_authority: Mapped[Optional[str]] = mapped_column(Text)
+    source_identifier: Mapped[Optional[str]] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RawSourceRecord(Base):
+    """Immutable archive of every raw file downloaded from a source."""
+    __tablename__ = "raw_source_records"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_sources.id"), nullable=False)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_date: Mapped[date] = mapped_column(Date, nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)  # SHA-256 of raw content
+    raw_content: Mapped[bytes] = mapped_column(BYTEA, nullable=False)
+    parser_version: Mapped[str] = mapped_column(Text, nullable=False)
+    record_count: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WaterObservation(Base):
+    """Normalized water observations from any source."""
+    __tablename__ = "water_observations"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "observed_at", "source_id", name="uq_observation_asset_time_source"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    source_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_sources.id"), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    water_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    storage_volume: Mapped[Optional[float]] = mapped_column(Numeric)
+    storage_percent: Mapped[Optional[float]] = mapped_column(Numeric)
+    inflow_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    outflow_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    upstream_discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    downstream_discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    unit: Mapped[Optional[str]] = mapped_column(Text)  # cusecs, feet, MAF
+    data_status: Mapped[str] = mapped_column(Text, nullable=False, default="OBSERVED")
+    # OBSERVED | ESTIMATED | FORECAST | SYNTHETIC | MISSING
+    quality_flag: Mapped[Optional[str]] = mapped_column(Text)  # OFFICIAL_DAILY_REPORT, FFD_BULLETIN, etc.
+    raw_record_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.raw_source_records.id"))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped[WaterAsset] = relationship("WaterAsset")
+    source: Mapped[WaterSource] = relationship("WaterSource")
+
+
+class WaterAssetForecast(Base):
+    """Model-generated forecasts per asset."""
+    __tablename__ = "water_asset_forecasts"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    target_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    predicted_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    predicted_storage: Mapped[Optional[float]] = mapped_column(Numeric)
+    predicted_inflow: Mapped[Optional[float]] = mapped_column(Numeric)
+    predicted_outflow: Mapped[Optional[float]] = mapped_column(Numeric)
+    predicted_discharge: Mapped[Optional[float]] = mapped_column(Numeric)
+    confidence: Mapped[Optional[float]] = mapped_column(Numeric)
+    model_version: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# THRESHOLD & ALERT SYSTEM
+# ---------------------------------------------------------------------------
+class WaterAssetThreshold(Base):
+    """Per-asset threshold rules for alert generation."""
+    __tablename__ = "water_asset_thresholds"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False, unique=True)
+
+    # Level thresholds (reservoirs)
+    warning_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    danger_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    critical_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # Inflow thresholds (cusecs)
+    warning_inflow: Mapped[Optional[float]] = mapped_column(Numeric)
+    danger_inflow: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # Discharge thresholds (cusecs) - river stations
+    warning_discharge: Mapped[Optional[float]] = mapped_column(Numeric)
+    danger_discharge: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # Rate of change thresholds
+    level_rise_watch_6h: Mapped[Optional[float]] = mapped_column(Numeric)
+    level_rise_warning_6h: Mapped[Optional[float]] = mapped_column(Numeric)
+    level_rise_critical_6h: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    inflow_rise_watch_6h: Mapped[Optional[float]] = mapped_column(Numeric)
+    inflow_rise_warning_6h: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # Data staleness
+    stale_hours_warning: Mapped[int] = mapped_column(Integer, default=48)
+    stale_hours_critical: Mapped[int] = mapped_column(Integer, default=72)
+
+    # Metadata
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped[WaterAsset] = relationship("WaterAsset")
+
+
+class WaterOperationalAlert(Base):
+    """Real-time operational alerts generated by threshold engine."""
+    __tablename__ = "water_operational_alerts"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+
+    # Alert identity
+    alert_type: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, nullable=False, default="WATCH")
+
+    # Triggering observation
+    observation_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_observations.id"))
+
+    # Alert details
+    triggered_value: Mapped[Optional[float]] = mapped_column(Numeric)
+    threshold_value: Mapped[Optional[float]] = mapped_column(Numeric)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Current readings at time of alert
+    reading_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    reading_inflow_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    reading_outflow_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    reading_discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+    rate_of_change_ft_6h: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # Status tracking
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="NEW")
+
+    # Workflow
+    assigned_to: Mapped[Optional[str]] = mapped_column(Text)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(Text)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[Optional[str]] = mapped_column(Text)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolution: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Audit
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped[WaterAsset] = relationship("WaterAsset")
+    observation: Mapped[Optional[WaterObservation]] = relationship("WaterObservation")
+
+
+class WaterAlertAuditLog(Base):
+    """Full audit trail for alert actions."""
+    __tablename__ = "water_alert_audit_log"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_operational_alerts.id"), nullable=False)
+
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    performed_by: Mapped[str] = mapped_column(Text, nullable=False)
+    performed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    old_status: Mapped[Optional[str]] = mapped_column(Text)
+    new_status: Mapped[Optional[str]] = mapped_column(Text)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    alert: Mapped[WaterOperationalAlert] = relationship("WaterOperationalAlert")
+
+
+class WaterDownstreamImpact(Base):
+    """Downstream risk mapping for each asset."""
+    __tablename__ = "water_downstream_impacts"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source_asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    downstream_asset_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+
+    # Travel time
+    travel_time_hours_min: Mapped[Optional[float]] = mapped_column(Numeric)
+    travel_time_hours_max: Mapped[Optional[float]] = mapped_column(Numeric)
+    travel_time_hours_expected: Mapped[Optional[float]] = mapped_column(Numeric)
+    distance_km: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # Affected area
+    affected_population_est: Mapped[Optional[int]] = mapped_column(Integer)
+    affected_village_count: Mapped[Optional[int]] = mapped_column(Integer)
+    affected_town_count: Mapped[Optional[int]] = mapped_column(Integer)
+    affected_city_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    # Critical infrastructure
+    bridges_count: Mapped[int] = mapped_column(Integer, default=0)
+    hospitals_count: Mapped[int] = mapped_column(Integer, default=0)
+    roads_km: Mapped[Optional[float]] = mapped_column(Numeric, default=0)
+
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    source_asset: Mapped[WaterAsset] = relationship("WaterAsset", foreign_keys=[source_asset_id])
+    downstream_asset: Mapped[Optional[WaterAsset]] = relationship("WaterAsset", foreign_keys=[downstream_asset_id])
+
+
+# ---------------------------------------------------------------------------
+# RIVER NETWORK & TRAVEL TIME MODELS
+# ---------------------------------------------------------------------------
+class WaterRiverNetwork(Base):
+    """River segments connecting upstream/downstream assets."""
+    __tablename__ = "water_river_network"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    river_name: Mapped[str] = mapped_column(Text, nullable=False)
+    upstream_asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    downstream_asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    segment_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    distance_km: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    source_name: Mapped[str] = mapped_column(Text, default="IRSA/PDMA")
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    verified_by: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="PLANNING_ESTIMATE")
+
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    upstream_asset: Mapped[WaterAsset] = relationship("WaterAsset", foreign_keys=[upstream_asset_id])
+    downstream_asset: Mapped[WaterAsset] = relationship("WaterAsset", foreign_keys=[downstream_asset_id])
+
+
+class WaterTravelTimeModel(Base):
+    """Flow-band-based travel time estimates for river segments."""
+    __tablename__ = "water_travel_time_models"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    river_segment_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_river_network.id"), nullable=False)
+
+    # Flow band
+    flow_min_cusecs: Mapped[float] = mapped_column(Numeric, nullable=False)
+    flow_max_cusecs: Mapped[float] = mapped_column(Numeric, nullable=False)
+
+    # Travel time
+    travel_time_min_hours: Mapped[float] = mapped_column(Numeric, nullable=False)
+    travel_time_max_hours: Mapped[float] = mapped_column(Numeric, nullable=False)
+    travel_time_expected_hours: Mapped[float] = mapped_column(Numeric, nullable=False)
+
+    # Confidence
+    method: Mapped[str] = mapped_column(Text, default="Historical flood-wave observation")
+    source_name: Mapped[str] = mapped_column(Text, default="IRSA/PDMA")
+    calibration_event: Mapped[Optional[str]] = mapped_column(Text)
+    confidence: Mapped[str] = mapped_column(Text, default="MEDIUM")
+
+    effective_from: Mapped[Optional[date]] = mapped_column(Date)
+    effective_to: Mapped[Optional[date]] = mapped_column(Date)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    segment: Mapped[WaterRiverNetwork] = relationship("WaterRiverNetwork")
+
+
+# ---------------------------------------------------------------------------
+# FFD/PMD FLOOD BULLETIN OBSERVATIONS
+# ---------------------------------------------------------------------------
+class WaterFFDObservation(Base):
+    """FFD/PMD flood bulletin observations (river gauge, discharge, flood status)."""
+    __tablename__ = "water_ffd_observations"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "observed_at", "source_id", name="uq_ffd_observation_asset_date_source"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+    source_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_sources.id"))
+
+    # Station info
+    station_name: Mapped[str] = mapped_column(Text, nullable=False)
+    river_name: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Readings
+    observed_at: Mapped[date] = mapped_column(Date, nullable=False)
+    gauge_level_ft: Mapped[Optional[float]] = mapped_column(Numeric)
+    discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    # FFD-specific
+    flood_status: Mapped[str] = mapped_column(Text, default="NORMAL")
+    forecast_trend: Mapped[str] = mapped_column(Text, default="STEADY")
+
+    # Source
+    bulletin_url: Mapped[Optional[str]] = mapped_column(Text)
+    raw_html: Mapped[Optional[str]] = mapped_column(Text)
+    content_hash: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Metadata
+    data_status: Mapped[str] = mapped_column(Text, default="OBSERVED")
+    quality_flag: Mapped[str] = mapped_column(Text, default="FFD_BULLETIN")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped[Optional[WaterAsset]] = relationship("WaterAsset")
+    source: Mapped[Optional[WaterSource]] = relationship("WaterSource")

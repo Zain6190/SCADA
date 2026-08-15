@@ -14,6 +14,13 @@ import type {
   AssetSummaryVM as AssetSummary,
   AssetTelemetryVM as AssetReading,
   OperationalNoteVM as AssetOperationalNote,
+  OperationalAsset,
+  OperationalObservation,
+  OperationalAlert,
+  OperationalThreshold,
+  DownstreamImpact,
+  FFDObservation,
+  FFDIngestResult,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -157,6 +164,72 @@ export const waterApi = {
 
   addAssetNote: async (assetId: number, note: string): Promise<AssetOperationalNote> => {
     const { data } = await waterClient.post(`/assets/${assetId}/notes`, { note })
+    return data
+  },
+
+  // ─── Operational (IRSA-based) API ──────────────────────────────────────
+
+  getOperationalAssets: async (params: { asset_type?: string } = {}): Promise<OperationalAsset[]> => {
+    const { data } = await waterClient.get('/operational/assets', { params })
+    return data
+  },
+
+  getOperationalAsset: async (assetId: number): Promise<OperationalAsset> => {
+    const { data } = await waterClient.get(`/operational/assets/${assetId}`)
+    return data
+  },
+
+  getOperationalObservations: async (assetId: number, days = 7): Promise<OperationalObservation[]> => {
+    const { data } = await waterClient.get(`/operational/assets/${assetId}/observations`, { params: { days } })
+    return data
+  },
+
+  getOperationalAlerts: async (params: { status?: string; severity?: string; asset_id?: number; limit?: number } = {}): Promise<OperationalAlert[]> => {
+    const { data } = await waterClient.get('/operational/alerts', { params })
+    return data
+  },
+
+  ackOperationalAlert: async (alertId: number, performedBy = 'Operator', notes?: string): Promise<OperationalAlert> => {
+    const { data } = await waterClient.post(`/operational/alerts/${alertId}/ack`, { performed_by: performedBy, notes })
+    return data
+  },
+
+  resolveOperationalAlert: async (alertId: number, performedBy = 'Operator', notes?: string): Promise<OperationalAlert> => {
+    const { data } = await waterClient.post(`/operational/alerts/${alertId}/resolve`, { performed_by: performedBy, notes })
+    return data
+  },
+
+  getOperationalThresholds: async (): Promise<OperationalThreshold[]> => {
+    const { data } = await waterClient.get('/operational/thresholds')
+    return data
+  },
+
+  updateOperationalThreshold: async (thresholdId: number, payload: Partial<OperationalThreshold>): Promise<OperationalThreshold> => {
+    const { data } = await waterClient.put(`/operational/thresholds/${thresholdId}`, payload)
+    return data
+  },
+
+  evaluateThresholds: async (): Promise<{ assets_checked: number; new_alerts: number; alerts: Record<string, any[]> }> => {
+    const { data } = await waterClient.post('/operational/evaluate')
+    return data
+  },
+
+  getDownstreamImpact: async (assetId: number): Promise<DownstreamImpact> => {
+    const { data } = await waterClient.get(`/operational/impact/${assetId}`)
+    return data
+  },
+
+  // ─── FFD/PMD Flood Bulletin ─────────────────────────────────────────────
+
+  getFFDObservations: async (params: { asset_id?: number; target_date?: string } = {}): Promise<FFDObservation[]> => {
+    const { data } = await waterClient.get('/operational/ffd', { params })
+    return data
+  },
+
+  triggerFFDIngest: async (targetDate?: string): Promise<FFDIngestResult> => {
+    const params: Record<string, string> = {}
+    if (targetDate) params.target_date = targetDate
+    const { data } = await waterClient.post('/operational/ffd/ingest', null, { params })
     return data
   },
 }
