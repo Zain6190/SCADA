@@ -27,7 +27,7 @@ echo ============================================================
 echo.
 
 REM ---- 1. Database (Docker PostGIS) -------------------------------
-echo [1/3] Checking PostGIS database container "%DB_NAME%"...
+echo [1/4] Checking PostGIS database container "%DB_NAME%"...
 docker info >nul 2>&1
 if errorlevel 1 (
     echo   ^! Docker is not running. The database needs Docker Desktop.
@@ -71,10 +71,26 @@ goto :backend-wait
 :backend-up
 echo   ^+ Backend is UP  -  http://%BACKEND_HOST%:%BACKEND_PORT%/docs
 
-REM ---- 3. Frontend (Next.js) ----------------------------------------
+REM ---- 3. Scheduler (IRSA Auto-Ingestion) ---------------------------
+echo.
+echo [3/4] Starting IRSA auto-ingestion scheduler...
+docker ps --filter "name=ibcp-scheduler" --format "{{.Names}}" | findstr "ibcp-scheduler" >nul 2>&1
+if not errorlevel 1 (
+    echo   ^+ Scheduler already running.
+) else (
+    docker run -d --name ibcp-scheduler --restart unless-stopped ^
+      --network host ^
+      -e DATABASE_URL="postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/ibcp_scada" ^
+      -v "%ROOT%services/aquavision-service:/app/aquavision-service" ^
+      -v "%ROOT%services/scheduler:/app/scheduler" ^
+      python:3.11-slim bash -c "pip install -q schedule psycopg2-binary httpx pdfplumber beautifulsoup4 sqlalchemy geoalchemy2 pydantic-settings && cd /app/aquavision-service && python -m scheduler.main"
+    echo   ^+ Scheduler started (daily ingestion at 06:30 PKT).
+)
+
+REM ---- 4. Frontend (Next.js) ----------------------------------------
 :frontend
 echo.
-echo [3/3] Starting Frontend (Next.js) on port %FRONTEND_PORT%...
+echo [4/4] Starting Frontend (Next.js) on port %FRONTEND_PORT%...
 
 cd /d "%FRONTEND_DIR%" 2>nul || goto :frontend-fail
 
@@ -98,6 +114,7 @@ echo ============================================================
 echo   All services started.
 echo    - Database     : Docker container %DB_NAME%  (port 5433)
 echo    - Backend      : http://%BACKEND_HOST%:%BACKEND_PORT%  (Swagger /docs)
+echo    - Scheduler    : IRSA auto-ingestion (daily 06:30 PKT)
 echo    - Frontend     : http://localhost:%FRONTEND_PORT%
 echo   This window will close now; the services keep running
 echo   in their own terminal windows.

@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  # ── PostGIS Database ──────────────────────────────────────────────
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: ibcp-postgis
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: ibcp_scada
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - scada-net
+
+  # ── IRSA Auto-Ingestion Scheduler ────────────────────────────────
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    container_name: ibcp-scheduler
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ibcp_scada
+    networks:
+      - scada-net
+    volumes:
+      - ./services/aquavision-service:/app/aquavision-service
+      - ./services/scheduler:/app/scheduler
+      - irsa-archive:/app/aquavision-service/infrastructure/ingestion/raw_archive
+
+volumes:
+  pgdata:
+  irsa-archive:
+
+networks:
+  scada-net:
+    driver: bridge
