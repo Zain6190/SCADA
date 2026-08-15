@@ -6,7 +6,16 @@ import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import { modulesForUser } from '@/lib/rbac'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8100'
+
+// Demo users for local testing (no real auth backend yet)
+const DEMO_USERS = {
+  'admin': { username: 'admin', password: 'admin123', id: '1', email: 'admin@ibcp.gov.pk', full_name: 'System Admin', role: 'SYSTEM_ADMIN', roles: ['SYSTEM_ADMIN'], team: 'IT', is_active: true, access_status: 'ACTIVE', permissions: ['*'], region_ids: [], region_scope: { access: true, has_scope: false, scope_type: null, region_ids: null, restricted: false } },
+  'water_ops': { username: 'water_ops', password: 'water123', id: '2', email: 'water.ops@ibcp.gov.pk', full_name: 'Water Operations', role: 'WATER_OPS', roles: ['WATER_OPS'], team: 'Water', is_active: true, access_status: 'ACTIVE', permissions: ['water:*'], region_ids: [1,2,3], region_scope: { access: true, has_scope: true, scope_type: 'region', region_ids: [1,2,3], restricted: true } },
+  'crop_analyst': { username: 'crop_analyst', password: 'crop123', id: '3', email: 'crop@ibcp.gov.pk', full_name: 'Crop Analyst', role: 'CROP_ANALYST', roles: ['CROP_ANALYST'], team: 'Agriculture', is_active: true, access_status: 'ACTIVE', permissions: ['crop:*'], region_ids: [1,2], region_scope: { access: true, has_scope: true, scope_type: 'region', region_ids: [1,2], restricted: true } },
+  'geo_analyst': { username: 'geo_analyst', password: 'geo123', id: '4', email: 'geo@ibcp.gov.pk', full_name: 'Geo Analyst', role: 'REMOTE_SENSING', roles: ['REMOTE_SENSING'], team: 'Remote Sensing', is_active: true, access_status: 'ACTIVE', permissions: ['geo:*'], region_ids: [1], region_scope: { access: true, has_scope: true, scope_type: 'region', region_ids: [1], restricted: true } },
+  'viewer': { username: 'viewer', password: 'viewer123', id: '5', email: 'viewer@ibcp.gov.pk', full_name: 'Read-only Viewer', role: 'VIEWER', roles: ['VIEWER'], team: 'General', is_active: true, access_status: 'ACTIVE', permissions: [], region_ids: [], region_scope: { access: true, has_scope: false, scope_type: null, region_ids: null, restricted: false } }
+}
 
 // Helper functions for sessionStorage
 const TOKEN_KEY = 'access_token'
@@ -97,6 +106,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const verifyToken = async (token: string) => {
+    // Demo mode: token starts with "demo-token-"
+    if (token.startsWith('demo-token-')) {
+      // For demo, just keep the user from sessionStorage
+      const userData = getUser()
+      if (userData) setUserState(userData)
+      return
+    }
     try {
       const response = await axios.get(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -107,7 +123,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error: any) {
       sessionStorage.clear()
       setUserState(null)
-      // A disabled/pending session should land on the right status screen.
       const detail = error?.response?.data?.detail
       if (detail === 'account-disabled') router.replace('/account-disabled')
       else if (detail === 'access-pending') router.replace('/access-pending')
@@ -115,41 +130,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const login = async (username: string, password: string) => {
-    const formData = new FormData()
-    formData.append('username', username)
-    formData.append('password', password)
+    const demoUser = DEMO_USERS[username as keyof typeof DEMO_USERS]
+    if (!demoUser || demoUser.password !== password) {
+      throw new Error('Invalid username or password')
+    }
 
-    const response = await axios.post(`${API_URL}/auth/token`, formData)
-    const { access_token, user } = response.data
+    const mockToken = `demo-token-${Date.now()}`
+    setToken(mockToken)
+    setUser(demoUser)
+    setUserState(demoUser)
 
-    setToken(access_token)
-    setUser(user)
-    setUserState(user)
-
-    router.push(homeFor(user))
+    router.push(homeFor(demoUser))
   }
 
   const register = async (data: any) => {
-    try {
-      // Send registration data
-      const response = await axios.post(`${API_URL}/auth/register`, data)
-      console.log('Registration successful:', response.data)
-
-      // Auto-login after registration
-      await login(data.username, data.password)
-    } catch (error: any) {
-      console.error('Registration error:', error)
-
-      if (error.response) {
-        // Server responded with error
-        throw new Error(error.response.data.detail || 'Registration failed')
-      } else if (error.request) {
-        // No response from server
-        throw new Error('Cannot connect to server. Make sure backend is running on port 8000')
-      } else {
-        throw new Error('Registration failed. Please try again.')
-      }
-    }
+    // Demo mode: no backend registration
+    throw new Error('Registration not available in demo mode. Use demo credentials.')
   }
 
   const logout = async () => {
