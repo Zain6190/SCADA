@@ -215,3 +215,144 @@ export interface OperationalNoteVM {
   createdByUserId: string
   createdAt: string
 }
+
+// ─── Operational (IRSA-based) Types ────────────────────────────────────────
+
+export interface OperationalAsset {
+  id: number
+  canonical_name: string
+  asset_type: string
+  river?: string | null
+  province?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  capacity_maf?: number | null
+  normal_level_ft?: number | null
+  warning_level_ft?: number | null
+  critical_level_ft?: number | null
+  is_active: boolean
+  current_level_ft?: number | null
+  current_inflow?: number | null
+  current_outflow?: number | null
+  current_discharge?: number | null
+  last_observed_at?: string | null
+  data_age_hours?: number | null
+  active_alert_count: number
+  highest_severity?: string | null
+}
+
+export interface OperationalObservation {
+  id: number
+  asset_id: number
+  observed_at: string
+  water_level_ft?: number | null
+  inflow_cusecs?: number | null
+  outflow_cusecs?: number | null
+  discharge_cusecs?: number | null
+  upstream_discharge_cusecs?: number | null
+  downstream_discharge_cusecs?: number | null
+  data_status: string
+  quality_flag?: string | null
+}
+
+export interface OperationalAlert {
+  id: number
+  asset_id: number
+  asset_name?: string | null
+  alert_type: string
+  severity: string
+  status: string
+  message: string
+  triggered_value?: number | null
+  threshold_value?: number | null
+  reading_level_ft?: number | null
+  reading_inflow_cusecs?: number | null
+  reading_outflow_cusecs?: number | null
+  reading_discharge_cusecs?: number | null
+  rate_of_change_ft_6h?: number | null
+  created_at: string
+  acknowledged_at?: string | null
+  resolved_at?: string | null
+  notes?: string | null
+}
+
+export interface OperationalThreshold {
+  id: number
+  asset_id: number
+  asset_name?: string | null
+  warning_level_ft?: number | null
+  danger_level_ft?: number | null
+  critical_level_ft?: number | null
+  warning_inflow?: number | null
+  danger_inflow?: number | null
+  warning_discharge?: number | null
+  danger_discharge?: number | null
+  level_rise_watch_6h?: number | null
+  level_rise_warning_6h?: number | null
+  level_rise_critical_6h?: number | null
+  stale_hours_warning: number
+  stale_hours_critical: number
+  is_active: boolean
+  notes?: string | null
+}
+
+// ─── Downstream Impact Types ────────────────────────────────────────────────
+
+export interface DownstreamSegment {
+  segment_id: number
+  river_name: string
+  upstream_asset_id: number
+  upstream_asset_name: string
+  downstream_asset_id: number
+  downstream_asset_name: string
+  distance_km?: number | null
+  segment_order: number
+  travel_time_min_hours?: number | null
+  travel_time_max_hours?: number | null
+  travel_time_expected_hours?: number | null
+  travel_time_confidence?: string | null
+  arrival_window_min?: string | null
+  arrival_window_expected?: string | null
+  arrival_window_max?: string | null
+  downstream_level_ft?: number | null
+  downstream_discharge?: number | null
+  downstream_alert_severity?: string | null
+  segment_status: string
+  data_source: string
+}
+
+export interface DownstreamImpact {
+  source_asset_id: number
+  source_asset_name: string
+  source_release_cusecs?: number | null
+  source_level_ft?: number | null
+  river_name: string
+  chain: DownstreamSegment[]
+  total_distance_km?: number | null
+  total_travel_time_hours?: number | null
+}
+
+// ─── FFD/PMD Flood Bulletin Types ──────────────────────────────────────────
+
+export interface FFDObservation {
+  id: number
+  asset_id?: number | null
+  station_name: string
+  river_name?: string | null
+  observed_at: string
+  gauge_level_ft?: number | null
+  discharge_cusecs?: number | null
+  flood_status: string
+  forecast_trend: string
+  forecast_range?: string | null
+  historical_max?: number | null
+  created_at: string
+}
+
+export interface FFDIngestResult {
+  date: string
+  parsed: number
+  stored: number
+  skipped: number
+  error?: string | null
+}
