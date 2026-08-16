@@ -21,6 +21,8 @@ import type {
   DownstreamImpact,
   FFDObservation,
   FFDIngestResult,
+  MLPrediction,
+  MLTrainResult,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -230,6 +232,18 @@ export const waterApi = {
     const params: Record<string, string> = {}
     if (targetDate) params.target_date = targetDate
     const { data } = await waterClient.post('/operational/ffd/ingest', null, { params })
+    return data
+  },
+
+  // ─── ML Predictions ────────────────────────────────────────────────────────
+
+  getMLPredictions: async (assetId: number, horizons = '7'): Promise<MLPrediction[]> => {
+    const { data } = await waterClient.get(`/ml/predictions/${assetId}`, { params: { horizons } })
+    return data
+  },
+
+  triggerMLTrain: async (horizons: number[] = [7]): Promise<MLTrainResult> => {
+    const { data } = await waterClient.post('/ml/train', { horizons })
     return data
   },
 }

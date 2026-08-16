@@ -43,18 +43,32 @@ def _get_asset_id(db, canonical_name: str) -> int:
 
 
 def _obs_to_row(obs: IRSAObservation, asset_id: int, source_id: int, raw_record_id: int) -> dict:
-    """Map parser observation fields to DB row fields."""
+    """Map parser observation fields to DB row fields.
+    
+    For barrages/river stations, map upstream_discharge -> outflow, downstream_discharge -> discharge.
+    This ensures barrage data is available for ML training.
+    """
+    outflow = obs.outflow_cusecs
+    discharge = obs.discharge_cusecs
+    inflow = obs.inflow_cusecs
+
+    # Barrages: upstream_discharge is the inflow to the barrage
+    if inflow is None and obs.upstream_discharge_cusecs is not None:
+        inflow = obs.upstream_discharge_cusecs
+    if outflow is None and obs.downstream_discharge_cusecs is not None:
+        outflow = obs.downstream_discharge_cusecs
+
     return {
         "asset_id": asset_id,
         "source_id": source_id,
         "observed_at": datetime.combine(obs.observed_at, datetime.min.time()),
         "water_level_ft": obs.water_level_ft,
-        "inflow_cusecs": obs.inflow_cusecs,
-        "outflow_cusecs": obs.outflow_cusecs,
-        "discharge_cusecs": obs.discharge_cusecs,
+        "inflow_cusecs": inflow,
+        "outflow_cusecs": outflow,
+        "discharge_cusecs": discharge,
         "upstream_discharge_cusecs": obs.upstream_discharge_cusecs,
         "downstream_discharge_cusecs": obs.downstream_discharge_cusecs,
-        "unit": "cusecs" if obs.inflow_cusecs or obs.upstream_discharge_cusecs else "feet",
+        "unit": "cusecs" if inflow or obs.upstream_discharge_cusecs else "feet",
         "data_status": "OBSERVED",
         "quality_flag": "OFFICIAL_DAILY_REPORT",
         "raw_record_id": raw_record_id,

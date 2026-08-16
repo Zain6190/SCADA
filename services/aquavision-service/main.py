@@ -56,6 +56,7 @@ from presentation.http.routers import (  # noqa: E402
     reports,
     thresholds,
 )
+from ml.prediction_api import router as ml_router
 
 WATER_PREFIX = "/water"
 TAG = ["AquaVision"]
@@ -70,6 +71,7 @@ app.include_router(reports.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(thresholds.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(operational.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(regions.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
 
 
 @app.get("/")
