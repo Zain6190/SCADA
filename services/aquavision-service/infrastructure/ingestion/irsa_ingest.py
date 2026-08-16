@@ -1,5 +1,5 @@
 # infrastructure/ingestion/irsa_ingest.py
-# Ingest IRSA PDFs into the database: parse → archive raw → normalize → store.
+# Ingest IRSA PDFs into the database: parse → archive raw → validate → normalize → store.
 import hashlib
 import logging
 from datetime import date, datetime
@@ -10,8 +10,10 @@ from sqlalchemy import select
 from infrastructure.db.engine import SessionLocal
 from infrastructure.db.models import (
     WaterSource, WaterAsset, RawSourceRecord, WaterObservation,
+    WaterObservationQuarantine, DataQualityLog,
 )
 from infrastructure.ingestion.irsa_scraper import IRSAObservation, parse_irsa_pdf
+from infrastructure.ingestion.validators import validate_observation, build_quarantine_record
 
 logger = logging.getLogger("aquavision.ingest")
 
@@ -69,7 +71,8 @@ def _obs_to_row(obs: IRSAObservation, asset_id: int, source_id: int, raw_record_
         "upstream_discharge_cusecs": obs.upstream_discharge_cusecs,
         "downstream_discharge_cusecs": obs.downstream_discharge_cusecs,
         "unit": "cusecs" if inflow or obs.upstream_discharge_cusecs else "feet",
-        "data_status": "OBSERVED",
+        "data_status": "OBSERVED_OFFICIAL",
+        "quality_status": "VALID",
         "quality_flag": "OFFICIAL_DAILY_REPORT",
         "raw_record_id": raw_record_id,
     }
@@ -120,9 +123,10 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
             db.flush()
             raw_record_id = raw_record.id
 
-        # 5. Store observations
+        # 5. Store observations with validation
         stored = 0
         skipped = 0
+        invalid = 0
         for obs in observations:
             # Skip aggregate/release observations (not per-asset)
             if obs.asset_type in ("aggregate", "provincial_release"):
@@ -148,8 +152,47 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 continue
 
             row = _obs_to_row(obs, asset_id, source.id, raw_record_id)
-            db.add(WaterObservation(**row))
-            stored += 1
+            
+            # Validate observation
+            validation = validate_observation(row, asset_id, source_date=target_date)
+            
+            if validation.quality_status == "INVALID":
+                # Quarantine invalid observations
+                quarantine = build_quarantine_record(
+                    row, asset_id, validation,
+                    source_record_id=raw_record_id,
+                    parser_version="irsa_scraper_v1.0",
+                )
+                if quarantine:
+                    db.add(WaterObservationQuarantine(
+                        asset_id=quarantine.asset_id,
+                        source_record_id=quarantine.source_record_id,
+                        raw_payload=quarantine.raw_payload,
+                        parsed_values=quarantine.parsed_values,
+                        failure_reason=quarantine.failure_reason,
+                        field_name=quarantine.field_name,
+                        raw_value=quarantine.raw_value,
+                        parser_version=quarantine.parser_version,
+                        data_status=quarantine.data_status,
+                    ))
+                    # Log to data quality
+                    for v in validation.violations:
+                        db.add(DataQualityLog(
+                            asset_id=asset_id,
+                            check_type=v.get("check", "UNKNOWN"),
+                            field_name=v.get("field", "unknown"),
+                            raw_value=float(v.get("raw_value", 0)) if v.get("raw_value") else None,
+                            quality_status="INVALID",
+                            details=v.get("detail", ""),
+                            source_record_id=raw_record_id,
+                        ))
+                invalid += 1
+                logger.warning(f"Asset {asset_id}: INVALID observation quarantined - {validation.violations}")
+            else:
+                # Store valid/suspect observations
+                row["quality_status"] = validation.quality_status
+                db.add(WaterObservation(**row))
+                stored += 1
 
         db.commit()
 
@@ -167,6 +210,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
         "parsed": len(observations),
         "stored": stored,
         "skipped": skipped,
+        "invalid": invalid,
         "raw_record_id": raw_record_id,
         "thresholds": threshold_result,
     }
