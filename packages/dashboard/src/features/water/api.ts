@@ -23,6 +23,8 @@ import type {
   FFDIngestResult,
   MLPrediction,
   MLTrainResult,
+  MLAnomaly,
+  MLAnomalyTrainResult,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -244,6 +246,18 @@ export const waterApi = {
 
   triggerMLTrain: async (horizons: number[] = [7]): Promise<MLTrainResult> => {
     const { data } = await waterClient.post('/ml/train', { horizons })
+    return data
+  },
+
+  // ─── ML Anomaly Detection ──────────────────────────────────────────────────
+
+  getMLAnomalies: async (assetId: number, topN = 5): Promise<MLAnomaly[]> => {
+    const { data } = await waterClient.get(`/ml/anomalies/${assetId}`, { params: { top_n: topN } })
+    return data
+  },
+
+  trainAnomalyDetectors: async (): Promise<MLAnomalyTrainResult> => {
+    const { data } = await waterClient.post('/ml/anomalies/train')
     return data
   },
 }

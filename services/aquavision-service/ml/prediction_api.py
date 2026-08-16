@@ -44,6 +44,22 @@ class TrainResponse(BaseModel):
     results: list
 
 
+class AnomalyResponse(BaseModel):
+    asset_id: int
+    asset_name: str
+    observed_at: str
+    anomaly_score: float
+    is_anomaly: bool
+    anomaly_features: list
+    severity: str
+    details: dict
+
+
+class AnomalyTrainResponse(BaseModel):
+    models_trained: int
+    results: list
+
+
 @router.get("/ml/predictions/{asset_id}", response_model=List[PredictionResponse])
 async def get_predictions(
     asset_id: int,
@@ -113,6 +129,58 @@ async def trigger_training(
     results = train_all_assets(horizons=payload.horizons)
     
     return TrainResponse(
+        models_trained=len(results),
+        results=results,
+    )
+
+
+# ─── Anomaly Detection ──────────────────────────────────────────────────────
+
+@router.get("/ml/anomalies/{asset_id}", response_model=List[AnomalyResponse])
+async def get_anomalies(
+    asset_id: int,
+    top_n: int = Query(5, ge=1, le=20),
+    session: Session = Depends(get_session),
+):
+    """Get anomalous observations for an asset."""
+    asset = session.get(WaterAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    from ml.models.anomaly_detector import AnomalyDetector
+
+    detector = AnomalyDetector()
+    results = detector.predict(
+        asset_id=asset_id,
+        asset_name=asset.canonical_name,
+        session=session,
+        top_n=top_n,
+    )
+
+    return [
+        AnomalyResponse(
+            asset_id=r.asset_id,
+            asset_name=r.asset_name,
+            observed_at=r.observed_at,
+            anomaly_score=r.anomaly_score,
+            is_anomaly=r.is_anomaly,
+            anomaly_features=r.anomaly_features,
+            severity=r.severity,
+            details=r.details,
+        )
+        for r in results
+    ]
+
+
+@router.post("/ml/anomalies/train", response_model=AnomalyTrainResponse)
+async def train_anomaly_detectors(session: Session = Depends(get_session)):
+    """Train Isolation Forest anomaly detectors for all assets."""
+    from ml.models.anomaly_detector import AnomalyDetector
+
+    detector = AnomalyDetector()
+    results = detector.train_all(session)
+
+    return AnomalyTrainResponse(
         models_trained=len(results),
         results=results,
     )
