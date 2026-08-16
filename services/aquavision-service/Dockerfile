@@ -1,17 +1,16 @@
-# Dockerfile - AquaVision service
-FROM python:3.12-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY . .
+# Copy application code
+COPY . /app/
 
-EXPOSE 8000
+# Expose port
+EXPOSE 8100
 
-# DB connection is injected at runtime (compose env DATABASE_URL).
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run API
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8100"]
