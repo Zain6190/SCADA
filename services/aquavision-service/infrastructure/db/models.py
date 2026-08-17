@@ -116,6 +116,12 @@ class WaterAlert(Base):
     week_start_date: Mapped[date] = mapped_column(Date, nullable=False)
     alert_type: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Alert lineage
+    alert_source: Mapped[str] = mapped_column(Text, nullable=False, default="WAI_MODEL")
+    alert_domain: Mapped[str] = mapped_column(Text, nullable=False, default="WATER_STRESS")
+    model_version: Mapped[Optional[str]] = mapped_column(Text)
+
     wai_score: Mapped[Optional[float]] = mapped_column(Numeric)
     rainfall_anomaly: Mapped[Optional[float]] = mapped_column(Numeric)
     et_anomaly: Mapped[Optional[float]] = mapped_column(Numeric)
@@ -329,6 +335,13 @@ class WaterOperationalAlert(Base):
     alert_type: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(Text, nullable=False, default="WATCH")
 
+    # Alert lineage
+    alert_source: Mapped[str] = mapped_column(Text, nullable=False, default="RULE")
+    alert_domain: Mapped[str] = mapped_column(Text, nullable=False, default="OPERATIONAL")
+    rule_version: Mapped[Optional[str]] = mapped_column(Text)
+    model_version: Mapped[Optional[str]] = mapped_column(Text)
+    episode_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_alert_episodes.id"))
+
     # Triggering observation
     observation_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_observations.id"))
 
@@ -381,6 +394,25 @@ class WaterAlertAuditLog(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     alert: Mapped[WaterOperationalAlert] = relationship("WaterOperationalAlert")
+
+
+class WaterAlertEpisode(Base):
+    """Groups related alerts into flood episodes / incidents."""
+    __tablename__ = "water_alert_episodes"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    episode_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, nullable=False, default="WATCH")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="OPEN")
+    triggered_by_asset_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    triggered_by_asset: Mapped[Optional[WaterAsset]] = relationship("WaterAsset")
 
 
 class WaterDownstreamImpact(Base):

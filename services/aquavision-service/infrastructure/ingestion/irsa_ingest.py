@@ -107,7 +107,17 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
         ).scalar_one_or_none()
 
         if existing_raw:
-            raw_record_id = existing_raw.id
+            logger.info(f"Duplicate PDF detected (hash={content_hash[:16]}...), skipping ingestion for {target_date}")
+            return {
+                "date": str(target_date),
+                "parsed": len(observations),
+                "stored": 0,
+                "skipped": len(observations),
+                "invalid": 0,
+                "raw_record_id": existing_raw.id,
+                "duplicate": True,
+                "thresholds": {"assets_checked": 0, "new_alerts": 0, "alerts": {}},
+            }
         else:
             raw_record = RawSourceRecord(
                 source_id=source.id,

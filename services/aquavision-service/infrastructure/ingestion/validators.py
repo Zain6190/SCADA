@@ -238,3 +238,94 @@ def validate_batch(
             valid_obs.append(obs)
 
     return valid_obs, suspect_obs, quarantine_records
+
+
+# ─── Source Freshness Tracking ────────────────────────────────────────────
+
+def check_source_freshness(db, source_id: int, max_staleness_hours: int = 48) -> dict:
+    """Check if a data source is fresh (recent successful fetch).
+    
+    Returns dict with:
+      - is_fresh: bool
+      - last_fetch_at: datetime or None
+      - hours_since_fetch: float or None
+      - status: "FRESH" | "STALE" | "NO_DATA"
+    """
+    from sqlalchemy import select, func
+    from infrastructure.db.models import RawSourceRecord
+
+    result = db.execute(
+        select(RawSourceRecord.retrieved_at)
+        .where(RawSourceRecord.source_id == source_id)
+        .order_by(RawSourceRecord.retrieved_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if result is None:
+        return {
+            "is_fresh": False,
+            "last_fetch_at": None,
+            "hours_since_fetch": None,
+            "status": "NO_DATA",
+        }
+
+    now = datetime.now(timezone.utc)
+    if result.tzinfo is None:
+        from datetime import timezone as tz
+        result = result.replace(tzinfo=tz.utc)
+
+    hours_since = (now - result).total_seconds() / 3600
+    is_fresh = hours_since <= max_staleness_hours
+
+    return {
+        "is_fresh": is_fresh,
+        "last_fetch_at": result,
+        "hours_since_fetch": round(hours_since, 1),
+        "status": "FRESH" if is_fresh else "STALE",
+    }
+
+
+# ─── Cross-Field Consistency Checks ──────────────────────────────────────
+
+def check_cross_field_consistency(row: dict) -> List[dict]:
+    """Check cross-field consistency relationships.
+    
+    Returns list of warnings (not failures — these are advisory).
+    """
+    warnings = []
+    inflow = row.get("inflow_cusecs")
+    outflow = row.get("outflow_cusecs")
+    level = row.get("water_level_ft")
+    discharge = row.get("discharge_cusecs")
+
+    # High inflow but zero outflow — possible data entry error
+    if inflow is not None and outflow is not None:
+        if inflow > 50_000 and outflow == 0:
+            warnings.append({
+                "check": "CROSS_FIELD",
+                "field": "outflow_cusecs",
+                "raw_value": outflow,
+                "detail": f"High inflow ({inflow:,.0f}) but zero outflow — possible data entry error",
+            })
+
+    # Level very high but inflow very low — possible sensor error
+    if level is not None and inflow is not None:
+        if level > 1500 and inflow < 1000:
+            warnings.append({
+                "check": "CROSS_FIELD",
+                "field": "inflow_cusecs",
+                "raw_value": inflow,
+                "detail": f"High level ({level:.0f} ft) but very low inflow ({inflow:,.0f}) — possible sensor error",
+            })
+
+    # Discharge higher than inflow — possible unit mismatch
+    if inflow is not None and discharge is not None:
+        if discharge > inflow * 1.5 and inflow > 10_000:
+            warnings.append({
+                "check": "CROSS_FIELD",
+                "field": "discharge_cusecs",
+                "raw_value": discharge,
+                "detail": f"Discharge ({discharge:,.0f}) much higher than inflow ({inflow:,.0f}) — possible unit mismatch",
+            })
+
+    return warnings

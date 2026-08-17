@@ -52,7 +52,7 @@ STATIONS = [
     ("Nowshera", "KABUL", "Kabul @ Nowshera"),
     ("Mangla", "JHELUM", "Mangla Reservoir"),
     ("Marala", "CHENAB", "Chenab @ Marala"),
-    ("Punjnad", "CHENAB", "Panjnad"),
+    ("Panjnad", "CHENAB", "Panjnad"),
 ]
 
 STATUS_PATTERN = r'(Below Low|Low|Medium|High|Very High|Exceptionally High|No sig\.\s*change)'

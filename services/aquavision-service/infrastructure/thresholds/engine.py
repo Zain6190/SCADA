@@ -151,6 +151,9 @@ def _create_alert(
     reading_outflow_cusecs: float = None,
     reading_discharge_cusecs: float = None,
     rate_of_change_ft_6h: float = None,
+    alert_source: str = "RULE",
+    rule_version: str = None,
+    model_version: str = None,
 ) -> WaterOperationalAlert:
     """Create a new operational alert and log it."""
     alert = WaterOperationalAlert(
@@ -167,6 +170,10 @@ def _create_alert(
         reading_discharge_cusecs=reading_discharge_cusecs,
         rate_of_change_ft_6h=rate_of_change_ft_6h,
         status=STATUS_NEW,
+        alert_source=alert_source,
+        alert_domain="OPERATIONAL",
+        rule_version=rule_version or "threshold_v1.0",
+        model_version=model_version,
     )
     db.add(alert)
     db.flush()
@@ -466,6 +473,8 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
     new_alerts = []
     for alert_type, severity, message, triggered_val, threshold_val in triggered:
         if not _open_alert_exists(db, asset_id, alert_type):
+            # Determine alert source from alert type
+            alert_source = "FFD" if alert_type.startswith("FFD_") else "RULE"
             alert = _create_alert(
                 db=db,
                 asset_id=asset_id,
@@ -479,6 +488,7 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
                 reading_inflow_cusecs=obs.inflow_cusecs,
                 reading_outflow_cusecs=obs.outflow_cusecs,
                 reading_discharge_cusecs=obs.discharge_cusecs,
+                alert_source=alert_source,
             )
             new_alerts.append(alert)
 

@@ -83,6 +83,27 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
     with SessionLocal() as db:
         source = _get_or_create_source(db)
         
+        # Check for duplicate (same hash + date)
+        existing_raw = db.execute(
+            select(RawSourceRecord).where(
+                RawSourceRecord.source_id == source.id,
+                RawSourceRecord.source_date == target_date,
+                RawSourceRecord.content_hash == content_hash,
+            )
+        ).scalar_one_or_none()
+
+        if existing_raw:
+            logger.info(f"Duplicate FFD bulletin detected (hash={content_hash[:16]}...), skipping ingestion for {target_date}")
+            db.commit()
+            return {
+                "date": str(target_date),
+                "parsed": len(observations),
+                "stored": 0,
+                "skipped": len(observations),
+                "fetch_status": fetch_status,
+                "duplicate": True,
+            }
+        
         # Archive raw record
         raw_record = RawSourceRecord(
             source_id=source.id,
