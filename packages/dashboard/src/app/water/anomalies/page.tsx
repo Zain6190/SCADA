@@ -1,9 +1,10 @@
 // packages/dashboard/src/app/water/anomalies/page.tsx
 // AquaVision Anomaly Detection - Isolation Forest unsupervised anomalies per asset.
+// Phase 2B: Added EXPERIMENTAL labels.
 'use client'
 
 import { useState } from 'react'
-import { ShieldAlert, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { ShieldAlert, RefreshCw, FlaskConical, ChevronDown, ChevronUp } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -46,14 +47,20 @@ export default function AnomaliesPage() {
           description="Isolation Forest unsupervised anomaly detection per asset. Detects unusual level/inflow/outflow patterns."
           icon={<ShieldAlert className="h-6 w-6" />}
           badge={
-            <button
-              onClick={() => trainMutation.mutate()}
-              disabled={trainMutation.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-medium text-red-300 border border-red-500/30 hover:bg-red-500/25 transition disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
-              {trainMutation.isPending ? 'Training...' : 'Retrain Detectors'}
-            </button>
+            <div className="flex items-center gap-2">
+              <Badge tone="amber">
+                <FlaskConical className="mr-1 inline h-3 w-3" />
+                EXPERIMENTAL
+              </Badge>
+              <button
+                onClick={() => trainMutation.mutate()}
+                disabled={trainMutation.isPending}
+                className="flex items-center gap-1.5 rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-medium text-red-300 border border-red-500/30 hover:bg-red-500/25 transition disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
+                {trainMutation.isPending ? 'Training...' : 'Retrain Detectors'}
+              </button>
+            </div>
           }
         />
 
@@ -193,6 +200,10 @@ function AnomalyRow({ anomaly }: { anomaly: MLAnomaly }) {
               </div>
             </div>
           )}
+
+          <div className="text-slate-600">
+            Model: {anomaly.model_version} | {anomaly.model_status}
+          </div>
         </div>
       )}
     </div>
