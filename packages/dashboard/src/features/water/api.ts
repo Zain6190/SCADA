@@ -152,8 +152,8 @@ export const waterApi = {
     return data
   },
 
-  getAssets: async (): Promise<AssetSummary[]> => {
-    const { data } = await waterClient.get('/assets')
+  getAssets: async (): Promise<OperationalAsset[]> => {
+    const { data } = await waterClient.get('/operational/assets')
     return data
   },
 
@@ -265,7 +265,7 @@ export const waterApi = {
   // ─── Admin: Pipeline Health ───────────────────────────────────────────────
 
   getPipelineHealth: async (): Promise<PipelineHealth> => {
-    const { data } = await waterClient.get('/admin/pipeline-health')
+    const { data } = await axios.get(`${API_BASE_URL}/api/v1/admin/pipeline-health`)
     return data
   },
 }
