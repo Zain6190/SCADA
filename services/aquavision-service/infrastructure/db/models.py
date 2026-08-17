@@ -364,6 +364,7 @@ class WaterOperationalAlert(Base):
     assigned_to: Mapped[Optional[str]] = mapped_column(Text)
     acknowledged_by: Mapped[Optional[str]] = mapped_column(Text)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[Optional[str]] = mapped_column(Text)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     resolution: Mapped[Optional[str]] = mapped_column(Text)

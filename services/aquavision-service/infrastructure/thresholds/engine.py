@@ -7,9 +7,12 @@
 #   3. RELATIONSHIP - combined condition (high inflow + low outflow + rising level)
 #   4. DATA_STALENESS - no observation within expected window
 #   5. FORECAST - model prediction exceeds threshold
+#
+# Phase 2C: Added auto-clear, escalation timers, cooldown dedup,
+#           FALSE_OR_INVALID_DATA wiring, notification dispatcher.
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from sqlalchemy import select, and_, desc, func
@@ -48,6 +51,15 @@ STATUS_WAITING_VERIFICATION = "WAITING_FOR_VERIFICATION"
 STATUS_RESOLVED = "RESOLVED"
 STATUS_FALSE_INVALID = "FALSE_OR_INVALID_DATA"
 
+# ─── Phase 2C: Escalation & Cooldown Config ────────────────────────────────
+ESCALATION_HOURS = 6  # Auto-escalate if unacknowledged after 6 hours
+COOLDOWN_HOURS = {
+    SEVERITY_WATCH: 6,
+    SEVERITY_ADVISORY: 2,
+    SEVERITY_WARNING: 0.5,  # 30 minutes
+    SEVERITY_CRITICAL: 0.17,  # 10 minutes
+}
+
 
 # ─── Alert Types ────────────────────────────────────────────────────────────
 class AlertType:
@@ -65,6 +77,18 @@ class AlertType:
     FFD_FLOOD_HIGH = "FFD_FLOOD_HIGH"
     FFD_FLOOD_MEDIUM = "FFD_FLOOD_MEDIUM"
     FFD_FLOOD_LOW = "FFD_FLOOD_LOW"
+
+
+# Clear condition maps: which alert types auto-clear when condition normalizes.
+# Maps alert_type -> (field_to_check, threshold_field, direction)
+# "below" means clear when value < threshold
+CLEAR_CONDITIONS = {
+    AlertType.LEVEL_ABOVE_WARNING: ("water_level_ft", "warning_level_ft", "below"),
+    AlertType.LEVEL_ABOVE_DANGER: ("water_level_ft", "danger_level_ft", "below"),
+    AlertType.LEVEL_ABOVE_CRITICAL: ("water_level_ft", "critical_level_ft", "below"),
+    AlertType.HIGH_INFLOW: ("inflow_cusecs", "warning_inflow", "below"),
+    AlertType.HIGH_DISCHARGE: ("discharge_cusecs", "warning_discharge", "below"),
+}
 
 
 def _higher_severity(a: str, b: str) -> str:
@@ -192,6 +216,216 @@ def _create_alert(
 
     logger.info(f"Alert created: {severity} | {alert_type} | Asset {asset_id} | {message}")
     return alert
+
+
+# ─── Phase 2C: Auto-Clear ──────────────────────────────────────────────────
+
+def _auto_clear_resolved_alerts(db: Session, asset_id: int, obs: WaterObservation, threshold: WaterAssetThreshold) -> List[str]:
+    """Check open alerts and auto-resolve those whose condition has normalized.
+    
+    Returns list of alert_types that were auto-cleared.
+    """
+    cleared = []
+    open_alerts = db.execute(
+        select(WaterOperationalAlert).where(
+            WaterOperationalAlert.asset_id == asset_id,
+            WaterOperationalAlert.status.notin_([STATUS_RESOLVED, STATUS_FALSE_INVALID]),
+        )
+    ).scalars().all()
+
+    for alert in open_alerts:
+        condition = CLEAR_CONDITIONS.get(alert.alert_type)
+        if not condition:
+            continue
+
+        obs_field, thresh_field, direction = condition
+        obs_val = getattr(obs, obs_field, None)
+        thresh_val = getattr(threshold, thresh_field, None)
+
+        if obs_val is None or thresh_val is None:
+            continue
+
+        should_clear = False
+        if direction == "below" and float(obs_val) < float(thresh_val):
+            should_clear = True
+
+        if should_clear:
+            old_status = alert.status
+            alert.status = STATUS_RESOLVED
+            alert.resolved_at = datetime.utcnow()
+
+            audit = WaterAlertAuditLog(
+                alert_id=alert.id,
+                action="AUTO_CLEARED",
+                performed_by="SYSTEM",
+                old_status=old_status,
+                new_status=STATUS_RESOLVED,
+                notes=f"Condition normalized: {obs_field}={obs_val} is now below threshold {thresh_val}",
+            )
+            db.add(audit)
+            cleared.append(alert.alert_type)
+            logger.info(f"Auto-cleared: {alert.alert_type} on asset {asset_id}")
+
+    return cleared
+
+
+# ─── Phase 2C: Escalation Timers ───────────────────────────────────────────
+
+def _check_escalation(db: Session) -> List[WaterOperationalAlert]:
+    """Auto-escalate alerts that have been NEW for longer than ESCALATION_HOURS.
+    
+    Returns list of escalated alerts.
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=ESCALATION_HOURS)
+    escalated = []
+
+    stale_alerts = db.execute(
+        select(WaterOperationalAlert).where(
+            WaterOperationalAlert.status == STATUS_NEW,
+            WaterOperationalAlert.created_at < cutoff,
+        )
+    ).scalars().all()
+
+    for alert in stale_alerts:
+        old_status = alert.status
+        alert.status = STATUS_ESCALATED
+        alert.escalated_at = datetime.utcnow()
+
+        audit = WaterAlertAuditLog(
+            alert_id=alert.id,
+            action="ESCALATED",
+            performed_by="SYSTEM",
+            old_status=old_status,
+            new_status=STATUS_ESCALATED,
+            notes=f"Auto-escalated after {ESCALATION_HOURS}h without acknowledgment",
+        )
+        db.add(audit)
+        escalated.append(alert)
+        logger.info(f"Auto-escalated alert {alert.id}: {alert.alert_type} on asset {alert.asset_id}")
+
+    return escalated
+
+
+# ─── Phase 2C: Cooldown Dedup ──────────────────────────────────────────────
+
+def _cooldown_allows(db: Session, asset_id: int, alert_type: str, severity: str) -> bool:
+    """Check if cooldown period has elapsed since last alert of same type+severity.
+    
+    Returns True if we should create a new alert (cooldown expired or no prior alert).
+    """
+    cooldown_hours = COOLDOWN_HOURS.get(severity, 0)
+    if cooldown_hours <= 0:
+        return True
+
+    cutoff = datetime.utcnow() - timedelta(hours=cooldown_hours)
+    recent = db.execute(
+        select(func.count(WaterOperationalAlert.id)).where(
+            WaterOperationalAlert.asset_id == asset_id,
+            WaterOperationalAlert.alert_type == alert_type,
+            WaterOperationalAlert.created_at >= cutoff,
+        )
+    ).scalar()
+
+    return recent == 0
+
+
+# ─── Phase 2C: FALSE_OR_INVALID_DATA ───────────────────────────────────────
+
+def _wire_false_invalid_data(db: Session, asset_id: int) -> List[str]:
+    """Check for quarantined observations and mark corresponding alerts as FALSE_OR_INVALID_DATA.
+    
+    Returns list of alert_types that were marked false/invalid.
+    """
+    from infrastructure.db.models import WaterObservationQuarantine
+    marked = []
+
+    # Get open alerts for this asset
+    open_alerts = db.execute(
+        select(WaterOperationalAlert).where(
+            WaterOperationalAlert.asset_id == asset_id,
+            WaterOperationalAlert.status.notin_([STATUS_RESOLVED, STATUS_FALSE_INVALID]),
+        )
+    ).scalars().all()
+
+    for alert in open_alerts:
+        if not alert.observation_id:
+            continue
+
+        # Check if this observation was quarantined
+        quarantine = db.execute(
+            select(WaterObservationQuarantine).where(
+                WaterObservationQuarantine.observation_id == alert.observation_id,
+            )
+        ).scalar_one_or_none()
+
+        if quarantine:
+            old_status = alert.status
+            alert.status = STATUS_FALSE_INVALID
+
+            audit = WaterAlertAuditLog(
+                alert_id=alert.id,
+                action="FALSE_OR_INVALID_DATA",
+                performed_by="SYSTEM",
+                old_status=old_status,
+                new_status=STATUS_FALSE_INVALID,
+                notes=f"Observation {alert.observation_id} quarantined: {quarantine.reason}",
+            )
+            db.add(audit)
+            marked.append(alert.alert_type)
+            logger.info(f"Marked FALSE_OR_INVALID_DATA: alert {alert.id} (obs {alert.observation_id} quarantined)")
+
+    return marked
+
+
+# ─── Phase 2C: Notification Dispatcher ──────────────────────────────────────
+
+def _dispatch_notifications(db: Session, alerts: List[WaterOperationalAlert]) -> None:
+    """Dispatch notifications for critical/warning alerts.
+    
+    Creates NotificationDelivery records with dedup keys.
+    Delivery is QUEUED — actual sending is handled by the notification worker.
+    """
+    from infrastructure.db.models import NotificationDelivery
+
+    for alert in alerts:
+        if alert.severity not in (SEVERITY_WARNING, SEVERITY_CRITICAL):
+            continue
+
+        asset = db.get(WaterAsset, alert.asset_id)
+        asset_name = asset.canonical_name if asset else f"Asset {alert.asset_id}"
+
+        # Default recipient for now — in production, look up from preferences
+        recipient = "ops-team@ibcp.gov.pk"
+        channel = "EMAIL"
+
+        # Dedup key: same alert_type + asset within 1 hour = same notification
+        dedup_key = f"alert:{alert.alert_type}:{alert.asset_id}:{alert.severity}"
+
+        # Check if already delivered recently (1 hour cooldown)
+        cutoff = datetime.utcnow() - timedelta(hours=1)
+        recent = db.execute(
+            select(func.count(NotificationDelivery.id)).where(
+                NotificationDelivery.dedup_key == dedup_key,
+                NotificationDelivery.recipient == recipient,
+                NotificationDelivery.created_at >= cutoff,
+            )
+        ).scalar()
+
+        if recent > 0:
+            continue
+
+        delivery = NotificationDelivery(
+            alert_key=alert.alert_type,
+            recipient=recipient,
+            channel=channel,
+            dedup_key=dedup_key,
+            status="QUEUED",
+            created_at=datetime.utcnow(),
+        )
+        db.add(delivery)
+        logger.info(f"Notification queued: {channel} to {recipient} for {alert.alert_type} on {asset_name}")
+
+    db.flush()
 
 
 # ─── Threshold Evaluation Functions ─────────────────────────────────────────
@@ -443,7 +677,11 @@ def _eval_ffd_status(
 # ─── Main Evaluation Function ───────────────────────────────────────────────
 
 def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
-    """Evaluate all threshold rules for a single asset. Returns list of new alerts."""
+    """Evaluate all threshold rules for a single asset. Returns list of new alerts.
+    
+    Phase 2C: Now includes auto-clear, cooldown dedup, FALSE_OR_INVALID_DATA
+    wiring, escalation, and notification dispatch.
+    """
     asset = db.get(WaterAsset, asset_id)
     if not asset:
         logger.warning(f"Asset {asset_id} not found")
@@ -459,6 +697,12 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
         logger.debug(f"No observations for asset {asset.canonical_name}, skipping")
         return []
 
+    # Phase 2C: Auto-clear resolved alerts first
+    _auto_clear_resolved_alerts(db, asset_id, obs, threshold)
+
+    # Phase 2C: Mark FALSE_OR_INVALID_DATA for quarantined observations
+    _wire_false_invalid_data(db, asset_id)
+
     # Collect all triggered conditions
     triggered = []
     triggered.extend(_eval_absolute_level(db, asset, threshold, obs))
@@ -469,35 +713,46 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
     triggered.extend(_eval_staleness(db, asset, threshold, obs))
     triggered.extend(_eval_ffd_status(db, asset))
 
-    # Create alerts (skip if same type already open)
+    # Create alerts with cooldown dedup
     new_alerts = []
     for alert_type, severity, message, triggered_val, threshold_val in triggered:
-        if not _open_alert_exists(db, asset_id, alert_type):
-            # Determine alert source from alert type
-            alert_source = "FFD" if alert_type.startswith("FFD_") else "RULE"
-            alert = _create_alert(
-                db=db,
-                asset_id=asset_id,
-                alert_type=alert_type,
-                severity=severity,
-                message=message,
-                triggered_value=triggered_val,
-                threshold_value=threshold_val,
-                observation_id=obs.id,
-                reading_level_ft=obs.water_level_ft,
-                reading_inflow_cusecs=obs.inflow_cusecs,
-                reading_outflow_cusecs=obs.outflow_cusecs,
-                reading_discharge_cusecs=obs.discharge_cusecs,
-                alert_source=alert_source,
-            )
-            new_alerts.append(alert)
+        if _open_alert_exists(db, asset_id, alert_type):
+            continue
+        if not _cooldown_allows(db, asset_id, alert_type, severity):
+            logger.debug(f"Cooldown active for {alert_type}/{severity} on asset {asset_id}, skipping")
+            continue
+
+        alert_source = "FFD" if alert_type.startswith("FFD_") else "RULE"
+        alert = _create_alert(
+            db=db,
+            asset_id=asset_id,
+            alert_type=alert_type,
+            severity=severity,
+            message=message,
+            triggered_value=triggered_val,
+            threshold_value=threshold_val,
+            observation_id=obs.id,
+            reading_level_ft=obs.water_level_ft,
+            reading_inflow_cusecs=obs.inflow_cusecs,
+            reading_outflow_cusecs=obs.outflow_cusecs,
+            reading_discharge_cusecs=obs.discharge_cusecs,
+            alert_source=alert_source,
+        )
+        new_alerts.append(alert)
+
+    # Phase 2C: Dispatch notifications for new critical/warning alerts
+    if new_alerts:
+        _dispatch_notifications(db, new_alerts)
 
     db.commit()
     return new_alerts
 
 
 def evaluate_all_assets(db: Session = None) -> dict:
-    """Evaluate thresholds for all active assets. Called after each ingestion cycle."""
+    """Evaluate thresholds for all active assets. Called after each ingestion cycle.
+    
+    Phase 2C: Also runs escalation checks across all assets.
+    """
     close_session = False
     if db is None:
         db = SessionLocal()
@@ -520,10 +775,17 @@ def evaluate_all_assets(db: Session = None) -> dict:
                 ]
                 total_alerts += len(alerts)
 
-        logger.info(f"Threshold evaluation complete: {len(assets)} assets checked, {total_alerts} new alerts")
+        # Phase 2C: Check escalations across all assets
+        escalated = _check_escalation(db)
+
+        logger.info(
+            f"Threshold evaluation complete: {len(assets)} assets checked, "
+            f"{total_alerts} new alerts, {len(escalated)} escalations"
+        )
         return {
             "assets_checked": len(assets),
             "new_alerts": total_alerts,
+            "escalations": len(escalated),
             "alerts": results,
         }
     finally:
