@@ -10,25 +10,25 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge, SeverityBadge } from '@/components/ui/badge'
 import { Spinner, EmptyState } from '@/components/ui/state'
 import {
-  useWaterAlerts,
-  useAcknowledgeWaterAlert,
-  useResolveWaterAlert,
+  useOperationalAlerts,
+  useAckOperationalAlert,
+  useResolveOperationalAlert,
 } from '@/features/water/hooks'
 import { timeAgo } from '@/lib/format'
-import type { AlertVM } from '@/features/water/types'
+import type { OperationalAlert } from '@/features/water/types'
 
 const AMBER = 'bg-amber-500/10 text-amber-300'
 
-type StatusFilter = 'ALL' | 'New' | 'Acknowledged' | 'Resolved'
+type StatusFilter = 'ALL' | 'NEW' | 'ACKNOWLEDGED' | 'RESOLVED'
 type SeverityFilter = 'ALL' | 'CRITICAL' | 'WARNING' | 'WATCH'
 
 export default function AdminAlertsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('ALL')
 
-  const alertsQuery = useWaterAlerts()
-  const ack = useAcknowledgeWaterAlert()
-  const resolve = useResolveWaterAlert()
+  const alertsQuery = useOperationalAlerts()
+  const ack = useAckOperationalAlert()
+  const resolve = useResolveOperationalAlert()
 
   const allAlerts = alertsQuery.data ?? []
 
@@ -40,9 +40,9 @@ export default function AdminAlertsPage() {
 
   const counts = {
     all: allAlerts.length,
-    new: allAlerts.filter((a) => a.status === 'New').length,
-    acked: allAlerts.filter((a) => a.status === 'Acknowledged').length,
-    resolved: allAlerts.filter((a) => a.status === 'Resolved').length,
+    new: allAlerts.filter((a) => a.status === 'NEW').length,
+    acked: allAlerts.filter((a) => a.status === 'ACKNOWLEDGED').length,
+    resolved: allAlerts.filter((a) => a.status === 'RESOLVED').length,
   }
 
   return (
@@ -62,7 +62,7 @@ export default function AdminAlertsPage() {
 
         {/* Status tabs */}
         <div className="flex flex-wrap gap-2">
-          {(['ALL', 'New', 'Acknowledged', 'Resolved'] as const).map((status) => (
+          {(['ALL', 'NEW', 'ACKNOWLEDGED', 'RESOLVED'] as const).map((status) => (
             <button
               key={status}
               onClick={() => setStatusFilter(status)}
@@ -72,7 +72,7 @@ export default function AdminAlertsPage() {
                   : 'text-slate-400 hover:bg-slate-800 border border-transparent'
               }`}
             >
-              {status === 'ALL' ? `All (${counts.all})` : `${status} (${status === 'New' ? counts.new : status === 'Acknowledged' ? counts.acked : counts.resolved})`}
+              {status === 'ALL' ? `All (${counts.all})` : `${status} (${status === 'NEW' ? counts.new : status === 'ACKNOWLEDGED' ? counts.acked : counts.resolved})`}
             </button>
           ))}
         </div>
@@ -138,7 +138,7 @@ function AdminAlertRow({
   onAck,
   onResolve,
 }: {
-  alert: AlertVM
+  alert: OperationalAlert
   busy: boolean
   onAck: () => void
   onResolve: () => void
@@ -150,18 +150,16 @@ function AdminAlertRow({
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-mono text-xs text-slate-500">#{alert.id}</p>
             <SeverityBadge severity={alert.severity} />
-            <Badge tone={alert.status === 'New' ? 'amber' : alert.status === 'Acknowledged' ? 'sky' : 'emerald'}>
+            <Badge tone={alert.status === 'NEW' ? 'amber' : alert.status === 'ACKNOWLEDGED' ? 'sky' : 'emerald'}>
               {alert.status}
             </Badge>
           </div>
-          <h3 className="mt-2 text-sm font-semibold text-slate-100">{alert.alertType}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">{timeAgo(alert.createdAt)}</p>
-          {alert.waiScore != null && (
-            <p className="mt-1 text-xs text-slate-400">WAI: {alert.waiScore}</p>
-          )}
+          <h3 className="mt-2 text-sm font-semibold text-slate-100">{alert.alert_type}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">{alert.message}</p>
+          <p className="mt-0.5 text-xs text-slate-500">{timeAgo(alert.created_at)}</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {alert.status === 'New' && (
+          {alert.status === 'NEW' && (
             <button
               onClick={onAck}
               disabled={busy}
@@ -170,7 +168,7 @@ function AdminAlertRow({
               <CheckCircle2 className="h-3.5 w-3.5" /> Ack
             </button>
           )}
-          {alert.status !== 'Resolved' && (
+          {alert.status !== 'RESOLVED' && (
             <button
               onClick={onResolve}
               disabled={busy}

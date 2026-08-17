@@ -19,6 +19,7 @@ export const waterKeys = {
   indicators: (params: IndicatorParams) => [...waterKeys.all, 'indicators', params] as const,
   predictions: () => [...waterKeys.all, 'predictions'] as const,
   alerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'alerts', params] as const,
+  operationalAlerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'operational-alerts', params] as const,
   map: () => [...waterKeys.all, 'map'] as const,
   regions: () => [...waterKeys.all, 'regions'] as const,
   reports: () => [...waterKeys.all, 'reports'] as const,
@@ -60,6 +61,36 @@ export function useWaterAlerts(params: Record<string, unknown> = {}) {
     queryKey: waterKeys.alerts(params),
     queryFn: async () => mapAlertList(await waterApi.getAlerts(params)),
     refetchInterval: 30_000,
+  })
+}
+
+export function useOperationalAlerts(params: { status?: string; severity?: string; asset_id?: number; limit?: number } = {}) {
+  return useQuery({
+    queryKey: waterKeys.operationalAlerts(params),
+    queryFn: () => waterApi.getOperationalAlerts(params),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useAckOperationalAlert() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { alertId: number; performedBy?: string; notes?: string }) =>
+      waterApi.ackOperationalAlert(payload.alertId, payload.performedBy ?? 'Admin', payload.notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: waterKeys.all })
+    },
+  })
+}
+
+export function useResolveOperationalAlert() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { alertId: number; performedBy?: string; notes?: string }) =>
+      waterApi.resolveOperationalAlert(payload.alertId, payload.performedBy ?? 'Admin', payload.notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: waterKeys.all })
+    },
   })
 }
 

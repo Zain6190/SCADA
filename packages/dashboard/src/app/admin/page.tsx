@@ -18,7 +18,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { Spinner, ErrorState } from '@/components/ui/state'
-import { usePipelineHealth, useWaterAlerts, useWaterAssets } from '@/features/water/hooks'
+import { usePipelineHealth, useOperationalAlerts, useWaterAssets } from '@/features/water/hooks'
 import { fmtNumber } from '@/lib/format'
 import { timeAgo } from '@/lib/format'
 
@@ -62,16 +62,16 @@ function statusLabel(status: string | null | undefined): string {
 
 export default function AdminDashboardPage() {
   const healthQuery = usePipelineHealth()
-  const alertsQuery = useWaterAlerts()
+  const alertsQuery = useOperationalAlerts()
   const assetsQuery = useWaterAssets()
 
   const health = healthQuery.data
   const alerts = alertsQuery.data ?? []
   const assets = assetsQuery.data ?? []
 
-  const openAlerts = alerts.filter((a) => a.status !== 'Resolved')
-  const newAlerts = alerts.filter((a) => a.status === 'New')
-  const criticalAlerts = alerts.filter((a) => (a.severity as string) === 'CRITICAL' && a.status !== 'Resolved')
+  const openAlerts = alerts.filter((a) => a.status !== 'RESOLVED')
+  const newAlerts = alerts.filter((a) => a.status === 'NEW')
+  const criticalAlerts = alerts.filter((a) => (a.severity as string) === 'CRITICAL' && a.status !== 'RESOLVED')
 
   return (
     <AppShell>
@@ -171,10 +171,10 @@ export default function AdminDashboardPage() {
             />
             <CardBody className="space-y-3">
               {[
-                { label: 'CRITICAL', count: alerts.filter((a) => (a.severity as string) === 'CRITICAL' && a.status !== 'Resolved').length, color: 'red' },
-                { label: 'WARNING', count: alerts.filter((a) => (a.severity as string) === 'WARNING' && a.status !== 'Resolved').length, color: 'amber' },
-                { label: 'WATCH', count: alerts.filter((a) => (a.severity as string) === 'WATCH' && a.status !== 'Resolved').length, color: 'sky' },
-                { label: 'Resolved (today)', count: alerts.filter((a) => a.status === 'Resolved').length, color: 'emerald' },
+                { label: 'CRITICAL', count: alerts.filter((a) => (a.severity as string) === 'CRITICAL' && a.status !== 'RESOLVED').length, color: 'red' },
+                { label: 'WARNING', count: alerts.filter((a) => (a.severity as string) === 'WARNING' && a.status !== 'RESOLVED').length, color: 'amber' },
+                { label: 'WATCH', count: alerts.filter((a) => (a.severity as string) === 'WATCH' && a.status !== 'RESOLVED').length, color: 'sky' },
+                { label: 'Resolved (today)', count: alerts.filter((a) => a.status === 'RESOLVED').length, color: 'emerald' },
               ].map((row) => (
                 <div key={row.label} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                   <div className="flex items-center gap-2">
@@ -210,11 +210,11 @@ export default function AdminDashboardPage() {
                         <Badge tone={(a.severity as string) === 'CRITICAL' ? 'red' : (a.severity as string) === 'WARNING' ? 'amber' : 'sky'}>
                           {a.severity}
                         </Badge>
-                        <span className="truncate text-sm text-slate-300">{a.alertType}</span>
+                        <span className="truncate text-sm text-slate-300">{a.alert_type}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-slate-500">{timeAgo(a.createdAt)}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{timeAgo(a.created_at)}</p>
                     </div>
-                    <Badge tone={a.status === 'Resolved' ? 'emerald' : a.status === 'Acknowledged' ? 'sky' : 'amber'}>
+                    <Badge tone={a.status === 'RESOLVED' ? 'emerald' : a.status === 'ACKNOWLEDGED' ? 'sky' : 'amber'}>
                       {a.status}
                     </Badge>
                   </div>
