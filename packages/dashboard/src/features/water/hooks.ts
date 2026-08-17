@@ -178,3 +178,17 @@ export function useCreateIndicator() {
     },
   })
 }
+
+// ─── Admin Hooks ──────────────────────────────────────────────────────────
+
+export const adminKeys = {
+  pipelineHealth: () => [...waterKeys.all, 'admin', 'pipeline-health'] as const,
+}
+
+export function usePipelineHealth() {
+  return useQuery({
+    queryKey: adminKeys.pipelineHealth(),
+    queryFn: waterApi.getPipelineHealth,
+    refetchInterval: 30_000,
+  })
+}

@@ -414,3 +414,26 @@ export interface MLAnomalyTrainResult {
     anomalies_detected: number
   }>
 }
+
+// ─── Admin Types ──────────────────────────────────────────────────────────
+
+export interface PipelineHealth {
+  api_status: string
+  scheduler_status: string
+  last_irsa_run: {
+    status: string | null
+    run_id: string | null
+    completed_at: string | null
+    records_stored: number | null
+  } | null
+  last_ffd_run: {
+    status: string | null
+    run_id: string | null
+    completed_at: string | null
+    records_stored: number | null
+  } | null
+  data_freshness: {
+    irsa_hours: number | null
+    ffd_hours: number | null
+  }
+}

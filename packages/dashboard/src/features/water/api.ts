@@ -25,6 +25,7 @@ import type {
   MLTrainResult,
   MLAnomaly,
   MLAnomalyTrainResult,
+  PipelineHealth,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -258,6 +259,13 @@ export const waterApi = {
 
   trainAnomalyDetectors: async (): Promise<MLAnomalyTrainResult> => {
     const { data } = await waterClient.post('/ml/anomalies/train')
+    return data
+  },
+
+  // ─── Admin: Pipeline Health ───────────────────────────────────────────────
+
+  getPipelineHealth: async (): Promise<PipelineHealth> => {
+    const { data } = await waterClient.get('/admin/pipeline-health')
     return data
   },
 }

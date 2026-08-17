@@ -14,6 +14,7 @@ const SECTION_LABEL: Record<NavSectionId, string> = {
   crop: 'Crop Yield',
   geo: 'GeoVision',
   system: 'System',
+  admin: 'Admin',
 }
 
 export function AccessDenied({

@@ -18,6 +18,7 @@ import {
   Gauge,
   Workflow,
   Users,
+  Settings,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -28,7 +29,7 @@ export interface NavItem {
   section: NavSectionId
 }
 
-export type NavSectionId = 'command' | 'aqua' | 'crop' | 'geo' | 'system'
+export type NavSectionId = 'command' | 'aqua' | 'crop' | 'geo' | 'system' | 'admin'
 
 export interface NavSection {
   id: NavSectionId
@@ -96,6 +97,17 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Access Requests', href: '/system/access-requests', icon: ShieldCheck, section: 'system' },
     ],
   },
+  {
+    id: 'admin',
+    title: 'Admin',
+    accent: 'text-amber-400',
+    items: [
+      { label: 'Dashboard', href: '/admin', icon: Settings, section: 'admin' },
+      { label: 'Pipelines', href: '/admin/pipelines', icon: Workflow, section: 'admin' },
+      { label: 'Alerts', href: '/admin/alerts', icon: Bell, section: 'admin' },
+      { label: 'Assets', href: '/admin/assets', icon: Gauge, section: 'admin' },
+    ],
+  },
 ]
 
 export const SECTION_ACCENT: Record<NavSectionId, string> = {
@@ -104,6 +116,7 @@ export const SECTION_ACCENT: Record<NavSectionId, string> = {
   crop: 'text-emerald-400',
   geo: 'text-violet-400',
   system: 'text-amber-400',
+  admin: 'text-amber-400',
 }
 
 /** Root path segments that scope a page to its module/portal. */
@@ -113,6 +126,7 @@ const MODULE_SEGMENT: Record<string, NavSectionId> = {
   geo: 'geo',
   reports: 'system',
   system: 'system',
+  admin: 'admin',
 }
 
 /** The module/a portal a given path belongs to (or 'command' for the launcher). */
