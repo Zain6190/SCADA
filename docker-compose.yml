@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── PostGIS Database ──────────────────────────────────────────────
   db:
@@ -11,29 +9,96 @@ services:
     environment:
       POSTGRES_DB: ibcp_scada
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
       - scada-net
+    healthcheck:
+      test: ["CMD-EXEC", "pg_isready -U postgres -d ibcp_scada"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # ── IRSA Auto-Ingestion Scheduler ────────────────────────────────
-  scheduler:
+  # ── Alembic Migration Service (one-shot) ─────────────────────────
+  migration:
     build:
-      context: .
-      dockerfile: services/scheduler/Dockerfile
-    container_name: ibcp-scheduler
-    restart: unless-stopped
-    depends_on:
-      - db
+      context: ./services/aquavision-service
+      dockerfile: Dockerfile
+    container_name: ibcp-migration
     environment:
-      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ibcp_scada
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+    depends_on:
+      db:
+        condition: service_healthy
+    command: alembic upgrade head
+    networks:
+      - scada-net
+    restart: "no"
+
+  # ── AquaVision API ──────────────────────────────────────────────
+  aquavision:
+    build:
+      context: ./services/aquavision-service
+      dockerfile: Dockerfile
+    container_name: ibcp-api
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
+    depends_on:
+      migration:
+        condition: service_completed_successfully
     networks:
       - scada-net
     volumes:
-      - ./services/aquavision-service:/app/aquavision-service
-      - ./services/scheduler:/app/scheduler
-      - irsa-archive:/app/aquavision-service/infrastructure/ingestion/raw_archive
+      - irsa-archive:/app/raw_archive
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8100/health/live')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── IRSA/FFD/ML Scheduler ──────────────────────────────────────
+  scheduler:
+    build:
+      context: ./services/scheduler
+      dockerfile: Dockerfile
+    container_name: ibcp-scheduler
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    networks:
+      - scada-net
+    volumes:
+      - irsa-archive:/app/raw_archive
+
+  # ── Frontend ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./packages/dashboard
+      dockerfile: Dockerfile
+    container_name: ibcp-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://aquavision:8100
+    depends_on:
+      - aquavision
+    networks:
+      - scada-net
 
 volumes:
   pgdata:

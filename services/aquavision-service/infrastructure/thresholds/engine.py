@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from infrastructure.db.engine import SessionLocal
 from infrastructure.db.models import (
     WaterAsset, WaterAssetThreshold, WaterObservation,
-    WaterOperationalAlert, WaterAlertAuditLog,
+    WaterOperationalAlert, WaterAlertAuditLog, WaterFFDObservation,
 )
 
 logger = logging.getLogger("aquavision.thresholds")
@@ -62,6 +62,9 @@ class AlertType:
     FORECAST_DANGER_7D = "FORECAST_DANGER_7D"
     DATA_STALE = "DATA_STALE"
     HIGH_DISCHARGE = "HIGH_DISCHARGE"
+    FFD_FLOOD_HIGH = "FFD_FLOOD_HIGH"
+    FFD_FLOOD_MEDIUM = "FFD_FLOOD_MEDIUM"
+    FFD_FLOOD_LOW = "FFD_FLOOD_LOW"
 
 
 def _higher_severity(a: str, b: str) -> str:
@@ -148,6 +151,9 @@ def _create_alert(
     reading_outflow_cusecs: float = None,
     reading_discharge_cusecs: float = None,
     rate_of_change_ft_6h: float = None,
+    alert_source: str = "RULE",
+    rule_version: str = None,
+    model_version: str = None,
 ) -> WaterOperationalAlert:
     """Create a new operational alert and log it."""
     alert = WaterOperationalAlert(
@@ -164,6 +170,10 @@ def _create_alert(
         reading_discharge_cusecs=reading_discharge_cusecs,
         rate_of_change_ft_6h=rate_of_change_ft_6h,
         status=STATUS_NEW,
+        alert_source=alert_source,
+        alert_domain="OPERATIONAL",
+        rule_version=rule_version or "threshold_v1.0",
+        model_version=model_version,
     )
     db.add(alert)
     db.flush()
@@ -378,6 +388,58 @@ def _eval_staleness(
     return alerts
 
 
+def _eval_ffd_status(
+    db: Session, asset: WaterAsset
+) -> List[Tuple[str, str, str, float, float]]:
+    """Check FFD flood status for the asset.
+    
+    FFD flood_status mapping:
+      HIGH / VERY_HIGH / EXCEPTIONALLY_HIGH → CRITICAL alert
+      MEDIUM → WARNING alert
+      LOW → WATCH alert (informational)
+      BELOW_LOW → no alert
+    """
+    from sqlalchemy import cast, Date
+    alerts = []
+
+    ffd_obs = db.execute(
+        select(WaterFFDObservation)
+        .where(WaterFFDObservation.asset_id == asset.id)
+        .order_by(desc(WaterFFDObservation.observed_at))
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if not ffd_obs or not ffd_obs.flood_status:
+        return alerts
+
+    status = ffd_obs.flood_status.upper()
+    inflow = ffd_obs.discharge_cusecs or 0
+
+    if status in ("HIGH", "VERY_HIGH", "EXCEPTIONALLY_HIGH"):
+        alerts.append((
+            AlertType.FFD_FLOOD_HIGH,
+            SEVERITY_CRITICAL,
+            f"{asset.canonical_name}: FFD reports {status} flood status (inflow: {inflow:,.0f} cusecs)",
+            inflow, 0,
+        ))
+    elif status == "MEDIUM":
+        alerts.append((
+            AlertType.FFD_FLOOD_MEDIUM,
+            SEVERITY_WARNING,
+            f"{asset.canonical_name}: FFD reports MEDIUM flood status (inflow: {inflow:,.0f} cusecs)",
+            inflow, 0,
+        ))
+    elif status == "LOW":
+        alerts.append((
+            AlertType.FFD_FLOOD_LOW,
+            SEVERITY_WATCH,
+            f"{asset.canonical_name}: FFD reports LOW flood status (inflow: {inflow:,.0f} cusecs)",
+            inflow, 0,
+        ))
+
+    return alerts
+
+
 # ─── Main Evaluation Function ───────────────────────────────────────────────
 
 def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
@@ -405,11 +467,14 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
     triggered.extend(_eval_rate_of_change(db, asset, threshold, obs))
     triggered.extend(_eval_relationship(db, asset, threshold, obs))
     triggered.extend(_eval_staleness(db, asset, threshold, obs))
+    triggered.extend(_eval_ffd_status(db, asset))
 
     # Create alerts (skip if same type already open)
     new_alerts = []
     for alert_type, severity, message, triggered_val, threshold_val in triggered:
         if not _open_alert_exists(db, asset_id, alert_type):
+            # Determine alert source from alert type
+            alert_source = "FFD" if alert_type.startswith("FFD_") else "RULE"
             alert = _create_alert(
                 db=db,
                 asset_id=asset_id,
@@ -423,6 +488,7 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
                 reading_inflow_cusecs=obs.inflow_cusecs,
                 reading_outflow_cusecs=obs.outflow_cusecs,
                 reading_discharge_cusecs=obs.discharge_cusecs,
+                alert_source=alert_source,
             )
             new_alerts.append(alert)
 

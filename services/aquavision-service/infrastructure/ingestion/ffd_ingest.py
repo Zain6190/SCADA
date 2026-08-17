@@ -1,19 +1,23 @@
 # infrastructure/ingestion/ffd_ingest.py
 # Ingest FFD/PMD flood bulletin data into the database.
-# Pipeline: scrape FFD → match to assets → store observations.
+# Pipeline: scrape FFD → validate → match to assets → store observations.
+# Includes raw HTML archival for re-parseability.
 
 import hashlib
 import logging
 from datetime import date, datetime
+from pathlib import Path
 from typing import List, Dict
 
 from sqlalchemy import select
 
 from infrastructure.db.engine import SessionLocal
-from infrastructure.db.models import WaterSource, WaterAsset, WaterFFDObservation
+from infrastructure.db.models import WaterSource, WaterAsset, WaterFFDObservation, RawSourceRecord
 from infrastructure.ingestion.pmd_scraper import PMDScraper, PMDObservation
 
 logger = logging.getLogger("aquavision.ffd_ingest")
+
+FFD_ARCHIVE_DIR = Path(__file__).parent / "raw_archive" / "ffl"
 
 
 def _get_or_create_source(db) -> WaterSource:
@@ -45,7 +49,7 @@ def _get_asset_id(db, canonical_name: str) -> int:
 
 
 def ingest_ffd_bulletin(target_date: date = None) -> dict:
-    """Full pipeline: scrape FFD → match assets → store observations.
+    """Full pipeline: scrape FFD → archive raw HTML → validate → match assets → store.
     
     Returns summary dict with counts.
     """
@@ -57,21 +61,62 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
     try:
         html = scraper.fetch_bulletin_page()
         observations = scraper.parse_flood_bulletin(html, target_date)
+        fetch_status = "SUCCESS"
     except Exception as e:
         logger.error(f"Failed to scrape FFD: {e}")
-        return {"error": str(e), "parsed": 0, "stored": 0, "skipped": 0}
+        return {"error": str(e), "parsed": 0, "stored": 0, "skipped": 0, "fetch_status": "FAILED"}
     finally:
         scraper.close()
     
     if not observations:
         logger.warning("No observations parsed from FFD bulletin")
-        return {"date": str(target_date), "parsed": 0, "stored": 0, "skipped": 0}
+        return {"date": str(target_date), "parsed": 0, "stored": 0, "skipped": 0, "fetch_status": fetch_status}
     
-    # 2. Store in database
+    # 2. Archive raw HTML
     content_hash = hashlib.sha256(html.encode()).hexdigest()
+    FFD_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    archive_path = FFD_ARCHIVE_DIR / f"FFD_{target_date.strftime('%d-%m-%Y')}.html"
+    archive_path.write_text(html, encoding="utf-8")
+    logger.info(f"Archived FFD HTML to {archive_path}")
     
+    # 3. Store in database
     with SessionLocal() as db:
         source = _get_or_create_source(db)
+        
+        # Check for duplicate (same hash + date)
+        existing_raw = db.execute(
+            select(RawSourceRecord).where(
+                RawSourceRecord.source_id == source.id,
+                RawSourceRecord.source_date == target_date,
+                RawSourceRecord.content_hash == content_hash,
+            )
+        ).scalar_one_or_none()
+
+        if existing_raw:
+            logger.info(f"Duplicate FFD bulletin detected (hash={content_hash[:16]}...), skipping ingestion for {target_date}")
+            db.commit()
+            return {
+                "date": str(target_date),
+                "parsed": len(observations),
+                "stored": 0,
+                "skipped": len(observations),
+                "fetch_status": fetch_status,
+                "duplicate": True,
+            }
+        
+        # Archive raw record
+        raw_record = RawSourceRecord(
+            source_id=source.id,
+            retrieved_at=datetime.utcnow(),
+            source_date=target_date,
+            file_name=f"FFD_Bulletin_{target_date.strftime('%d-%m-%Y')}.html",
+            content_hash=content_hash,
+            raw_content=html.encode("utf-8"),
+            parser_version="pmd_scraper_v1.0",
+            record_count=len(observations),
+        )
+        db.add(raw_record)
+        db.flush()
         
         stored = 0
         skipped = 0
@@ -97,6 +142,11 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
                 skipped += 1
                 continue
             
+            # Basic validation
+            if obs.discharge_cusecs is not None and obs.discharge_cusecs < 0:
+                logger.warning(f"FFD {obs.station_name}: negative discharge {obs.discharge_cusecs}, setting to None")
+                obs.discharge_cusecs = None
+            
             # Store observation
             ffd_obs = WaterFFDObservation(
                 asset_id=asset_id,
@@ -110,6 +160,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
                 forecast_trend=obs.forecast_trend,
                 bulletin_url="https://ffd.pmd.gov.pk/bulletin/bulletin",
                 content_hash=content_hash,
+                data_status="FORECAST_FFD",
             )
             db.add(ffd_obs)
             stored += 1
@@ -117,11 +168,20 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         
         db.commit()
     
+    # 4. Run threshold engine for FFD status
+    try:
+        from infrastructure.thresholds.engine import evaluate_all_assets
+        threshold_result = evaluate_all_assets()
+        logger.info(f"FFD threshold evaluation: {threshold_result.get('new_alerts', 0)} new alerts")
+    except Exception as e:
+        logger.warning(f"Threshold engine failed (non-fatal): {e}")
+    
     return {
         "date": str(target_date),
         "parsed": len(observations),
         "stored": stored,
         "skipped": skipped,
+        "fetch_status": fetch_status,
     }
 
 

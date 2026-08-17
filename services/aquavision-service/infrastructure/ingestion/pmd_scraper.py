@@ -1,6 +1,7 @@
 # infrastructure/ingestion/pmd_scraper.py
 # Scrape PMD/FFD (Flood Forecasting Division) river gauge + flood data.
 # Source: https://ffd.pmd.gov.pk/bulletin/bulletin
+# Includes retry logic for transient HTTP errors.
 import re
 import hashlib
 import logging
@@ -10,6 +11,13 @@ from datetime import date, datetime
 from typing import List, Optional, Dict
 
 import httpx
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +52,7 @@ STATIONS = [
     ("Nowshera", "KABUL", "Kabul @ Nowshera"),
     ("Mangla", "JHELUM", "Mangla Reservoir"),
     ("Marala", "CHENAB", "Chenab @ Marala"),
-    ("Punjnad", "CHENAB", "Panjnad"),
+    ("Panjnad", "CHENAB", "Panjnad"),
 ]
 
 STATUS_PATTERN = r'(Below Low|Low|Medium|High|Very High|Exceptionally High|No sig\.\s*change)'
@@ -61,10 +69,19 @@ class PMDScraper:
         )
 
     def fetch_bulletin_page(self) -> str:
-        """Fetch the main FFD bulletin page."""
-        resp = self.client.get(PMD_BULLETIN_URL)
-        resp.raise_for_status()
-        return resp.text
+        """Fetch the main FFD bulletin page with retry logic."""
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=60, min=60, max=900),  # 1min, 2min, 4min
+            retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+        )
+        def _fetch_with_retry() -> str:
+            resp = self.client.get(PMD_BULLETIN_URL)
+            resp.raise_for_status()
+            return resp.text
+        
+        return _fetch_with_retry()
 
     def parse_flood_bulletin(self, html: str, target_date: date) -> List[PMDObservation]:
         """Parse river gauge/discharge data from FFD flood bulletin.

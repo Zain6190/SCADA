@@ -356,3 +356,59 @@ export interface FFDIngestResult {
   skipped: number
   error?: string | null
 }
+
+export interface MLPrediction {
+  asset_id: number
+  asset_name: string
+  prediction_date: string
+  horizon_days: number
+  predicted_level_ft?: number | null
+  confidence: number
+  lower_bound_80?: number | null
+  upper_bound_80?: number | null
+  risk_score: number
+  risk_level: string
+  exceeds_warning: boolean
+  exceeds_danger: boolean
+  model_version: string
+  feature_importance: Record<string, number>
+}
+
+export interface MLTrainResult {
+  models_trained: number
+  results: Array<{
+    asset_id?: number
+    horizon?: number
+    samples?: number
+    mae?: number
+    rmse?: number
+    r2?: number
+    error?: string
+  }>
+}
+
+export interface MLAnomaly {
+  asset_id: number
+  asset_name: string
+  observed_at: string
+  anomaly_score: number
+  is_anomaly: boolean
+  anomaly_features: string[]
+  severity: string
+  details: {
+    level_ft: number
+    inflow_cusecs: number
+    outflow_cusecs: number
+  }
+}
+
+export interface MLAnomalyTrainResult {
+  models_trained: number
+  results: Array<{
+    asset_id: number
+    asset_name: string
+    samples: number
+    features: number
+    anomalies_detected: number
+  }>
+}

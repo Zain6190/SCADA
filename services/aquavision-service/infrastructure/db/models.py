@@ -3,11 +3,11 @@
 #   aquavision.*  -> owned by this service (read/write)
 #   shared.*      -> read-only (regions, assets); other schemas untouched.
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint, func, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import JSONB, BYTEA
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSON, JSONB, BYTEA
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.db.engine import Base
@@ -116,6 +116,12 @@ class WaterAlert(Base):
     week_start_date: Mapped[date] = mapped_column(Date, nullable=False)
     alert_type: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Alert lineage
+    alert_source: Mapped[str] = mapped_column(Text, nullable=False, default="WAI_MODEL")
+    alert_domain: Mapped[str] = mapped_column(Text, nullable=False, default="WATER_STRESS")
+    model_version: Mapped[Optional[str]] = mapped_column(Text)
+
     wai_score: Mapped[Optional[float]] = mapped_column(Numeric)
     rainfall_anomaly: Mapped[Optional[float]] = mapped_column(Numeric)
     et_anomaly: Mapped[Optional[float]] = mapped_column(Numeric)
@@ -239,8 +245,10 @@ class WaterObservation(Base):
     upstream_discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
     downstream_discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
     unit: Mapped[Optional[str]] = mapped_column(Text)  # cusecs, feet, MAF
-    data_status: Mapped[str] = mapped_column(Text, nullable=False, default="OBSERVED")
-    # OBSERVED | ESTIMATED | FORECAST | SYNTHETIC | MISSING
+    data_status: Mapped[str] = mapped_column(Text, nullable=False, default="OBSERVED_OFFICIAL")
+    # OBSERVED_OFFICIAL | OBSERVED_TELEMETRY | ESTIMATED_GEE | FORECAST_FFD | MODEL_PREDICTION | SIMULATED
+    quality_status: Mapped[str] = mapped_column(Text, nullable=False, default="VALID")
+    # VALID | PARTIAL | SUSPECT | STALE | INVALID | MISSING
     quality_flag: Mapped[Optional[str]] = mapped_column(Text)  # OFFICIAL_DAILY_REPORT, FFD_BULLETIN, etc.
     raw_record_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.raw_source_records.id"))
     notes: Mapped[Optional[str]] = mapped_column(Text)
@@ -327,6 +335,13 @@ class WaterOperationalAlert(Base):
     alert_type: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(Text, nullable=False, default="WATCH")
 
+    # Alert lineage
+    alert_source: Mapped[str] = mapped_column(Text, nullable=False, default="RULE")
+    alert_domain: Mapped[str] = mapped_column(Text, nullable=False, default="OPERATIONAL")
+    rule_version: Mapped[Optional[str]] = mapped_column(Text)
+    model_version: Mapped[Optional[str]] = mapped_column(Text)
+    episode_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_alert_episodes.id"))
+
     # Triggering observation
     observation_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_observations.id"))
 
@@ -379,6 +394,25 @@ class WaterAlertAuditLog(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     alert: Mapped[WaterOperationalAlert] = relationship("WaterOperationalAlert")
+
+
+class WaterAlertEpisode(Base):
+    """Groups related alerts into flood episodes / incidents."""
+    __tablename__ = "water_alert_episodes"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    episode_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, nullable=False, default="WATCH")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="OPEN")
+    triggered_by_asset_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    triggered_by_asset: Mapped[Optional[WaterAsset]] = relationship("WaterAsset")
 
 
 class WaterDownstreamImpact(Base):
@@ -513,3 +547,151 @@ class WaterFFDObservation(Base):
 
     asset: Mapped[Optional[WaterAsset]] = relationship("WaterAsset")
     source: Mapped[Optional[WaterSource]] = relationship("WaterSource")
+
+
+# ─── Pipeline Run Tracking ────────────────────────────────────────────────
+
+
+class PipelineRun(Base):
+    """Tracks each ingestion pipeline execution."""
+
+    __tablename__ = "pipeline_runs"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    pipeline_type: Mapped[str] = mapped_column(String(20), nullable=False)  # IRSA, FFD, ML
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # QUEUED, RUNNING, SUCCESS, PARTIAL_SUCCESS, FAILED, SKIPPED, CANCELLED
+    trigger_type: Mapped[str] = mapped_column(String(20), nullable=False)  # SCHEDULED, MANUAL, RETRY
+    lock_key: Mapped[Optional[str]] = mapped_column(String(100))
+    code_version: Mapped[Optional[str]] = mapped_column(String(50))
+    config_version: Mapped[Optional[str]] = mapped_column(String(50))
+    source_version: Mapped[Optional[str]] = mapped_column(String(50))
+    log_path: Mapped[Optional[str]] = mapped_column(String(500))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    stages: Mapped[List["PipelineRunStage"]] = relationship("PipelineRunStage", back_populates="pipeline_run")
+
+
+class PipelineRunStage(Base):
+    """Tracks individual stages within a pipeline run."""
+
+    __tablename__ = "pipeline_run_stages"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(50), ForeignKey("aquavision.pipeline_runs.run_id"), nullable=False)
+    stage_name: Mapped[str] = mapped_column(String(50), nullable=False)  # fetch, parse, validate, store, alerts
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # QUEUED, RUNNING, SUCCESS, PARTIAL_SUCCESS, FAILED, SKIPPED
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    records_fetched: Mapped[int] = mapped_column(Integer, default=0)
+    records_stored: Mapped[int] = mapped_column(Integer, default=0)
+    records_skipped: Mapped[int] = mapped_column(Integer, default=0)
+    records_invalid: Mapped[int] = mapped_column(Integer, default=0)
+    warning_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    log_path: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    pipeline_run: Mapped["PipelineRun"] = relationship("PipelineRun", back_populates="stages")
+
+
+# ─── Scheduler Heartbeat ──────────────────────────────────────────────────
+
+
+class SchedulerHeartbeat(Base):
+    """Tracks scheduler liveness via periodic heartbeats."""
+
+    __tablename__ = "scheduler_heartbeats"
+    __table_args__ = (
+        UniqueConstraint("service_name", "instance_id", name="uq_scheduler_heartbeat"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    service_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    instance_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    host_name: Mapped[Optional[str]] = mapped_column(String(100))
+    container_id: Mapped[Optional[str]] = mapped_column(String(100))
+    version: Mapped[Optional[str]] = mapped_column(String(50))
+    process_id: Mapped[Optional[int]] = mapped_column(Integer)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="RUNNING")  # RUNNING, DEGRADED, STOPPED, UNKNOWN
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
+# ─── Data Quality ─────────────────────────────────────────────────────────
+
+
+class DataQualityLog(Base):
+    """Logs data quality issues found during ingestion."""
+
+    __tablename__ = "data_quality_log"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    observation_id: Mapped[Optional[int]] = mapped_column(Integer)
+    check_type: Mapped[str] = mapped_column(String(50), nullable=False)  # NEGATIVE_VALUE, OUT_OF_RANGE, DUPLICATE, etc.
+    field_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    raw_value: Mapped[Optional[float]] = mapped_column(Float)
+    expected_range_min: Mapped[Optional[float]] = mapped_column(Float)
+    expected_range_max: Mapped[Optional[float]] = mapped_column(Float)
+    quality_status: Mapped[str] = mapped_column(String(20), nullable=False)  # SUSPECT, INVALID, MISSING
+    details: Mapped[Optional[str]] = mapped_column(Text)
+    source_record_id: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── Quarantine ───────────────────────────────────────────────────────────
+
+
+class WaterObservationQuarantine(Base):
+    """Stores invalid observations for audit and potential reprocessing."""
+
+    __tablename__ = "water_observation_quarantine"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_record_id: Mapped[Optional[int]] = mapped_column(Integer)
+    raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    parsed_values: Mapped[Optional[dict]] = mapped_column(JSON)
+    failure_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    field_name: Mapped[Optional[str]] = mapped_column(String(50))
+    raw_value: Mapped[Optional[float]] = mapped_column(Float)
+    parser_version: Mapped[Optional[str]] = mapped_column(String(50))
+    data_status: Mapped[Optional[str]] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── Notification Deliveries ──────────────────────────────────────────────
+
+
+class NotificationDelivery(Base):
+    """Tracks notification deliveries for persistent deduplication."""
+
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (
+        UniqueConstraint("dedup_key", "recipient", name="uq_notification_dedup"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alert_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    recipient: Mapped[str] = mapped_column(String(200), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)  # EMAIL, SLACK, SMS
+    dedup_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # SENT, FAILED, SUPPRESSED, RETRYING
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
