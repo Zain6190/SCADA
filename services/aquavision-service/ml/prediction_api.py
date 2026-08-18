@@ -2,6 +2,8 @@
 # API endpoints for ML predictions.
 # GET  /water/ml/predictions/{asset_id}  - Get flood predictions
 # POST /water/ml/train                    - Trigger model training
+#
+# Phase 2B: Updated field names, added model_status, EXPERIMENTAL labels.
 
 from datetime import datetime
 from typing import List, Optional
@@ -23,14 +25,14 @@ class PredictionResponse(BaseModel):
     prediction_date: str
     horizon_days: int
     predicted_level_ft: Optional[float]
-    confidence: float
-    lower_bound_80: Optional[float]
-    upper_bound_80: Optional[float]
+    lower_bound: Optional[float]
+    upper_bound: Optional[float]
     risk_score: float
     risk_level: str
     exceeds_warning: bool
     exceeds_danger: bool
     model_version: str
+    model_status: str
     feature_importance: dict
 
 
@@ -52,6 +54,8 @@ class AnomalyResponse(BaseModel):
     is_anomaly: bool
     anomaly_features: list
     severity: str
+    model_version: str
+    model_status: str
     details: dict
 
 
@@ -66,28 +70,31 @@ async def get_predictions(
     horizons: str = Query("7,14,30", description="Comma-separated horizons"),
     session: Session = Depends(get_session),
 ):
-    """Get flood predictions for an asset."""
+    """Get flood predictions for an asset.
+
+    WARNING: This model is EXPERIMENTAL. Predictions are advisory only.
+    """
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
+
     from ml.models.flood_predictor import FloodPredictor
     from ml.features.feature_engineering import FloodFeatureBuilder
-    
+
     predictor = FloodPredictor()
     builder = FloodFeatureBuilder(session)
-    
+
     X, feature_names = builder.build_prediction_features(
         asset_id=asset_id,
         as_of_date=datetime.utcnow(),
     )
-    
+
     if X is None:
         return []
-    
+
     horizon_list = [int(h.strip()) for h in horizons.split(",")]
     predictions = []
-    
+
     for horizon in horizon_list:
         pred = predictor.predict(
             asset_id=asset_id,
@@ -105,17 +112,17 @@ async def get_predictions(
                 prediction_date=pred.prediction_date,
                 horizon_days=pred.horizon_days,
                 predicted_level_ft=pred.predicted_level_ft,
-                confidence=pred.confidence,
-                lower_bound_80=pred.lower_bound_80,
-                upper_bound_80=pred.upper_bound_80,
+                lower_bound=pred.lower_bound,
+                upper_bound=pred.upper_bound,
                 risk_score=pred.risk_score,
                 risk_level=pred.risk_level,
                 exceeds_warning=pred.exceeds_warning,
                 exceeds_danger=pred.exceeds_danger,
                 model_version=pred.model_version,
+                model_status=pred.model_status,
                 feature_importance=pred.feature_importance,
             ))
-    
+
     return predictions
 
 
@@ -125,9 +132,9 @@ async def trigger_training(
 ):
     """Trigger model training."""
     from ml.train_flood_model import train_all_assets
-    
+
     results = train_all_assets(horizons=payload.horizons)
-    
+
     return TrainResponse(
         models_trained=len(results),
         results=results,
@@ -142,7 +149,10 @@ async def get_anomalies(
     top_n: int = Query(5, ge=1, le=20),
     session: Session = Depends(get_session),
 ):
-    """Get anomalous observations for an asset."""
+    """Get anomalous observations for an asset.
+
+    WARNING: This model is EXPERIMENTAL. Anomaly scores are advisory only.
+    """
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -166,6 +176,8 @@ async def get_anomalies(
             is_anomaly=r.is_anomaly,
             anomaly_features=r.anomaly_features,
             severity=r.severity,
+            model_version=r.model_version,
+            model_status=r.model_status,
             details=r.details,
         )
         for r in results

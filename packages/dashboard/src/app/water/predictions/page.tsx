@@ -1,9 +1,10 @@
 // packages/dashboard/src/app/water/predictions/page.tsx
 // AquaVision ML Flood Predictions - XGBoost 7-day ahead forecasts per asset.
+// Phase 2B: Updated for renamed fields and EXPERIMENTAL labels.
 'use client'
 
 import { useState } from 'react'
-import { Cpu, RefreshCw, TrendingUp, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Cpu, RefreshCw, AlertTriangle, FlaskConical } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -15,18 +16,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 const RISK_COLORS: Record<string, string> = {
   NORMAL: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  LOW: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-  MODERATE: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  HIGH: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-  EXTREME: 'bg-red-500/15 text-red-300 border-red-500/30',
+  WATCH: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+  WARNING: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  CRITICAL: 'bg-red-500/15 text-red-300 border-red-500/30',
 }
 
 const RISK_DOT: Record<string, string> = {
   NORMAL: 'bg-emerald-400',
-  LOW: 'bg-sky-400',
-  MODERATE: 'bg-amber-400',
-  HIGH: 'bg-orange-400',
-  EXTREME: 'bg-red-400',
+  WATCH: 'bg-sky-400',
+  WARNING: 'bg-amber-400',
+  CRITICAL: 'bg-red-400',
 }
 
 const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
@@ -48,14 +47,20 @@ export default function PredictionsPage() {
           description="XGBoost 7-day ahead inflow/level forecasts per asset. Models retrained weekly."
           icon={<Cpu className="h-6 w-6" />}
           badge={
-            <button
-              onClick={() => trainMutation.mutate()}
-              disabled={trainMutation.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
-              {trainMutation.isPending ? 'Training...' : 'Retrain Models'}
-            </button>
+            <div className="flex items-center gap-2">
+              <Badge tone="amber">
+                <FlaskConical className="mr-1 inline h-3 w-3" />
+                EXPERIMENTAL
+              </Badge>
+              <button
+                onClick={() => trainMutation.mutate()}
+                disabled={trainMutation.isPending}
+                className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
+                {trainMutation.isPending ? 'Training...' : 'Retrain Models'}
+              </button>
+            </div>
           }
         />
 
@@ -162,17 +167,11 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
           </div>
         </div>
         <div>
-          <div className="text-slate-500">Confidence</div>
-          <div className="text-lg font-bold text-slate-100">
-            {(pred.confidence * 100).toFixed(0)}%
-          </div>
-        </div>
-        <div>
-          <div className="text-slate-500">80% Interval</div>
+          <div className="text-slate-500">Prediction Interval</div>
           <div className="font-medium text-slate-300">
-            {pred.lower_bound_80 != null ? pred.lower_bound_80.toLocaleString() : '—'}
+            {pred.lower_bound != null ? pred.lower_bound.toLocaleString() : '—'}
             {' — '}
-            {pred.upper_bound_80 != null ? pred.upper_bound_80.toLocaleString() : '—'}
+            {pred.upper_bound != null ? pred.upper_bound.toLocaleString() : '—'}
           </div>
         </div>
         <div>
@@ -183,6 +182,13 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
               {pred.risk_level}
             </span>
           </div>
+        </div>
+        <div>
+          <div className="text-slate-500">Status</div>
+          <Badge tone="amber">
+            <FlaskConical className="mr-1 inline h-3 w-3" />
+            {pred.model_status}
+          </Badge>
         </div>
       </div>
 
@@ -217,7 +223,7 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
       )}
 
       <div className="text-slate-600">
-        Model: {pred.model_version} | {pred.prediction_date}
+        Model: {pred.model_version} | {pred.model_status} | {pred.prediction_date}
       </div>
     </div>
   )

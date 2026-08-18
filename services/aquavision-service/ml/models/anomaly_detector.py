@@ -2,6 +2,8 @@
 # Isolation Forest anomaly detector for water observations.
 # Detects unusual level/inflow/outflow patterns per asset.
 # Unsupervised — no labeled anomaly data needed.
+#
+# Phase 2B: Added model_version and model_status to artifacts and output.
 
 import logging
 import os
@@ -18,10 +20,18 @@ logger = logging.getLogger("aquavision.ml.anomaly_detector")
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "models", "anomaly_if")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+# Model status label — displayed in all ML outputs
+MODEL_STATUS = "EXPERIMENTAL"
+MODEL_VERSION = "iforest-v1.0"
+
 
 @dataclass
 class AnomalyResult:
-    """Anomaly detection result for a single observation."""
+    """Anomaly detection result for a single observation.
+
+    NOTE: This model is EXPERIMENTAL. Anomaly scores are advisory only.
+    Do not use for operational decisions without human review.
+    """
     asset_id: int
     asset_name: str
     observed_at: str
@@ -29,6 +39,8 @@ class AnomalyResult:
     is_anomaly: bool
     anomaly_features: List[str]  # Which features triggered anomaly
     severity: str  # NORMAL, LOW, MODERATE, HIGH
+    model_version: str = MODEL_VERSION
+    model_status: str = MODEL_STATUS
     details: Dict[str, float] = field(default_factory=dict)
 
 
@@ -199,7 +211,16 @@ class AnomalyDetector:
 
         # Save model
         model_path = os.path.join(MODEL_DIR, f"anomaly_{asset_id}.joblib")
-        joblib.dump({"model": model, "scaler": scaler, "feature_names": feature_names}, model_path)
+        joblib.dump({
+            "model": model,
+            "scaler": scaler,
+            "feature_names": feature_names,
+            "model_version": MODEL_VERSION,
+            "model_status": MODEL_STATUS,
+            "trained_at": datetime.utcnow().isoformat(),
+            "training_samples": len(observations),
+            "contamination": contamination,
+        }, model_path)
 
         logger.info(
             f"Asset {asset_name}: trained Isolation Forest, "

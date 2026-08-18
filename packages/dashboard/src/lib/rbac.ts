@@ -5,7 +5,7 @@
 import type { NavSectionId } from '@/lib/navigation'
 import { PERMISSIONS } from '@/lib/permissions'
 
-export const ALL_MODULES: NavSectionId[] = ['command', 'aqua', 'crop', 'geo', 'system']
+export const ALL_MODULES: NavSectionId[] = ['command', 'aqua', 'crop', 'geo', 'system', 'admin']
 
 // Permissions that unlock each portal module (admin's SYSTEM_ADMIN unlocks all
 // unavailable portals so the Command Center can surface them).
@@ -14,6 +14,7 @@ export const MODULE_PERMISSIONS: Record<Exclude<NavSectionId, 'command'>, string
   crop: [PERMISSIONS.CROP_READ],
   geo: [PERMISSIONS.GEOVISION_READ],
   system: [PERMISSIONS.SYSTEM_ADMIN],
+  admin: [PERMISSIONS.SYSTEM_ADMIN],
 }
 
 // Maintenance back-compat role map kept for callers that still pass a role.
@@ -64,6 +65,7 @@ export function modulesForUser(user: PortalUserLike): NavSectionId[] {
   if (perms.has(PERMISSIONS.GEOVISION_READ)) modules.push('geo')
   if (perms.has(PERMISSIONS.SYSTEM_ADMIN)) {
     modules.push('system')
+    modules.push('admin')
     // Admins see every portal in the Command Center even when a specific READ
     // permission is absent for a partner module.
     for (const m of ['aqua', 'crop', 'geo'] as const) {

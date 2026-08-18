@@ -54,6 +54,7 @@ function PortalSwitcher({ pathname, user }: { pathname: string; user: PortalUser
     { id: 'crop', label: 'Crop Yield', href: '/crop' },
     { id: 'geo', label: 'GeoVision', href: '/geo' },
     { id: 'system', label: 'System', href: '/system' },
+    { id: 'admin', label: 'Admin', href: '/admin' },
   ]
   const portals = allPortals.filter((p) => modules.includes(p.id))
 

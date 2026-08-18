@@ -363,14 +363,14 @@ export interface MLPrediction {
   prediction_date: string
   horizon_days: number
   predicted_level_ft?: number | null
-  confidence: number
-  lower_bound_80?: number | null
-  upper_bound_80?: number | null
+  lower_bound?: number | null
+  upper_bound?: number | null
   risk_score: number
   risk_level: string
   exceeds_warning: boolean
   exceeds_danger: boolean
   model_version: string
+  model_status: string
   feature_importance: Record<string, number>
 }
 
@@ -395,6 +395,8 @@ export interface MLAnomaly {
   is_anomaly: boolean
   anomaly_features: string[]
   severity: string
+  model_version: string
+  model_status: string
   details: {
     level_ft: number
     inflow_cusecs: number
@@ -411,4 +413,27 @@ export interface MLAnomalyTrainResult {
     features: number
     anomalies_detected: number
   }>
+}
+
+// ─── Admin Types ──────────────────────────────────────────────────────────
+
+export interface PipelineHealth {
+  api_status: string
+  scheduler_status: string
+  last_irsa_run: {
+    status: string | null
+    run_id: string | null
+    completed_at: string | null
+    records_stored: number | null
+  } | null
+  last_ffd_run: {
+    status: string | null
+    run_id: string | null
+    completed_at: string | null
+    records_stored: number | null
+  } | null
+  data_freshness: {
+    irsa_hours: number | null
+    ffd_hours: number | null
+  }
 }
