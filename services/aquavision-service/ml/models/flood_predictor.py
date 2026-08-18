@@ -80,6 +80,7 @@ class FloodPredictor:
         y: np.ndarray,
         feature_names: List[str],
         horizon: int = 7,
+        sample_weights: Optional[np.ndarray] = None,
     ) -> Dict:
         """Train XGBoost model for a specific asset and horizon.
 
@@ -89,6 +90,7 @@ class FloodPredictor:
             y: Target vector (levels)
             feature_names: Feature names
             horizon: Prediction horizon (7, 14, or 30 days)
+            sample_weights: Per-sample weights (1.0=REAL, 0.2=SYNTHETIC)
 
         Returns:
             Training metrics dict
@@ -103,9 +105,16 @@ class FloodPredictor:
             return {"error": "insufficient_data"}
 
         # Split data (chronological — no shuffle)
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, shuffle=False
-        )
+        if sample_weights is not None:
+            X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+                X, y, sample_weights, test_size=0.2, shuffle=False
+            )
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, shuffle=False
+            )
+            w_train = None
+            w_test = None
 
         # Scale features
         scaler = StandardScaler()
@@ -125,11 +134,11 @@ class FloodPredictor:
             n_jobs=-1,
         )
 
-        model.fit(
-            X_train_scaled, y_train,
-            eval_set=[(X_test_scaled, y_test)],
-            verbose=False,
-        )
+        fit_kwargs = {"eval_set": [(X_test_scaled, y_test)], "verbose": False}
+        if w_train is not None:
+            fit_kwargs["sample_weight"] = w_train
+
+        model.fit(X_train_scaled, y_train, **fit_kwargs)
 
         # Evaluate
         y_pred = model.predict(X_test_scaled)
@@ -160,6 +169,8 @@ class FloodPredictor:
             "samples": len(X),
             "train_samples": len(X_train),
             "test_samples": len(X_test),
+            "real_samples": int(np.sum(w_train == 1.0)) if w_train is not None else len(X_train),
+            "synthetic_samples": int(np.sum(w_train < 1.0)) if w_train is not None else 0,
             "mae": round(mae, 4),
             "rmse": round(rmse, 4),
             "r2": round(r2, 4),
@@ -170,6 +181,7 @@ class FloodPredictor:
             "trained_at": datetime.utcnow().isoformat(),
             "model_version": self.model_version,
             "model_status": MODEL_STATUS,
+            "weighted": w_train is not None,
         }
 
         self._save_model(key, model, scaler, feature_names, mae, residual_std, self.training_metrics[key])

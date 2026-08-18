@@ -43,7 +43,8 @@ class FloodFeatureBuilder:
         start_date: datetime,
         end_date: datetime,
         forecast_horizon: int = 7,
-    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        real_only: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Build training table for a specific asset.
         
         Args:
@@ -51,22 +52,25 @@ class FloodFeatureBuilder:
             start_date: Training data start
             end_date: Training data end
             forecast_horizon: Days ahead to predict (7, 14, or 30)
+            real_only: If True, only use REAL observations (no synthetic)
         
         Returns:
             X: Feature matrix (n_samples, n_features)
             y: Target vector (n_samples,)
             feature_names: List of feature names
+            weights: Sample weights (1.0 for REAL, 0.2 for SYNTHETIC)
         """
         # Get all observations for this asset
-        observations = self._get_observations(asset_id, start_date, end_date)
+        observations = self._get_observations(asset_id, start_date, end_date, real_only=real_only)
         
         if len(observations) < 20:
             logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations")
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), [], np.array([])
         
         # Build feature matrix
         features_list = []
         targets = []
+        weights = []
         feature_names = None
         
         min_history = min(10, len(observations) - 1)  # Need at least 10 for lag features
@@ -87,18 +91,24 @@ class FloodFeatureBuilder:
             if target is not None and not np.isnan(target):
                 features_list.append([features[k] for k in feature_names])
                 targets.append(target)
+                # Sample weight: REAL=1.0, SYNTHETIC=0.2
+                w = 1.0 if row_obs.get("data_origin") == "REAL" else 0.2
+                weights.append(w)
         
         if not features_list:
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), [], np.array([])
         
         X = np.array(features_list, dtype=np.float32)
         y = np.array(targets, dtype=np.float32)
+        w = np.array(weights, dtype=np.float32)
         
         # Replace NaN with 0 for training
         X = np.nan_to_num(X, nan=0.0)
         
-        logger.info(f"Built training table: {X.shape[0]} samples, {X.shape[1]} features for asset {asset_id}")
-        return X, y, feature_names
+        real_count = int(np.sum(w == 1.0))
+        synth_count = int(np.sum(w < 1.0))
+        logger.info(f"Built training table: {X.shape[0]} samples ({real_count} real, {synth_count} synthetic), {X.shape[1]} features for asset {asset_id}")
+        return X, y, feature_names, w
     
     def build_prediction_features(
         self,
@@ -135,17 +145,18 @@ class FloodFeatureBuilder:
         asset_id: int,
         start_date: datetime,
         end_date: datetime,
+        real_only: bool = False,
     ) -> List[Dict]:
         """Get observations as list of dicts."""
-        rows = self.session.execute(
-            select(WaterObservation)
-            .where(
-                WaterObservation.asset_id == asset_id,
-                WaterObservation.observed_at >= start_date,
-                WaterObservation.observed_at <= end_date,
-            )
-            .order_by(WaterObservation.observed_at)
-        ).scalars().all()
+        q = select(WaterObservation).where(
+            WaterObservation.asset_id == asset_id,
+            WaterObservation.observed_at >= start_date,
+            WaterObservation.observed_at <= end_date,
+        )
+        if real_only:
+            q = q.where(WaterObservation.data_status != "SYNTHETIC_HISTORICAL")
+        
+        rows = self.session.execute(q.order_by(WaterObservation.observed_at)).scalars().all()
         
         return [
             {
@@ -154,6 +165,7 @@ class FloodFeatureBuilder:
                 "inflow": float(r.inflow_cusecs) if r.inflow_cusecs else None,
                 "outflow": float(r.outflow_cusecs) if r.outflow_cusecs else None,
                 "discharge": float(r.discharge_cusecs) if r.discharge_cusecs else None,
+                "data_origin": getattr(r, "data_origin", "REAL"),
             }
             for r in rows
         ]

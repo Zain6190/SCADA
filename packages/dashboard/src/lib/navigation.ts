@@ -106,6 +106,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Pipelines', href: '/admin/pipelines', icon: Workflow, section: 'admin' },
       { label: 'Alerts', href: '/admin/alerts', icon: Bell, section: 'admin' },
       { label: 'Assets', href: '/admin/assets', icon: Gauge, section: 'admin' },
+      { label: 'ML Validation', href: '/admin/validation', icon: BarChart3, section: 'admin' },
     ],
   },
 ]
