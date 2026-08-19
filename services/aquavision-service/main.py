@@ -95,6 +95,7 @@ from presentation.http.routers import (  # noqa: E402
     alerts,
     auth,
     health,
+    impact,
     indicators,
     map_data,
     operational,
@@ -123,6 +124,7 @@ app.include_router(thresholds.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(operational.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(regions.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
 
 
 @app.get("/")
