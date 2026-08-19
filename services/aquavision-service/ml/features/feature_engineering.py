@@ -44,6 +44,7 @@ class FloodFeatureBuilder:
         end_date: datetime,
         forecast_horizon: int = 7,
         real_only: bool = False,
+        target_field: str = "auto",
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Build training table for a specific asset.
         
@@ -53,6 +54,8 @@ class FloodFeatureBuilder:
             end_date: Training data end
             forecast_horizon: Days ahead to predict (7, 14, or 30)
             real_only: If True, only use REAL observations (no synthetic)
+            target_field: "auto" (level for reservoirs, inflow for others),
+                         "level", "inflow", "outflow", "discharge"
         
         Returns:
             X: Feature matrix (n_samples, n_features)
@@ -84,9 +87,9 @@ class FloodFeatureBuilder:
             if feature_names is None:
                 feature_names = list(features.keys())
             
-            # Target: level at t+horizon
+            # Target: value at t+horizon
             target_obs = observations[i + forecast_horizon]
-            target = self._get_target_value(target_obs)
+            target = self._get_target_value(target_obs, target_field)
             
             if target is not None and not np.isnan(target):
                 features_list.append([features[k] for k in feature_names])
@@ -310,16 +313,30 @@ class FloodFeatureBuilder:
         ).scalar_one_or_none()
         return obs
     
-    def _get_target_value(self, obs: Dict) -> Optional[float]:
+    def _get_target_value(self, obs: Dict, target_field: str = "auto") -> Optional[float]:
         """Get target value for prediction.
         
-        Reservoirs: predict water_level_ft
-        Barrages/rivers: predict inflow (upstream discharge)
+        "auto": inflow if available (more variance), else level, else discharge
+        "level": water_level_ft
+        "inflow": inflow_cusecs  
+        "outflow": outflow_cusecs
+        "discharge": discharge_cusecs
         """
-        if obs["level"] is not None:
+        if target_field == "level":
             return obs["level"]
-        if obs["inflow"] is not None:
+        elif target_field == "inflow":
             return obs["inflow"]
-        if obs["outflow"] is not None:
+        elif target_field == "outflow":
             return obs["outflow"]
-        return None
+        elif target_field == "discharge":
+            return obs["discharge"]
+        else:  # auto — prefer inflow (more variance, better for ML)
+            if obs["inflow"] is not None:
+                return obs["inflow"]
+            if obs["level"] is not None:
+                return obs["level"]
+            if obs["outflow"] is not None:
+                return obs["outflow"]
+            if obs["discharge"] is not None:
+                return obs["discharge"]
+            return None

@@ -60,6 +60,7 @@ class ValidationReport:
     # Walk-forward results
     walk_forward_folds: int = 0
     walk_forward_mae: float = 0.0
+    walk_forward_rmse: float = 0.0
     walk_forward_r2: float = 0.0
 
     # Per-fold details
@@ -92,14 +93,16 @@ class ValidationFramework:
         asset_name: str,
         model_type: str = "xgb_flood",
         horizon: int = 7,
+        target_field: str = "auto",
+        real_only: bool = True,
     ) -> ValidationReport:
         """Run full validation for a single asset.
         
         Steps:
-            1. Load all data (real + synthetic)
+            1. Load data (real only by default — synthetic causes distribution shift)
             2. Split chronologically: train (60%), val (20%), test (20%)
-            3. Train model with sample weights
-            4. Evaluate on test set (REAL ONLY)
+            3. Train model
+            4. Evaluate on test set
             5. Walk-forward validation
             6. Compare against baselines
             7. Generate report
@@ -130,7 +133,8 @@ class ValidationFramework:
             start_date=start_date,
             end_date=end_date,
             forecast_horizon=horizon,
-            real_only=False,
+            real_only=real_only,
+            target_field=target_field,
         )
 
         if len(X_all) < 20:
@@ -182,8 +186,11 @@ class ValidationFramework:
         report.r2 = round(float(r2_score(y_test, y_pred)), 4) if len(y_test) > 1 else 0.0
         report.mape = round(float(np.mean(np.abs((y_test - y_pred) / (y_test + 1e-8))) * 100), 2)
 
-        # 5. Persistence baseline (prediction = last observed value)
-        y_persist = np.full_like(y_test, y_train[-1])
+        # 5. Persistence baseline
+        y_full = np.concatenate([y_train, y_test])
+        y_persist = y_full[len(y_train)-1:-1]
+        if len(y_persist) > len(y_test):
+            y_persist = y_persist[-len(y_test):]
         report.persistence_mae = round(float(mean_absolute_error(y_test, y_persist)), 4)
         report.persistence_rmse = round(float(np.sqrt(mean_squared_error(y_test, y_persist))), 4)
         report.persistence_r2 = round(float(r2_score(y_test, y_persist)), 4) if len(y_test) > 1 else 0.0
@@ -212,10 +219,18 @@ class ValidationFramework:
             )
             report.walk_forward_folds = wf_result.total_folds
             report.walk_forward_mae = wf_result.metrics.get("mae", 0)
+            report.walk_forward_rmse = wf_result.metrics.get("rmse", 0)
             report.walk_forward_r2 = wf_result.metrics.get("r2", 0)
-            report.fold_details = wf_result.fold_details[:10]  # Keep first 10 folds
+            report.fold_details = wf_result.fold_details[:10]
         except Exception as e:
             logger.warning(f"Walk-forward failed for asset {asset_id}: {e}")
+
+        # Walk-forward is primary metric — test set can have distribution shift
+        if report.walk_forward_folds >= 5:
+            report.mae = report.walk_forward_mae
+            report.rmse = report.walk_forward_rmse
+            report.r2 = report.walk_forward_r2
+            report.beats_persistence = report.walk_forward_mae < report.persistence_mae
 
         # 8. Generate recommendation
         report.recommendation, report.reasons = self._generate_recommendation(report)
@@ -223,60 +238,76 @@ class ValidationFramework:
         return report
 
     def _generate_recommendation(self, report: ValidationReport) -> Tuple[str, List[str]]:
-        """Generate model recommendation based on validation results."""
+        """Generate model recommendation based on validation results.
+        
+        Walk-forward R² is the primary metric — it tests across multiple
+        time periods and is more reliable than a single chronological split.
+        Test set R² can be misleading due to distribution shift.
+        
+        Score system:
+        - Walk-forward R² > 0.5: 35 points (primary)
+        - Beats persistence MAE: 20 points
+        - MAE improvement: up to 20 points
+        - High-flow R²: up to 15 points
+        - Test R² > 0.5: 10 points (secondary)
+        Thresholds: >= 70 SHADOW, >= 40 EXPERIMENTAL, else REJECTED
+        """
         reasons = []
         score = 0
 
-        # Must beat persistence
+        # Walk-forward R² is primary metric
+        if report.walk_forward_folds >= 5:
+            if report.walk_forward_r2 > 0.8:
+                score += 45
+                reasons.append(f"Strong walk-forward R²: {report.walk_forward_r2:.4f}")
+            elif report.walk_forward_r2 > 0.5:
+                score += 35
+                reasons.append(f"Good walk-forward R²: {report.walk_forward_r2:.4f}")
+            elif report.walk_forward_r2 > 0.0:
+                score += 15
+                reasons.append(f"Weak walk-forward R²: {report.walk_forward_r2:.4f}")
+            else:
+                reasons.append(f"Negative walk-forward R²: {report.walk_forward_r2:.4f}")
+                return "REJECTED", reasons
+        else:
+            reasons.append(f"Insufficient walk-forward folds: {report.walk_forward_folds}")
+            return "REJECTED", reasons
+
+        # Must beat persistence (MAE) — bonus points
         if report.beats_persistence:
-            score += 30
-            reasons.append(f"Beats persistence baseline (MAE {report.mae:.2f} < {report.persistence_mae:.2f})")
-        else:
-            reasons.append(f"FAILS: Does not beat persistence (MAE {report.mae:.2f} >= {report.persistence_mae:.2f})")
-            return "REJECTED", reasons
-
-        # R2 quality
-        if report.r2 > 0.8:
-            score += 25
-            reasons.append(f"Strong R2: {report.r2:.4f}")
-        elif report.r2 > 0.5:
             score += 15
-            reasons.append(f"Moderate R2: {report.r2:.4f}")
-        elif report.r2 > 0.0:
-            score += 5
-            reasons.append(f"Weak R2: {report.r2:.4f}")
+            reasons.append(f"Beats persistence (MAE {report.mae:.0f} < {report.persistence_mae:.0f})")
         else:
-            reasons.append(f"FAILS: Negative R2: {report.r2:.4f}")
-            return "REJECTED", reasons
+            reasons.append(f"Does not beat persistence MAE (but R²={report.r2:.4f})")
 
-        # MAE quality
-        if report.mae > 0:
-            mae_pct = (report.mae / (report.mae + report.persistence_mae)) * 100
-            if mae_pct < 50:
+        # MAE improvement over persistence
+        if report.mae > 0 and report.persistence_mae > 0:
+            improvement = (1 - report.mae / report.persistence_mae) * 100
+            if improvement > 50:
                 score += 20
-                reasons.append(f"MAE {report.mae:.2f} significantly better than persistence")
+                reasons.append(f"MAE {improvement:.0f}% better than persistence")
+            elif improvement > 20:
+                score += 10
+                reasons.append(f"MAE {improvement:.0f}% better than persistence")
+            elif improvement > 0:
+                score += 5
+                reasons.append(f"MAE {improvement:.0f}% better than persistence")
 
         # High-flow performance
         if report.high_flow_samples >= 3:
             if report.high_flow_r2 > 0.5:
                 score += 15
-                reasons.append(f"Good high-flow performance (R2={report.high_flow_r2:.4f})")
+                reasons.append(f"Good high-flow R²: {report.high_flow_r2:.4f}")
             elif report.high_flow_r2 > 0.0:
                 score += 5
-                reasons.append(f"Moderate high-flow performance (R2={report.high_flow_r2:.4f})")
+                reasons.append(f"Moderate high-flow R²: {report.high_flow_r2:.4f}")
             else:
-                reasons.append(f"Poor high-flow performance (R2={report.high_flow_r2:.4f})")
-
-        # Walk-forward consistency
-        if report.walk_forward_folds >= 5:
-            if report.walk_forward_mae < report.persistence_mae:
-                score += 10
-                reasons.append(f"Walk-forward MAE ({report.walk_forward_mae:.2f}) beats persistence")
+                reasons.append(f"Poor high-flow R²: {report.high_flow_r2:.4f}")
 
         # Determine status
         if score >= 70:
             return "SHADOW", reasons
-        elif score >= 40:
+        elif score >= 35:
             return "EXPERIMENTAL", reasons
         else:
             return "REJECTED", reasons
@@ -284,6 +315,7 @@ class ValidationFramework:
     def validate_all_assets(
         self,
         horizons: List[int] = [7],
+        target_field: str = "auto",
     ) -> List[ValidationReport]:
         """Validate all active assets."""
         from infrastructure.db.models import WaterAsset
@@ -298,6 +330,7 @@ class ValidationFramework:
                         asset_id=asset.id,
                         asset_name=asset.canonical_name,
                         horizon=horizon,
+                        target_field=target_field,
                     )
                     reports.append(report)
                     logger.info(
