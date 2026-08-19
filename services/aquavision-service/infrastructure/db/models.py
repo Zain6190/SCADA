@@ -380,6 +380,15 @@ class WaterOperationalAlert(Base):
 
     # Audit
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Downstream impact (computed when alert is created)
+    downstream_impact_summary: Mapped[Optional[str]] = mapped_column(Text)  # JSON summary
+    downstream_population_exposed: Mapped[Optional[int]] = mapped_column(BigInteger)
+    downstream_bridges_at_risk: Mapped[Optional[int]] = mapped_column(Integer)
+    downstream_hospitals_at_risk: Mapped[Optional[int]] = mapped_column(Integer)
+    downstream_furthest_asset: Mapped[Optional[str]] = mapped_column(Text)
+    downstream_furthest_arrival_hours: Mapped[Optional[float]] = mapped_column(Numeric)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

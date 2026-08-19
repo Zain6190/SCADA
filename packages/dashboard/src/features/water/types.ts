@@ -274,6 +274,13 @@ export interface OperationalAlert {
   acknowledged_at?: string | null
   resolved_at?: string | null
   notes?: string | null
+  // Downstream impact
+  downstream_impact_summary?: string | null
+  downstream_population_exposed?: number | null
+  downstream_bridges_at_risk?: number | null
+  downstream_hospitals_at_risk?: number | null
+  downstream_furthest_asset?: string | null
+  downstream_furthest_arrival_hours?: number | null
 }
 
 export interface OperationalThreshold {

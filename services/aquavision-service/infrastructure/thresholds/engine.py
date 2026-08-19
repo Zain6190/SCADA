@@ -180,6 +180,39 @@ def _create_alert(
     model_version: str = None,
 ) -> WaterOperationalAlert:
     """Create a new operational alert and log it."""
+    
+    # Calculate downstream impact if inflow data available
+    impact_summary = None
+    impact_population = None
+    impact_bridges = None
+    impact_hospitals = None
+    impact_furthest = None
+    impact_arrival_hours = None
+    
+    flow_cusecs = reading_inflow_cusecs or reading_discharge_cusecs
+    if flow_cusecs and flow_cusecs > 100000:
+        try:
+            from infrastructure.impact.downstream_engine import DownstreamImpactEngine
+            from infrastructure.db.engine import engine as sa_engine
+            from datetime import datetime as dt
+            
+            impact_engine = DownstreamImpactEngine(sa_engine)
+            result = impact_engine.calculate(
+                source_asset_id=asset_id,
+                release_flow_cusecs=flow_cusecs,
+                release_time=dt.now(timezone.utc),
+            )
+            if result.segments:
+                impact_summary = f"{result.total_population_exposed:,} people, {result.total_bridges} bridges, {result.total_hospitals} hospitals"
+                impact_population = result.total_population_exposed
+                impact_bridges = result.total_bridges
+                impact_hospitals = result.total_hospitals
+                impact_furthest = result.furthest_asset
+                impact_arrival_hours = result.total_travel_hours
+                logger.info(f"Downstream impact calculated: {impact_summary}")
+        except Exception as e:
+            logger.warning(f"Failed to calculate downstream impact: {e}")
+    
     alert = WaterOperationalAlert(
         asset_id=asset_id,
         alert_type=alert_type,
@@ -198,6 +231,12 @@ def _create_alert(
         alert_domain="OPERATIONAL",
         rule_version=rule_version or "threshold_v1.0",
         model_version=model_version,
+        downstream_impact_summary=impact_summary,
+        downstream_population_exposed=impact_population,
+        downstream_bridges_at_risk=impact_bridges,
+        downstream_hospitals_at_risk=impact_hospitals,
+        downstream_furthest_asset=impact_furthest,
+        downstream_furthest_arrival_hours=impact_arrival_hours,
     )
     db.add(alert)
     db.flush()

@@ -157,6 +157,31 @@ function AdminAlertRow({
           <h3 className="mt-2 text-sm font-semibold text-slate-100">{alert.alert_type}</h3>
           <p className="mt-0.5 text-xs text-slate-500">{alert.message}</p>
           <p className="mt-0.5 text-xs text-slate-500">{timeAgo(alert.created_at)}</p>
+          
+          {/* Downstream Impact */}
+          {alert.downstream_impact_summary && (
+            <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <p className="text-xs font-medium text-amber-300 mb-2">DOWNSTREAM IMPACT</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <p className="text-slate-400">Population Exposed</p>
+                  <p className="text-white font-medium">{alert.downstream_population_exposed?.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Bridges at Risk</p>
+                  <p className="text-white font-medium">{alert.downstream_bridges_at_risk}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Hospitals at Risk</p>
+                  <p className="text-white font-medium">{alert.downstream_hospitals_at_risk}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Furthest Arrival</p>
+                  <p className="text-white font-medium">{alert.downstream_furthest_asset} (+{alert.downstream_furthest_arrival_hours?.toFixed(0)}h)</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 gap-2">
           {alert.status === 'NEW' && (
