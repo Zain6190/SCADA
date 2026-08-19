@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/ui/kpi";
-import { AlertTriangle, MapPin, Clock, Users, Building2, RefreshCw, Calculator } from "lucide-react";
+import { MapPin, Clock, Users, Building2, RefreshCw, Calculator } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8100";
 
@@ -171,40 +171,37 @@ export default function ImpactPage() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
             <KpiCard
-              title="Population Exposed"
+              label="Population Exposed"
               value={formatNumber(result.total_population_exposed)}
-              icon={<Users className="h-5 w-5 text-amber-400" />}
-              tone="amber"
+              icon={Users}
+              accent="bg-amber-500/10 text-amber-300"
             />
             <KpiCard
-              title="Villages"
+              label="Villages"
               value={result.total_villages.toString()}
-              icon={<MapPin className="h-5 w-5 text-sky-400" />}
-              tone="sky"
+              icon={MapPin}
             />
             <KpiCard
-              title="Bridges"
+              label="Bridges"
               value={result.total_bridges.toString()}
-              icon={<Building2 className="h-5 w-5 text-red-400" />}
-              tone="red"
+              icon={Building2}
+              accent="bg-red-500/10 text-red-300"
             />
             <KpiCard
-              title="Hospitals"
+              label="Hospitals"
               value={result.total_hospitals.toString()}
-              icon={<Building2 className="h-5 w-5 text-red-400" />}
-              tone="red"
+              icon={Building2}
+              accent="bg-red-500/10 text-red-300"
             />
             <KpiCard
-              title="Furthest Asset"
+              label="Furthest Asset"
               value={result.furthest_asset}
-              icon={<MapPin className="h-5 w-5 text-sky-400" />}
-              tone="sky"
+              icon={MapPin}
             />
             <KpiCard
-              title="Total Travel"
+              label="Total Travel"
               value={`${result.total_travel_hours.toFixed(0)}h`}
-              icon={<Clock className="h-5 w-5 text-sky-400" />}
-              tone="sky"
+              icon={Clock}
             />
           </div>
 
