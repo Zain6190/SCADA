@@ -163,6 +163,13 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
 
             row = _obs_to_row(obs, asset_id, source.id, raw_record_id)
             
+            # Add source tracking
+            row["source_authority"] = "IRSA"
+            row["source_publication_time"] = datetime.utcnow()
+            row["source_parser_version"] = "irsa_scraper_v1.0"
+            row["source_content_hash"] = content_hash
+            row["source_priority"] = 1  # IRSA is highest priority
+            
             # Validate observation
             validation = validate_observation(row, asset_id, source_date=target_date)
             

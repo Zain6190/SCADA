@@ -256,6 +256,13 @@ class WaterObservation(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # Source-aware tracking (migration 013)
+    source_authority: Mapped[Optional[str]] = mapped_column(Text)  # IRSA, FFD/PMD, KAGGLE
+    source_publication_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    source_parser_version: Mapped[Optional[str]] = mapped_column(Text)
+    source_content_hash: Mapped[Optional[str]] = mapped_column(Text)
+    source_priority: Mapped[Optional[int]] = mapped_column(Integer, default=3)  # 1=IRSA, 2=FFD, 3=Kaggle, 4=Synthetic
+
     asset: Mapped[WaterAsset] = relationship("WaterAsset")
     source: Mapped[WaterSource] = relationship("WaterSource")
 

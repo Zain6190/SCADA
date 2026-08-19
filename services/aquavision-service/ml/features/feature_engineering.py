@@ -45,6 +45,7 @@ class FloodFeatureBuilder:
         forecast_horizon: int = 7,
         real_only: bool = False,
         target_field: str = "auto",
+        source_priority: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Build training table for a specific asset.
         
@@ -54,8 +55,8 @@ class FloodFeatureBuilder:
             end_date: Training data end
             forecast_horizon: Days ahead to predict (7, 14, or 30)
             real_only: If True, only use REAL observations (no synthetic)
-            target_field: "auto" (level for reservoirs, inflow for others),
-                         "level", "inflow", "outflow", "discharge"
+            target_field: "auto" (inflow preferred), "level", "inflow", "outflow", "discharge"
+            source_priority: If True, use best value per date (IRSA > FFD > Kaggle)
         
         Returns:
             X: Feature matrix (n_samples, n_features)
@@ -64,7 +65,10 @@ class FloodFeatureBuilder:
             weights: Sample weights (1.0 for REAL, 0.2 for SYNTHETIC)
         """
         # Get all observations for this asset
-        observations = self._get_observations(asset_id, start_date, end_date, real_only=real_only)
+        observations = self._get_observations(
+            asset_id, start_date, end_date, 
+            real_only=real_only, source_priority=source_priority
+        )
         
         if len(observations) < 20:
             logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations")
@@ -149,8 +153,58 @@ class FloodFeatureBuilder:
         start_date: datetime,
         end_date: datetime,
         real_only: bool = False,
+        source_priority: bool = False,
     ) -> List[Dict]:
-        """Get observations as list of dicts."""
+        """Get observations as list of dicts.
+        
+        Args:
+            asset_id: Asset ID
+            start_date: Start date
+            end_date: End date
+            real_only: If True, exclude synthetic observations
+            source_priority: If True, use best value per date (IRSA > FFD > Kaggle)
+        """
+        if source_priority:
+            # Use the v_best_observations view for source-aware queries
+            from sqlalchemy import text
+            q = text("""
+                SELECT asset_id, observed_at, parameter, value, source, priority, data_origin
+                FROM aquavision.v_best_observations
+                WHERE asset_id = :asset_id
+                AND observed_at >= :start_date
+                AND observed_at <= :end_date
+                ORDER BY observed_at, parameter
+            """)
+            rows = self.session.execute(q, {
+                "asset_id": asset_id,
+                "start_date": start_date,
+                "end_date": end_date,
+            }).fetchall()
+            
+            # Group by date
+            by_date = {}
+            for row in rows:
+                dt = row.observed_at
+                if dt not in by_date:
+                    by_date[dt] = {
+                        "date": dt,
+                        "level": None, "inflow": None, "outflow": None, 
+                        "discharge": None, "data_origin": "REAL", "source": None,
+                    }
+                if row.parameter == "level":
+                    by_date[dt]["level"] = float(row.value)
+                elif row.parameter == "inflow":
+                    by_date[dt]["inflow"] = float(row.value)
+                elif row.parameter == "outflow":
+                    by_date[dt]["outflow"] = float(row.value)
+                elif row.parameter == "discharge":
+                    by_date[dt]["discharge"] = float(row.value)
+                by_date[dt]["source"] = row.source
+                by_date[dt]["data_origin"] = row.data_origin or "REAL"
+            
+            return list(by_date.values())
+        
+        # Original query (all sources merged)
         q = select(WaterObservation).where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at >= start_date,
@@ -169,6 +223,7 @@ class FloodFeatureBuilder:
                 "outflow": float(r.outflow_cusecs) if r.outflow_cusecs else None,
                 "discharge": float(r.discharge_cusecs) if r.discharge_cusecs else None,
                 "data_origin": getattr(r, "data_origin", "REAL"),
+                "source": getattr(r, "source_authority", "UNKNOWN"),
             }
             for r in rows
         ]

@@ -140,6 +140,9 @@ def ingest_kaggle_csv(csv_path: str, db: Session, start_year: int = 2022, end_ye
                 asset_id=asset_id, source_id=source.id, observed_at=obs_date,
                 data_status="OBSERVED_OFFICIAL", data_origin="REAL",
                 quality_status="VALID", quality_flag="KAGGLE_DATASET",
+                source_authority="KAGGLE",
+                source_priority=3,
+                source_parser_version="kaggle_ingest_v1.0",
                 **fields,
             )
             db.add(obs)

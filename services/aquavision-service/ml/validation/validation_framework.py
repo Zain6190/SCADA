@@ -95,11 +95,12 @@ class ValidationFramework:
         horizon: int = 7,
         target_field: str = "auto",
         real_only: bool = True,
+        source_priority: bool = True,
     ) -> ValidationReport:
         """Run full validation for a single asset.
         
         Steps:
-            1. Load data (real only by default — synthetic causes distribution shift)
+            1. Load data (real only by default, source-priority applied)
             2. Split chronologically: train (60%), val (20%), test (20%)
             3. Train model
             4. Evaluate on test set
@@ -135,6 +136,7 @@ class ValidationFramework:
             forecast_horizon=horizon,
             real_only=real_only,
             target_field=target_field,
+            source_priority=source_priority,
         )
 
         if len(X_all) < 20:
