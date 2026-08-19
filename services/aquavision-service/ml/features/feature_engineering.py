@@ -43,7 +43,10 @@ class FloodFeatureBuilder:
         start_date: datetime,
         end_date: datetime,
         forecast_horizon: int = 7,
-    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        real_only: bool = False,
+        target_field: str = "auto",
+        source_priority: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """Build training table for a specific asset.
         
         Args:
@@ -51,22 +54,30 @@ class FloodFeatureBuilder:
             start_date: Training data start
             end_date: Training data end
             forecast_horizon: Days ahead to predict (7, 14, or 30)
+            real_only: If True, only use REAL observations (no synthetic)
+            target_field: "auto" (inflow preferred), "level", "inflow", "outflow", "discharge"
+            source_priority: If True, use best value per date (IRSA > FFD > Kaggle)
         
         Returns:
             X: Feature matrix (n_samples, n_features)
             y: Target vector (n_samples,)
             feature_names: List of feature names
+            weights: Sample weights (1.0 for REAL, 0.2 for SYNTHETIC)
         """
         # Get all observations for this asset
-        observations = self._get_observations(asset_id, start_date, end_date)
+        observations = self._get_observations(
+            asset_id, start_date, end_date, 
+            real_only=real_only, source_priority=source_priority
+        )
         
         if len(observations) < 20:
             logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations")
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), [], np.array([])
         
         # Build feature matrix
         features_list = []
         targets = []
+        weights = []
         feature_names = None
         
         min_history = min(10, len(observations) - 1)  # Need at least 10 for lag features
@@ -80,25 +91,31 @@ class FloodFeatureBuilder:
             if feature_names is None:
                 feature_names = list(features.keys())
             
-            # Target: level at t+horizon
+            # Target: value at t+horizon
             target_obs = observations[i + forecast_horizon]
-            target = self._get_target_value(target_obs)
+            target = self._get_target_value(target_obs, target_field)
             
             if target is not None and not np.isnan(target):
                 features_list.append([features[k] for k in feature_names])
                 targets.append(target)
+                # Sample weight: REAL=1.0, SYNTHETIC=0.2
+                w = 1.0 if row_obs.get("data_origin") == "REAL" else 0.2
+                weights.append(w)
         
         if not features_list:
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), [], np.array([])
         
         X = np.array(features_list, dtype=np.float32)
         y = np.array(targets, dtype=np.float32)
+        w = np.array(weights, dtype=np.float32)
         
         # Replace NaN with 0 for training
         X = np.nan_to_num(X, nan=0.0)
         
-        logger.info(f"Built training table: {X.shape[0]} samples, {X.shape[1]} features for asset {asset_id}")
-        return X, y, feature_names
+        real_count = int(np.sum(w == 1.0))
+        synth_count = int(np.sum(w < 1.0))
+        logger.info(f"Built training table: {X.shape[0]} samples ({real_count} real, {synth_count} synthetic), {X.shape[1]} features for asset {asset_id}")
+        return X, y, feature_names, w
     
     def build_prediction_features(
         self,
@@ -135,17 +152,68 @@ class FloodFeatureBuilder:
         asset_id: int,
         start_date: datetime,
         end_date: datetime,
+        real_only: bool = False,
+        source_priority: bool = False,
     ) -> List[Dict]:
-        """Get observations as list of dicts."""
-        rows = self.session.execute(
-            select(WaterObservation)
-            .where(
-                WaterObservation.asset_id == asset_id,
-                WaterObservation.observed_at >= start_date,
-                WaterObservation.observed_at <= end_date,
-            )
-            .order_by(WaterObservation.observed_at)
-        ).scalars().all()
+        """Get observations as list of dicts.
+        
+        Args:
+            asset_id: Asset ID
+            start_date: Start date
+            end_date: End date
+            real_only: If True, exclude synthetic observations
+            source_priority: If True, use best value per date (IRSA > FFD > Kaggle)
+        """
+        if source_priority:
+            # Use the v_best_observations view for source-aware queries
+            from sqlalchemy import text
+            q = text("""
+                SELECT asset_id, observed_at, parameter, value, source, priority, data_origin
+                FROM aquavision.v_best_observations
+                WHERE asset_id = :asset_id
+                AND observed_at >= :start_date
+                AND observed_at <= :end_date
+                ORDER BY observed_at, parameter
+            """)
+            rows = self.session.execute(q, {
+                "asset_id": asset_id,
+                "start_date": start_date,
+                "end_date": end_date,
+            }).fetchall()
+            
+            # Group by date
+            by_date = {}
+            for row in rows:
+                dt = row.observed_at
+                if dt not in by_date:
+                    by_date[dt] = {
+                        "date": dt,
+                        "level": None, "inflow": None, "outflow": None, 
+                        "discharge": None, "data_origin": "REAL", "source": None,
+                    }
+                if row.parameter == "level":
+                    by_date[dt]["level"] = float(row.value)
+                elif row.parameter == "inflow":
+                    by_date[dt]["inflow"] = float(row.value)
+                elif row.parameter == "outflow":
+                    by_date[dt]["outflow"] = float(row.value)
+                elif row.parameter == "discharge":
+                    by_date[dt]["discharge"] = float(row.value)
+                by_date[dt]["source"] = row.source
+                by_date[dt]["data_origin"] = row.data_origin or "REAL"
+            
+            return list(by_date.values())
+        
+        # Original query (all sources merged)
+        q = select(WaterObservation).where(
+            WaterObservation.asset_id == asset_id,
+            WaterObservation.observed_at >= start_date,
+            WaterObservation.observed_at <= end_date,
+        )
+        if real_only:
+            q = q.where(WaterObservation.data_status != "SYNTHETIC_HISTORICAL")
+        
+        rows = self.session.execute(q.order_by(WaterObservation.observed_at)).scalars().all()
         
         return [
             {
@@ -154,6 +222,8 @@ class FloodFeatureBuilder:
                 "inflow": float(r.inflow_cusecs) if r.inflow_cusecs else None,
                 "outflow": float(r.outflow_cusecs) if r.outflow_cusecs else None,
                 "discharge": float(r.discharge_cusecs) if r.discharge_cusecs else None,
+                "data_origin": getattr(r, "data_origin", "REAL"),
+                "source": getattr(r, "source_authority", "UNKNOWN"),
             }
             for r in rows
         ]
@@ -298,16 +368,30 @@ class FloodFeatureBuilder:
         ).scalar_one_or_none()
         return obs
     
-    def _get_target_value(self, obs: Dict) -> Optional[float]:
+    def _get_target_value(self, obs: Dict, target_field: str = "auto") -> Optional[float]:
         """Get target value for prediction.
         
-        Reservoirs: predict water_level_ft
-        Barrages/rivers: predict inflow (upstream discharge)
+        "auto": inflow if available (more variance), else level, else discharge
+        "level": water_level_ft
+        "inflow": inflow_cusecs  
+        "outflow": outflow_cusecs
+        "discharge": discharge_cusecs
         """
-        if obs["level"] is not None:
+        if target_field == "level":
             return obs["level"]
-        if obs["inflow"] is not None:
+        elif target_field == "inflow":
             return obs["inflow"]
-        if obs["outflow"] is not None:
+        elif target_field == "outflow":
             return obs["outflow"]
-        return None
+        elif target_field == "discharge":
+            return obs["discharge"]
+        else:  # auto — prefer inflow (more variance, better for ML)
+            if obs["inflow"] is not None:
+                return obs["inflow"]
+            if obs["level"] is not None:
+                return obs["level"]
+            if obs["outflow"] is not None:
+                return obs["outflow"]
+            if obs["discharge"] is not None:
+                return obs["discharge"]
+            return None

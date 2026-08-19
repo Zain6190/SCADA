@@ -246,13 +246,22 @@ class WaterObservation(Base):
     downstream_discharge_cusecs: Mapped[Optional[float]] = mapped_column(Numeric)
     unit: Mapped[Optional[str]] = mapped_column(Text)  # cusecs, feet, MAF
     data_status: Mapped[str] = mapped_column(Text, nullable=False, default="OBSERVED_OFFICIAL")
-    # OBSERVED_OFFICIAL | OBSERVED_TELEMETRY | ESTIMATED_GEE | FORECAST_FFD | MODEL_PREDICTION | SIMULATED
+    # OBSERVED_OFFICIAL | OBSERVED_TELEMETRY | ESTIMATED_GEE | FORECAST_FFD | MODEL_PREDICTION | SIMULATED | SYNTHETIC_HISTORICAL
+    data_origin: Mapped[str] = mapped_column(Text, nullable=False, default="REAL")
+    # REAL | SYNTHETIC
     quality_status: Mapped[str] = mapped_column(Text, nullable=False, default="VALID")
     # VALID | PARTIAL | SUSPECT | STALE | INVALID | MISSING
     quality_flag: Mapped[Optional[str]] = mapped_column(Text)  # OFFICIAL_DAILY_REPORT, FFD_BULLETIN, etc.
     raw_record_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.raw_source_records.id"))
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Source-aware tracking (migration 013)
+    source_authority: Mapped[Optional[str]] = mapped_column(Text)  # IRSA, FFD/PMD, KAGGLE
+    source_publication_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    source_parser_version: Mapped[Optional[str]] = mapped_column(Text)
+    source_content_hash: Mapped[Optional[str]] = mapped_column(Text)
+    source_priority: Mapped[Optional[int]] = mapped_column(Integer, default=3)  # 1=IRSA, 2=FFD, 3=Kaggle, 4=Synthetic
 
     asset: Mapped[WaterAsset] = relationship("WaterAsset")
     source: Mapped[WaterSource] = relationship("WaterSource")
@@ -371,6 +380,15 @@ class WaterOperationalAlert(Base):
 
     # Audit
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Downstream impact (computed when alert is created)
+    downstream_impact_summary: Mapped[Optional[str]] = mapped_column(Text)  # JSON summary
+    downstream_population_exposed: Mapped[Optional[int]] = mapped_column(BigInteger)
+    downstream_bridges_at_risk: Mapped[Optional[int]] = mapped_column(Integer)
+    downstream_hospitals_at_risk: Mapped[Optional[int]] = mapped_column(Integer)
+    downstream_furthest_asset: Mapped[Optional[str]] = mapped_column(Text)
+    downstream_furthest_arrival_hours: Mapped[Optional[float]] = mapped_column(Numeric)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -695,4 +713,68 @@ class NotificationDelivery(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # SENT, FAILED, SUPPRESSED, RETRYING
     attempt_count: Mapped[int] = mapped_column(Integer, default=1)
     error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── ML MODEL REGISTRY & VALIDATION ────────────────────────────────────────
+
+
+class ModelVersionDB(Base):
+    """Model version registry — tracks lifecycle: EXPERIMENTAL→SHADOW→APPROVED→PRODUCTION."""
+
+    __tablename__ = "model_versions"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    model_type: Mapped[str] = mapped_column(String(50), nullable=False)  # xgb_flood, iforest_anomaly, persistence
+    asset_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="EXPERIMENTAL")
+    # EXPERIMENTAL | SHADOW | APPROVED | REJECTED | PRODUCTION
+    metrics: Mapped[Optional[dict]] = mapped_column(JSON)
+    validation_report_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    trained_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[Optional[str]] = mapped_column(String(100))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ValidationReportDB(Base):
+    """Validation reports from walk-forward backtesting."""
+
+    __tablename__ = "validation_reports"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+    model_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    horizon: Mapped[int] = mapped_column(Integer, nullable=False)
+    metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    data_info: Mapped[dict] = mapped_column(JSON, nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(20), nullable=False)  # EXPERIMENTAL, SHADOW, REJECTED
+    reasons: Mapped[Optional[list]] = mapped_column(JSON)
+    fold_details: Mapped[Optional[list]] = mapped_column(JSON)
+    validated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PredictionErrorDB(Base):
+    """Stores individual prediction errors for audit and analysis."""
+
+    __tablename__ = "prediction_errors"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"))
+    model_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    prediction_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    target_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    horizon: Mapped[int] = mapped_column(Integer, nullable=False)
+    predicted_value: Mapped[float] = mapped_column(Float, nullable=False)
+    actual_value: Mapped[float] = mapped_column(Float, nullable=False)
+    error: Mapped[float] = mapped_column(Float, nullable=False)
+    error_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    data_origin: Mapped[str] = mapped_column(String(20), nullable=False)  # REAL, SYNTHETIC
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

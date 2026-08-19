@@ -48,6 +48,13 @@ services:
       - "8100:8100"
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
+      RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
@@ -84,6 +91,40 @@ services:
     volumes:
       - irsa-archive:/app/raw_archive
 
+  # ── Daily Database Backup ────────────────────────────────────────
+  backup:
+    image: postgres:16-alpine
+    container_name: ibcp-backup
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-1234}
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - pgbackups:/backups
+    networks:
+      - scada-net
+    entrypoint: >
+      sh -c '
+        echo "Backup service started. Running daily at 02:00 UTC."
+        while true; do
+          TIMESTAMP=$$(date +%Y%m%d_%H%M%S)
+          echo "[$$(date)] Starting backup: ibcp_scada_$$TIMESTAMP.sql.gz"
+          pg_dump -h db -U postgres ibcp_scada --no-owner --no-privileges | gzip > /backups/ibcp_scada_$$TIMESTAMP.sql.gz
+          if [ $$? -eq 0 ]; then
+            echo "[$$(date)] Backup successful"
+            # Keep only last 30 backups
+            ls -1t /backups/ibcp_scada_*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm --
+          else
+            echo "[$$(date)] BACKUP FAILED"
+          fi
+          echo "[$$(date)] Next backup in 24 hours"
+          sleep 86400
+        done
+      '
+
   # ── Frontend ─────────────────────────────────────────────────────
   frontend:
     build:
@@ -102,6 +143,7 @@ services:
 
 volumes:
   pgdata:
+  pgbackups:
   irsa-archive:
 
 networks:

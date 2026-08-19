@@ -130,7 +130,11 @@ def validate_observation(
 
     # Check 5: Staleness (if source_date provided)
     if source_date:
-        age_hours = (datetime.now(timezone.utc) - source_date).total_seconds() / 3600
+        if isinstance(source_date, datetime):
+            source_dt = source_date
+        else:
+            source_dt = datetime.combine(source_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - source_dt).total_seconds() / 3600
         if age_hours > 48:
             warnings.append(f"Data is {age_hours:.1f}h old (stale)")
 
