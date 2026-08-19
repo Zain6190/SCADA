@@ -107,6 +107,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Alerts', href: '/admin/alerts', icon: Bell, section: 'admin' },
       { label: 'Assets', href: '/admin/assets', icon: Gauge, section: 'admin' },
       { label: 'ML Validation', href: '/admin/validation', icon: BarChart3, section: 'admin' },
+      { label: 'Downstream Impact', href: '/admin/impact', icon: MapPin, section: 'admin' },
     ],
   },
 ]
