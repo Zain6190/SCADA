@@ -281,6 +281,11 @@ export interface OperationalAlert {
   downstream_hospitals_at_risk?: number | null
   downstream_furthest_asset?: string | null
   downstream_furthest_arrival_hours?: number | null
+  // Flood classification
+  flood_probability?: number | null
+  flood_severity?: string | null
+  flood_confidence?: string | null
+  flood_recommendation?: string | null
 }
 
 export interface OperationalThreshold {

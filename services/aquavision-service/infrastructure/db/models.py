@@ -389,6 +389,12 @@ class WaterOperationalAlert(Base):
     downstream_furthest_asset: Mapped[Optional[str]] = mapped_column(Text)
     downstream_furthest_arrival_hours: Mapped[Optional[float]] = mapped_column(Numeric)
     
+    # Flood classification (computed when alert is created)
+    flood_probability: Mapped[Optional[float]] = mapped_column(Numeric)
+    flood_severity: Mapped[Optional[str]] = mapped_column(Text)
+    flood_confidence: Mapped[Optional[str]] = mapped_column(Text)
+    flood_recommendation: Mapped[Optional[str]] = mapped_column(Text)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

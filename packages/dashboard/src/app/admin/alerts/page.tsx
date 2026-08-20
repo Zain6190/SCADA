@@ -182,6 +182,31 @@ function AdminAlertRow({
               </div>
             </div>
           )}
+          
+          {/* Flood Classification */}
+          {alert.flood_probability != null && alert.flood_probability > 0 && (
+            <div className="mt-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+              <p className="text-xs font-medium text-red-300 mb-2">FLOOD CLASSIFICATION</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <p className="text-slate-400">Probability</p>
+                  <p className="text-white font-medium">{(alert.flood_probability * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Severity</p>
+                  <p className="text-white font-medium">{alert.flood_severity}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Confidence</p>
+                  <p className="text-white font-medium">{alert.flood_confidence}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400">Recommendation</p>
+                  <p className="text-white font-medium">{alert.flood_recommendation}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 gap-2">
           {alert.status === 'NEW' && (

@@ -196,3 +196,118 @@ async def train_anomaly_detectors(session: Session = Depends(get_session)):
         models_trained=len(results),
         results=results,
     )
+
+
+# ─── Flood Classification ────────────────────────────────────────────────────
+
+class FloodClassificationResponse(BaseModel):
+    asset_id: int
+    asset_name: str
+    flood_probability: float
+    flood_predicted: bool
+    flood_severity: str
+    confidence: str
+    recommendation: str
+    model_available: bool
+
+
+@router.get("/ml/flood-classification/{asset_id}", response_model=FloodClassificationResponse)
+async def get_flood_classification(
+    asset_id: int,
+    session: Session = Depends(get_session),
+):
+    """Get flood probability classification for an asset.
+
+    Returns flood_probability (0.0-1.0), severity, and recommendation.
+    """
+    asset = session.get(WaterAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    from ml.models.flood_classifier import FloodClassifier
+    from pathlib import Path
+
+    model_path = Path(__file__).parent.parent / "data" / "models" / f"flood_classifier_asset_{asset_id}.pkl"
+
+    if not model_path.exists():
+        return FloodClassificationResponse(
+            asset_id=asset_id,
+            asset_name=asset.canonical_name,
+            flood_probability=0.0,
+            flood_predicted=False,
+            flood_severity="NONE",
+            confidence="LOW",
+            recommendation="No model trained for this asset",
+            model_available=False,
+        )
+
+    try:
+        clf = FloodClassifier.load(asset_id, model_path)
+
+        # Load recent observations
+        from sqlalchemy import text
+        from infrastructure.db.engine import engine as sa_engine
+
+        with sa_engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT observed_at, inflow_cusecs, outflow_cusecs,
+                           water_level_ft, discharge_cusecs
+                    FROM aquavision.water_observations
+                    WHERE asset_id = :asset_id
+                    AND inflow_cusecs IS NOT NULL
+                    ORDER BY observed_at DESC
+                    LIMIT 60
+                """),
+                {"asset_id": asset_id},
+            ).mappings().all()
+
+        if not rows:
+            raise HTTPException(400, "No observation data available")
+
+        import pandas as pd
+        from decimal import Decimal
+
+        df = pd.DataFrame(list(reversed(rows)))
+        for col in df.columns:
+            if df[col].dtype == object:
+                try:
+                    df[col] = df[col].apply(lambda x: float(x) if isinstance(x, (Decimal, int)) else x)
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                except Exception:
+                    pass
+
+        result = clf.predict(df)
+
+        if "error" in result:
+            raise HTTPException(400, result["error"])
+
+        return FloodClassificationResponse(
+            asset_id=asset_id,
+            asset_name=asset.canonical_name,
+            flood_probability=result["flood_probability"],
+            flood_predicted=result["flood_predicted"],
+            flood_severity=result["flood_severity"],
+            confidence=result["confidence"],
+            recommendation=result["recommendation"],
+            model_available=True,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Classification failed: {str(e)}")
+
+
+@router.post("/ml/flood-classification/train")
+async def train_flood_classifiers():
+    """Train flood classifiers for all assets with sufficient data."""
+    from ml.models.flood_classifier import train_all_classifiers
+
+    results = train_all_classifiers(horizon=7)
+    trained = len([r for r in results if "error" not in r])
+
+    return {
+        "models_trained": trained,
+        "results": results,
+    }
