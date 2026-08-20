@@ -51,7 +51,40 @@ async def lifespan(app: FastAPI):
         seed_if_empty()
     except Exception as exc:  # pragma: no cover - non-fatal for startup
         logger.warning("Seeding skipped: %s", exc)
+
+    # Wire notification dispatcher
+    from infrastructure.notifications.dispatcher import NotificationDispatcher
+    from infrastructure.notifications.email_notifier import EmailNotifier
+    from infrastructure.notifications.slack_notifier import SlackNotifier
+    from infrastructure.db.engine import SessionLocal
+
+    notifiers = []
+    if settings.SMTP_HOST and settings.SMTP_USERNAME:
+        notifiers.append(EmailNotifier(
+            smtp_host=settings.SMTP_HOST,
+            smtp_port=settings.SMTP_PORT,
+            username=settings.SMTP_USERNAME,
+            password=settings.SMTP_PASSWORD,
+            from_addr=settings.SMTP_FROM or settings.SMTP_USERNAME,
+            use_tls=settings.SMTP_USE_TLS,
+        ))
+        logger.info(f"Email notifier configured: {settings.SMTP_HOST}:{settings.SMTP_PORT}")
+
+    if settings.SLACK_WEBHOOK_URL:
+        notifiers.append(SlackNotifier(webhook_url=settings.SLACK_WEBHOOK_URL))
+        logger.info("Slack notifier configured")
+
+    if not notifiers:
+        logger.warning("No notification channels configured (set SMTP_* or SLACK_WEBHOOK_URL env vars)")
+
+    # Store dispatcher on app state for use by threshold engine
+    db_session = SessionLocal()
+    app.state.notification_dispatcher = NotificationDispatcher(db_session, notifiers)
+    app.state.notification_notifiers = notifiers
+
     yield
+
+    db_session.close()
 
 
 app = FastAPI(
@@ -103,6 +136,7 @@ from presentation.http.routers import (  # noqa: E402
     predictions,
     regions,
     reports,
+    sensors,
     thresholds,
     validation,
 )
@@ -125,6 +159,7 @@ app.include_router(operational.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(regions.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)
 
 
 @app.get("/")

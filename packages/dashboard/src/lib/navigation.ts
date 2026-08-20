@@ -19,6 +19,7 @@ import {
   Workflow,
   Users,
   Settings,
+  Radio,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -62,6 +63,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Regions', href: '/water/regions', icon: MapIcon, section: 'aqua' },
       { label: 'Predictions', href: '/water/predictions', icon: LineChart, section: 'aqua' },
       { label: 'Anomalies', href: '/water/anomalies', icon: ShieldAlert, section: 'aqua' },
+      { label: 'Sensors', href: '/water/sensors', icon: Radio, section: 'aqua' },
       { label: 'Alerts (Weekly)', href: '/water/alerts', icon: ScrollText, section: 'aqua' },
     ],
   },

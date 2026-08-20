@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from infrastructure.db.engine import SessionLocal
 from infrastructure.db.models import WaterAsset
 from ml.features.feature_engineering import FloodFeatureBuilder
-from ml.models.flood_predictor import FloodPredictor
+from ml.models.flood_predictor import FloodPredictor, HighFlowPredictor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +24,7 @@ logger = logging.getLogger("aquavision.ml.train")
 def train_all_assets(horizons=[7, 14, 30]):
     """Train flood prediction models for all active assets."""
     predictor = FloodPredictor()
+    hf_predictor = HighFlowPredictor()
     results = []
     
     with SessionLocal() as session:
@@ -56,6 +57,7 @@ def train_all_assets(horizons=[7, 14, 30]):
                     logger.warning(f"  No training data for {asset.canonical_name} horizon={horizon}")
                     continue
                 
+                # Train standard model
                 metrics = predictor.train(
                     asset_id=asset.id,
                     X=X,
@@ -63,9 +65,19 @@ def train_all_assets(horizons=[7, 14, 30]):
                     feature_names=feature_names,
                     horizon=horizon,
                 )
-                
                 results.append(metrics)
-                logger.info(f"  Metrics: {metrics}")
+                
+                # Train high-flow model
+                if len(X) >= 20:
+                    hf_metrics = hf_predictor.train(
+                        asset_id=asset.id,
+                        X=X,
+                        y=y,
+                        feature_names=feature_names,
+                        horizon=horizon,
+                    )
+                    results.append(hf_metrics)
+                    logger.info(f"  High-flow model: R2={hf_metrics.get('r2', 'N/A')}")
     
     return results
 
@@ -107,8 +119,7 @@ def test_prediction(asset_id: int = 1, horizon: int = 7):
             logger.info(f"{'='*60}")
             logger.info(f"  Horizon: {prediction.horizon_days} days")
             logger.info(f"  Predicted Level: {prediction.predicted_level_ft} ft")
-            logger.info(f"  Confidence: {prediction.confidence:.0%}")
-            logger.info(f"  80% PI: [{prediction.lower_bound_80}, {prediction.upper_bound_80}]")
+            logger.info(f"  Prediction Interval: [{prediction.lower_bound}, {prediction.upper_bound}]")
             logger.info(f"  Risk Score: {prediction.risk_score}/100")
             logger.info(f"  Risk Level: {prediction.risk_level}")
             logger.info(f"  Exceeds Warning: {prediction.exceeds_warning}")

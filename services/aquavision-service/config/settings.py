@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 120
     RATE_LIMIT_AUTH_PER_MINUTE: int = 10
 
+    # Notifications - Email
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_USE_TLS: bool = True
+    ALERT_RECIPIENTS: str = ""  # Comma-separated email addresses
+
+    # Notifications - Slack
+    SLACK_WEBHOOK_URL: str = ""
+
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # "json" or "text"
