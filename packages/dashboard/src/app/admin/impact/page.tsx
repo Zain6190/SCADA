@@ -122,12 +122,7 @@ export default function ImpactPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-sky-400" />
-            Calculate Impact
-          </h2>
-        </CardHeader>
+        <CardHeader title="Calculate Impact" icon={<Calculator className="h-5 w-5 text-sky-400" />} />
         <CardBody>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -206,15 +201,7 @@ export default function ImpactPage() {
           </div>
 
           <Card>
-            <CardHeader>
-              <h2 className="text-lg font-semibold text-white">
-                {result.source_asset} → {result.furthest_asset}
-              </h2>
-              <p className="text-sm text-slate-400">
-                {formatNumber(result.release_flow_cusecs)} cusecs release |{" "}
-                {result.chain_rivers.join(" + ")} chain
-              </p>
-            </CardHeader>
+            <CardHeader title={`${result.source_asset} → ${result.furthest_asset}`} subtitle={`${formatNumber(result.release_flow_cusecs)} cusecs release | ${result.chain_rivers.join(' + ')} chain`} />
             <CardBody className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -254,12 +241,12 @@ export default function ImpactPage() {
                         <td className="p-3 text-right text-red-400">{seg.hospitals_count}</td>
                         <td className="p-3 text-center">
                           <Badge
-                            variant={
+                            tone={
                               seg.confidence === "HIGH"
-                                ? "default"
+                                ? "emerald"
                                 : seg.confidence === "MEDIUM"
-                                ? "secondary"
-                                : "destructive"
+                                ? "amber"
+                                : "red"
                             }
                           >
                             {seg.confidence}
@@ -275,9 +262,7 @@ export default function ImpactPage() {
 
           {result.segments.length > 0 && (
             <Card>
-              <CardHeader>
-                <h2 className="text-lg font-semibold text-white">Impact Timeline</h2>
-              </CardHeader>
+              <CardHeader title="Impact Timeline" />
               <CardBody>
                 <div className="relative">
                   <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-700" />

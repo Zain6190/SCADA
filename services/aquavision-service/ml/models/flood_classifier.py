@@ -307,7 +307,7 @@ def train_all_classifiers(horizon: int = 7) -> list[dict]:
                 WHERE id IN (
                     SELECT DISTINCT asset_id 
                     FROM aquavision.water_observations 
-                    WHERE inflow_cusecs IS NOT NULL
+                    WHERE inflow_cusecs IS NOT NULL OR discharge_cusecs IS NOT NULL
                     GROUP BY asset_id 
                     HAVING COUNT(*) > 200
                 )
@@ -325,11 +325,13 @@ def train_all_classifiers(horizon: int = 7) -> list[dict]:
         with sa_engine.connect() as conn:
             rows = conn.execute(
                 text("""
-                    SELECT observed_at, inflow_cusecs, outflow_cusecs, 
+                    SELECT observed_at, 
+                           COALESCE(inflow_cusecs, discharge_cusecs) as inflow_cusecs,
+                           outflow_cusecs,
                            water_level_ft, discharge_cusecs
                     FROM aquavision.water_observations
                     WHERE asset_id = :asset_id 
-                    AND inflow_cusecs IS NOT NULL
+                    AND (inflow_cusecs IS NOT NULL OR discharge_cusecs IS NOT NULL)
                     ORDER BY observed_at
                 """),
                 {"asset_id": asset_id},

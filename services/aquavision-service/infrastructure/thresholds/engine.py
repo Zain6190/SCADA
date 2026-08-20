@@ -212,6 +212,58 @@ def _create_alert(
                 logger.info(f"Downstream impact calculated: {impact_summary}")
         except Exception as e:
             logger.warning(f"Failed to calculate downstream impact: {e}")
+
+    # Run flood classification if model available
+    flood_prob = None
+    flood_sev = None
+    flood_conf = None
+    flood_rec = None
+    
+    try:
+        from ml.models.flood_classifier import FloodClassifier
+        from pathlib import Path
+        from infrastructure.db.engine import engine as sa_engine
+        import pandas as pd
+        from decimal import Decimal
+        
+        model_path = Path(__file__).parent.parent.parent / "data" / "models" / f"flood_classifier_asset_{asset_id}.pkl"
+        if model_path.exists():
+            clf = FloodClassifier.load(asset_id, model_path)
+            
+            with sa_engine.connect() as conn:
+                from sqlalchemy import text
+                rows = conn.execute(
+                    text("""
+                        SELECT observed_at, inflow_cusecs, outflow_cusecs,
+                               water_level_ft, discharge_cusecs
+                        FROM aquavision.water_observations
+                        WHERE asset_id = :asset_id
+                        AND inflow_cusecs IS NOT NULL
+                        ORDER BY observed_at DESC
+                        LIMIT 60
+                    """),
+                    {"asset_id": asset_id},
+                ).mappings().all()
+            
+            if rows:
+                df = pd.DataFrame(list(reversed(rows)))
+                for col in df.columns:
+                    if df[col].dtype == object:
+                        try:
+                            df[col] = df[col].apply(lambda x: float(x) if isinstance(x, (Decimal, int)) else x)
+                            df[col] = pd.to_numeric(df[col], errors="coerce")
+                        except Exception:
+                            pass
+                
+                pred = clf.predict(df)
+                if "error" not in pred:
+                    flood_prob = pred["flood_probability"]
+                    flood_sev = pred["flood_severity"]
+                    flood_conf = pred["confidence"]
+                    flood_rec = pred["recommendation"]
+                    logger.info(f"Flood classification: probability={flood_prob:.3f}, severity={flood_sev}")
+    except Exception as e:
+        logger.warning(f"Failed to run flood classification: {e}")
     
     alert = WaterOperationalAlert(
         asset_id=asset_id,
@@ -237,6 +289,10 @@ def _create_alert(
         downstream_hospitals_at_risk=impact_hospitals,
         downstream_furthest_asset=impact_furthest,
         downstream_furthest_arrival_hours=impact_arrival_hours,
+        flood_probability=flood_prob,
+        flood_severity=flood_sev,
+        flood_confidence=flood_conf,
+        flood_recommendation=flood_rec,
     )
     db.add(alert)
     db.flush()

@@ -57,6 +57,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Operations', href: '/water/operator', icon: Workflow, section: 'aqua' },
       { label: 'Analyst', href: '/water/analyst', icon: LineChart, section: 'aqua' },
       { label: 'Live Map', href: '/water/map', icon: MapIcon, section: 'aqua' },
+      { label: 'Flood Map', href: '/water/flood-map', icon: MapIcon, section: 'aqua' },
       { label: 'Indicators', href: '/water/indicators', icon: Activity, section: 'aqua' },
       { label: 'Regions', href: '/water/regions', icon: MapIcon, section: 'aqua' },
       { label: 'Predictions', href: '/water/predictions', icon: LineChart, section: 'aqua' },
