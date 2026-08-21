@@ -477,10 +477,38 @@ def _wire_false_invalid_data(db: Session, asset_id: int) -> List[str]:
 def _dispatch_notifications(db: Session, alerts: List[WaterOperationalAlert]) -> None:
     """Dispatch notifications for critical/warning alerts.
     
-    Creates NotificationDelivery records with dedup keys.
-    Delivery is QUEUED — actual sending is handled by the notification worker.
+    Uses the NotificationDispatcher to send via configured channels (Email, Slack).
+    Includes database-backed deduplication to prevent duplicate sends.
     """
-    from infrastructure.db.models import NotificationDelivery
+    from infrastructure.notifications.base import AlertNotification
+    from infrastructure.notifications.dispatcher import NotificationDispatcher
+    from infrastructure.notifications.email_notifier import EmailNotifier
+    from infrastructure.notifications.slack_notifier import SlackNotifier
+    from config.settings import settings
+
+    # Build notifiers from settings
+    notifiers = []
+    if settings.SMTP_HOST and settings.SMTP_USERNAME:
+        notifiers.append(EmailNotifier(
+            smtp_host=settings.SMTP_HOST,
+            smtp_port=settings.SMTP_PORT,
+            username=settings.SMTP_USERNAME,
+            password=settings.SMTP_PASSWORD,
+            from_addr=settings.SMTP_FROM or settings.SMTP_USERNAME,
+            use_tls=settings.SMTP_USE_TLS,
+        ))
+    if settings.SLACK_WEBHOOK_URL:
+        notifiers.append(SlackNotifier(webhook_url=settings.SLACK_WEBHOOK_URL))
+
+    if not notifiers:
+        return  # No channels configured
+
+    dispatcher = NotificationDispatcher(db, notifiers)
+
+    # Parse recipients from env
+    recipients = [r.strip() for r in settings.ALERT_RECIPIENTS.split(",") if r.strip()]
+    if not recipients:
+        recipients = ["ops-team@ibcp.gov.pk"]
 
     for alert in alerts:
         if alert.severity not in (SEVERITY_WARNING, SEVERITY_CRITICAL):
@@ -489,38 +517,28 @@ def _dispatch_notifications(db: Session, alerts: List[WaterOperationalAlert]) ->
         asset = db.get(WaterAsset, alert.asset_id)
         asset_name = asset.canonical_name if asset else f"Asset {alert.asset_id}"
 
-        # Default recipient for now — in production, look up from preferences
-        recipient = "ops-team@ibcp.gov.pk"
-        channel = "EMAIL"
-
-        # Dedup key: same alert_type + asset within 1 hour = same notification
-        dedup_key = f"alert:{alert.alert_type}:{alert.asset_id}:{alert.severity}"
-
-        # Check if already delivered recently (1 hour cooldown)
-        cutoff = datetime.utcnow() - timedelta(hours=1)
-        recent = db.execute(
-            select(func.count(NotificationDelivery.id)).where(
-                NotificationDelivery.dedup_key == dedup_key,
-                NotificationDelivery.recipient == recipient,
-                NotificationDelivery.created_at >= cutoff,
-            )
-        ).scalar()
-
-        if recent > 0:
-            continue
-
-        delivery = NotificationDelivery(
-            alert_key=alert.alert_type,
-            recipient=recipient,
-            channel=channel,
-            dedup_key=dedup_key,
-            status="QUEUED",
-            created_at=datetime.utcnow(),
+        notification = AlertNotification(
+            alert_key=f"alert:{alert.alert_type}:{alert.asset_id}:{alert.severity}",
+            alert_type=alert.alert_type,
+            severity=alert.severity,
+            asset_id=alert.asset_id,
+            asset_name=asset_name,
+            title=alert.message[:120],
+            message=alert.message,
+            source="AQUAVISION",
+            details={
+                "triggered_value": str(alert.triggered_value) if alert.triggered_value else None,
+                "threshold_value": str(alert.threshold_value) if alert.threshold_value else None,
+                "downstream_population": str(alert.downstream_population_exposed) if alert.downstream_population_exposed else None,
+            },
         )
-        db.add(delivery)
-        logger.info(f"Notification queued: {channel} to {recipient} for {alert.alert_type} on {asset_name}")
 
-    db.flush()
+        result = dispatcher.dispatch(notification, recipients)
+        logger.info(
+            f"Notification dispatch: sent={result['sent']}, "
+            f"suppressed={result['suppressed']}, failed={result['failed']} "
+            f"for {alert.alert_type} on {asset_name}"
+        )
 
 
 # ─── Threshold Evaluation Functions ─────────────────────────────────────────

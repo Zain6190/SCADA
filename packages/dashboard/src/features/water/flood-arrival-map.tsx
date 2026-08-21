@@ -105,13 +105,14 @@ export function FloodArrivalMap({
 }: FloodArrivalMapProps) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
-  if (!mounted) return <div style={{ height }} className="rounded-xl bg-slate-900" />
 
   const activeAssets = useMemo(() => {
     const ids = new Set<number>()
     segments.forEach(s => { ids.add(s.from_id); ids.add(s.to_id) })
     return Array.from(ids)
   }, [segments])
+
+  if (!mounted) return <div style={{ height }} className="rounded-xl bg-slate-900" />
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-800" style={{ height }}>
