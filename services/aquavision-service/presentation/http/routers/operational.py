@@ -56,6 +56,11 @@ class AssetResponse(BaseModel):
     active_alert_count: int = 0
     highest_severity: Optional[str] = None
 
+    # ML flood classification (latest from alerts)
+    flood_probability: Optional[float] = None
+    flood_severity: Optional[str] = None
+    flood_recommendation: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -96,6 +101,18 @@ class AlertResponse(BaseModel):
     acknowledged_at: Optional[datetime]
     resolved_at: Optional[datetime]
     notes: Optional[str]
+    episode_id: Optional[int] = None
+    downstream_impact_summary: Optional[str] = None
+    downstream_population_exposed: Optional[int] = None
+    downstream_bridges_at_risk: Optional[int] = None
+    downstream_hospitals_at_risk: Optional[int] = None
+    downstream_furthest_asset: Optional[str] = None
+    downstream_furthest_arrival_hours: Optional[float] = None
+    flood_probability: Optional[float] = None
+    flood_severity: Optional[str] = None
+    flood_confidence: Optional[str] = None
+    flood_recommendation: Optional[str] = None
+    alert_source: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -151,6 +168,46 @@ class EvaluateResponse(BaseModel):
     alerts: dict
 
 
+def _build_alert_response(alert: WaterOperationalAlert, asset: WaterAsset = None) -> AlertResponse:
+    """Build AlertResponse from alert + optional asset."""
+    if not asset:
+        from infrastructure.db.engine import SessionLocal
+        with SessionLocal() as session:
+            asset = session.get(WaterAsset, alert.asset_id)
+    return AlertResponse(
+        id=alert.id,
+        asset_id=alert.asset_id,
+        asset_name=asset.canonical_name if asset else None,
+        alert_type=alert.alert_type,
+        severity=alert.severity,
+        status=alert.status,
+        message=alert.message,
+        triggered_value=float(alert.triggered_value) if alert.triggered_value else None,
+        threshold_value=float(alert.threshold_value) if alert.threshold_value else None,
+        reading_level_ft=float(alert.reading_level_ft) if alert.reading_level_ft else None,
+        reading_inflow_cusecs=float(alert.reading_inflow_cusecs) if alert.reading_inflow_cusecs else None,
+        reading_outflow_cusecs=float(alert.reading_outflow_cusecs) if alert.reading_outflow_cusecs else None,
+        reading_discharge_cusecs=float(alert.reading_discharge_cusecs) if alert.reading_discharge_cusecs else None,
+        rate_of_change_ft_6h=float(alert.rate_of_change_ft_6h) if alert.rate_of_change_ft_6h else None,
+        created_at=alert.created_at,
+        acknowledged_at=alert.acknowledged_at,
+        resolved_at=alert.resolved_at,
+        notes=alert.notes,
+        episode_id=alert.episode_id,
+        downstream_impact_summary=alert.downstream_impact_summary,
+        downstream_population_exposed=alert.downstream_population_exposed,
+        downstream_bridges_at_risk=alert.downstream_bridges_at_risk,
+        downstream_hospitals_at_risk=alert.downstream_hospitals_at_risk,
+        downstream_furthest_asset=alert.downstream_furthest_asset,
+        downstream_furthest_arrival_hours=float(alert.downstream_furthest_arrival_hours) if alert.downstream_furthest_arrival_hours else None,
+        flood_probability=float(alert.flood_probability) if alert.flood_probability else None,
+        flood_severity=alert.flood_severity,
+        flood_confidence=str(alert.flood_confidence) if alert.flood_confidence else None,
+        flood_recommendation=alert.flood_recommendation,
+        alert_source=alert.alert_source,
+    )
+
+
 # ─── ASSETS ─────────────────────────────────────────────────────────────────
 
 @router.get("/operational/assets", response_model=List[AssetResponse])
@@ -193,6 +250,39 @@ async def list_assets(
             ).limit(1)
         ).scalar_one_or_none()
 
+        # Get latest flood classification from most recent alert with probability
+        flood_prob = session.execute(
+            select(WaterOperationalAlert.flood_probability, WaterOperationalAlert.flood_severity, WaterOperationalAlert.flood_recommendation)
+            .where(
+                WaterOperationalAlert.asset_id == asset.id,
+                WaterOperationalAlert.flood_probability.isnot(None),
+            ).order_by(desc(WaterOperationalAlert.created_at)).limit(1)
+        ).first()
+
+        # Fallback: threshold-based probability if no ML classification exists
+        fp_value, fp_severity, fp_rec = None, None, None
+        if flood_prob:
+            fp_value = float(flood_prob[0]) if flood_prob[0] else None
+            fp_severity = flood_prob[1]
+            fp_rec = flood_prob[2]
+        elif latest_obs:
+            discharge = float(latest_obs.discharge_cusecs) if latest_obs.discharge_cusecs else None
+            inflow = float(latest_obs.inflow_cusecs) if latest_obs.inflow_cusecs else None
+            level = float(latest_obs.water_level_ft) if latest_obs.water_level_ft else None
+            value = discharge or inflow or level
+            if value and asset.warning_level_ft and asset.critical_level_ft:
+                warn = float(asset.warning_level_ft)
+                crit = float(asset.critical_level_ft)
+                if crit > warn and value >= warn:
+                    ratio = min((value - warn) / (crit - warn), 1.0)
+                    fp_value = round(0.05 + ratio * 0.85, 4)
+                    fp_severity = "CRITICAL" if ratio > 0.8 else "HIGH" if ratio > 0.5 else "MODERATE" if ratio > 0.2 else "LOW"
+                    fp_rec = f"Level at {ratio*100:.0f}% of critical threshold"
+            elif value and discharge:
+                fp_value = 0.05
+                fp_severity = "LOW"
+                fp_rec = "Normal operations - threshold-based estimate"
+
         data_age = None
         if latest_obs and latest_obs.observed_at:
             obs_time = latest_obs.observed_at
@@ -222,6 +312,9 @@ async def list_assets(
             data_age_hours=round(data_age, 1) if data_age else None,
             active_alert_count=alert_count,
             highest_severity=highest,
+            flood_probability=fp_value,
+            flood_severity=fp_severity,
+            flood_recommendation=fp_rec,
         ))
 
     return result
@@ -352,31 +445,88 @@ async def list_alerts(
         query.order_by(desc(WaterOperationalAlert.created_at)).limit(limit)
     ).scalars().all()
 
+    asset_ids = list({a.asset_id for a in alerts})
+    assets_map = {}
+    if asset_ids:
+        assets = session.execute(
+            select(WaterAsset).where(WaterAsset.id.in_(asset_ids))
+        ).scalars().all()
+        assets_map = {a.id: a for a in assets}
+
     result = []
     for alert in alerts:
-        asset = session.get(WaterAsset, alert.asset_id)
-        result.append(AlertResponse(
-            id=alert.id,
-            asset_id=alert.asset_id,
-            asset_name=asset.canonical_name if asset else None,
-            alert_type=alert.alert_type,
-            severity=alert.severity,
-            status=alert.status,
-            message=alert.message,
-            triggered_value=float(alert.triggered_value) if alert.triggered_value else None,
-            threshold_value=float(alert.threshold_value) if alert.threshold_value else None,
-            reading_level_ft=float(alert.reading_level_ft) if alert.reading_level_ft else None,
-            reading_inflow_cusecs=float(alert.reading_inflow_cusecs) if alert.reading_inflow_cusecs else None,
-            reading_outflow_cusecs=float(alert.reading_outflow_cusecs) if alert.reading_outflow_cusecs else None,
-            reading_discharge_cusecs=float(alert.reading_discharge_cusecs) if alert.reading_discharge_cusecs else None,
-            rate_of_change_ft_6h=float(alert.rate_of_change_ft_6h) if alert.rate_of_change_ft_6h else None,
-            created_at=alert.created_at,
-            acknowledged_at=alert.acknowledged_at,
-            resolved_at=alert.resolved_at,
-            notes=alert.notes,
-        ))
+        result.append(_build_alert_response(alert, assets_map.get(alert.asset_id)))
 
     return result
+
+
+@router.post("/operational/alerts/{alert_id}/investigate", response_model=AlertResponse)
+async def investigate_alert(
+    alert_id: int,
+    payload: AlertActionInput = AlertActionInput(),
+    session: Session = Depends(get_session),
+):
+    """Start investigating an alert (ACKNOWLEDGED -> INVESTIGATING)."""
+    alert = session.get(WaterOperationalAlert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status not in ("ACKNOWLEDGED",):
+        raise HTTPException(status_code=409, detail=f"Cannot investigate alert in status '{alert.status}'")
+
+    old_status = alert.status
+    alert.status = "INVESTIGATING"
+    alert.acknowledged_by = payload.performed_by
+    if not alert.acknowledged_at:
+        alert.acknowledged_at = datetime.utcnow()
+    if payload.notes:
+        alert.notes = payload.notes
+
+    audit = WaterAlertAuditLog(
+        alert_id=alert.id,
+        action="INVESTIGATING",
+        performed_by=payload.performed_by,
+        old_status=old_status,
+        new_status="INVESTIGATING",
+        notes=payload.notes,
+    )
+    session.add(audit)
+    session.commit()
+
+    asset = session.get(WaterAsset, alert.asset_id)
+    return _build_alert_response(alert, asset)
+
+
+@router.post("/operational/alerts/{alert_id}/escalate", response_model=AlertResponse)
+async def escalate_alert(
+    alert_id: int,
+    payload: AlertActionInput = AlertActionInput(),
+    session: Session = Depends(get_session),
+):
+    """Escalate an alert (INVESTIGATING -> ESCALATED)."""
+    alert = session.get(WaterOperationalAlert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status not in ("INVESTIGATING",):
+        raise HTTPException(status_code=409, detail=f"Cannot escalate alert in status '{alert.status}'")
+
+    old_status = alert.status
+    alert.status = "ESCALATED"
+    if payload.notes:
+        alert.notes = payload.notes
+
+    audit = WaterAlertAuditLog(
+        alert_id=alert.id,
+        action="ESCALATED",
+        performed_by=payload.performed_by,
+        old_status=old_status,
+        new_status="ESCALATED",
+        notes=payload.notes,
+    )
+    session.add(audit)
+    session.commit()
+
+    asset = session.get(WaterAsset, alert.asset_id)
+    return _build_alert_response(alert, asset)
 
 
 @router.post("/operational/alerts/{alert_id}/ack", response_model=AlertResponse)
@@ -411,26 +561,7 @@ async def acknowledge_alert(
     session.commit()
 
     asset = session.get(WaterAsset, alert.asset_id)
-    return AlertResponse(
-        id=alert.id,
-        asset_id=alert.asset_id,
-        asset_name=asset.canonical_name if asset else None,
-        alert_type=alert.alert_type,
-        severity=alert.severity,
-        status=alert.status,
-        message=alert.message,
-        triggered_value=float(alert.triggered_value) if alert.triggered_value else None,
-        threshold_value=float(alert.threshold_value) if alert.threshold_value else None,
-        reading_level_ft=float(alert.reading_level_ft) if alert.reading_level_ft else None,
-        reading_inflow_cusecs=float(alert.reading_inflow_cusecs) if alert.reading_inflow_cusecs else None,
-        reading_outflow_cusecs=float(alert.reading_outflow_cusecs) if alert.reading_outflow_cusecs else None,
-        reading_discharge_cusecs=float(alert.reading_discharge_cusecs) if alert.reading_discharge_cusecs else None,
-        rate_of_change_ft_6h=float(alert.rate_of_change_ft_6h) if alert.rate_of_change_ft_6h else None,
-        created_at=alert.created_at,
-        acknowledged_at=alert.acknowledged_at,
-        resolved_at=alert.resolved_at,
-        notes=alert.notes,
-    )
+    return _build_alert_response(alert, asset)
 
 
 @router.post("/operational/alerts/{alert_id}/resolve", response_model=AlertResponse)
@@ -439,11 +570,11 @@ async def resolve_alert(
     payload: AlertActionInput = AlertActionInput(),
     session: Session = Depends(get_session),
 ):
-    """Resolve an alert (NEW|ACKNOWLEDGED -> RESOLVED)."""
+    """Resolve an alert (NEW|ACKNOWLEDGED|INVESTIGATING|ESCALATED -> RESOLVED)."""
     alert = session.get(WaterOperationalAlert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    if alert.status not in ("NEW", "ACKNOWLEDGED", "INVESTIGATING"):
+    if alert.status not in ("NEW", "ACKNOWLEDGED", "INVESTIGATING", "ESCALATED"):
         raise HTTPException(status_code=409, detail=f"Cannot resolve alert in status '{alert.status}'")
 
     old_status = alert.status
@@ -465,26 +596,7 @@ async def resolve_alert(
     session.commit()
 
     asset = session.get(WaterAsset, alert.asset_id)
-    return AlertResponse(
-        id=alert.id,
-        asset_id=alert.asset_id,
-        asset_name=asset.canonical_name if asset else None,
-        alert_type=alert.alert_type,
-        severity=alert.severity,
-        status=alert.status,
-        message=alert.message,
-        triggered_value=float(alert.triggered_value) if alert.triggered_value else None,
-        threshold_value=float(alert.threshold_value) if alert.threshold_value else None,
-        reading_level_ft=float(alert.reading_level_ft) if alert.reading_level_ft else None,
-        reading_inflow_cusecs=float(alert.reading_inflow_cusecs) if alert.reading_inflow_cusecs else None,
-        reading_outflow_cusecs=float(alert.reading_outflow_cusecs) if alert.reading_outflow_cusecs else None,
-        reading_discharge_cusecs=float(alert.reading_discharge_cusecs) if alert.reading_discharge_cusecs else None,
-        rate_of_change_ft_6h=float(alert.rate_of_change_ft_6h) if alert.rate_of_change_ft_6h else None,
-        created_at=alert.created_at,
-        acknowledged_at=alert.acknowledged_at,
-        resolved_at=alert.resolved_at,
-        notes=alert.notes,
-    )
+    return _build_alert_response(alert, asset)
 
 
 # ─── THRESHOLDS ─────────────────────────────────────────────────────────────
@@ -854,3 +966,81 @@ async def trigger_ffd_ingest(
     
     result = ingest_ffd_bulletin(d)
     return FFDIngestResponse(**result)
+
+
+class IRSAIngestResponse(BaseModel):
+    success: bool
+    message: str
+    observations: int = 0
+    url: Optional[str] = None
+
+
+class FFDMarkerResponse(BaseModel):
+    id: int
+    station_name: str
+    river_name: Optional[str]
+    flood_status: str
+    discharge_cusecs: Optional[float]
+    gauge_level_ft: Optional[float]
+    observed_at: str
+    latitude: Optional[float]
+    longitude: Optional[float]
+    asset_id: Optional[int]
+
+
+@router.get("/operational/ffd/markers", response_model=List[FFDMarkerResponse])
+async def get_ffd_markers(session: Session = Depends(get_session)):
+    """Get latest FFD observations as map markers for the flood map layer."""
+    from infrastructure.db.models import WaterFFDObservation, WaterAsset
+
+    subq = (
+        select(
+            WaterFFDObservation.station_name,
+            func.max(WaterFFDObservation.id).label("max_id"),
+        )
+        .group_by(WaterFFDObservation.station_name)
+        .subquery()
+    )
+
+    rows = session.execute(
+        select(WaterFFDObservation, WaterAsset.latitude, WaterAsset.longitude)
+        .join(subq, WaterFFDObservation.id == subq.c.max_id)
+        .outerjoin(WaterAsset, WaterFFDObservation.asset_id == WaterAsset.id)
+        .order_by(WaterFFDObservation.station_name)
+    ).all()
+
+    return [
+        FFDMarkerResponse(
+            id=ffd.id,
+            station_name=ffd.station_name,
+            river_name=ffd.river_name,
+            flood_status=ffd.flood_status or "NORMAL",
+            discharge_cusecs=float(ffd.discharge_cusecs) if ffd.discharge_cusecs else None,
+            gauge_level_ft=float(ffd.gauge_level_ft) if ffd.gauge_level_ft else None,
+            observed_at=str(ffd.observed_at),
+            latitude=float(lat) if lat else None,
+            longitude=float(lng) if lng else None,
+            asset_id=ffd.asset_id,
+        )
+        for ffd, lat, lng in rows
+    ]
+
+
+@router.post("/operational/irsa/ingest", response_model=IRSAIngestResponse)
+async def trigger_irsa_ingest(target_date: Optional[str] = None):
+    """Trigger IRSA daily PDF ingestion. Downloads + parses + stores observations."""
+    from infrastructure.ingestion.irsa_downloader import auto_ingest_irsa
+    from datetime import date as date_type
+
+    d = None
+    if target_date:
+        try:
+            d = date_type.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    try:
+        result = auto_ingest_irsa(d)
+        return IRSAIngestResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IRSA ingestion failed: {str(e)}")

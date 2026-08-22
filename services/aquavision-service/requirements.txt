@@ -11,3 +11,11 @@ jinja2==3.1.6
 PyJWT==2.10.1
 slowapi==0.1.10
 python-json-logger==3.3.0
+httpx
+numpy
+pandas
+scikit-learn
+xgboost
+joblib
+beautifulsoup4
+requests
