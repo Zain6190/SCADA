@@ -17,12 +17,7 @@ export default function RegionsPage() {
 
   const regions = regionsQuery.data ?? []
   const alerts = alertsQuery.data ?? []
-  const openByRegion = new Map<number, number>()
-  for (const a of alerts) {
-    if (a.status !== 'Resolved') {
-      openByRegion.set(a.regionId, (openByRegion.get(a.regionId) ?? 0) + 1)
-    }
-  }
+  const openAlertCount = alerts.filter((a) => a.status !== 'RESOLVED').length
 
   const provinces = regions.filter((r) => r.type === 'province')
   const districts = regions.filter((r) => r.type !== 'province')
@@ -45,8 +40,8 @@ export default function RegionsPage() {
           <EmptyState title="No regions" message="Run the region ingest pipeline." />
         ) : (
           <>
-            <RegionTable title="Provinces" rows={provinces} openByRegion={openByRegion} />
-            {districts.length > 0 && <RegionTable title="Districts" rows={districts} openByRegion={openByRegion} />}
+            <RegionTable title="Provinces" rows={provinces} openAlertCount={openAlertCount} />
+            {districts.length > 0 && <RegionTable title="Districts" rows={districts} openAlertCount={openAlertCount} />}
           </>
         )}
       </div>
@@ -57,20 +52,21 @@ export default function RegionsPage() {
 function RegionTable({
   title,
   rows,
-  openByRegion,
+  openAlertCount,
 }: {
   title: string
   rows: Array<{ id: number; name: string; type: string; code?: string | null }>
-  openByRegion: Map<number, number>
+  openAlertCount: number
 }) {
   if (!rows.length) return null
   return (
     <Card>
       <CardHeader
         title={title}
-        subtitle={`${rows.length} regions · sorted by open alert pressure`}
+        subtitle={`${rows.length} regions`}
         icon={<MapPin className="h-5 w-5" />}
         accent="bg-sky-500/10 text-sky-300"
+        action={openAlertCount > 0 ? <Badge tone="amber">{openAlertCount} open alerts</Badge> : undefined}
       />
       <CardBody className="p-0">
         <table className="w-full text-left text-sm">
@@ -78,31 +74,23 @@ function RegionTable({
             <tr>
               <Th>Name</Th>
               <Th>Code</Th>
-              <Th>Open Alerts</Th>
               <Th></Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/70">
-            {[...rows]
-              .sort((a, b) => (openByRegion.get(b.id) ?? 0) - (openByRegion.get(a.id) ?? 0))
-              .map((r) => (
-                <tr key={r.id} className="text-slate-300 hover:bg-slate-800/30">
-                  <Td>
-                    <Link href={`/water/regions/${r.id}`} className="font-medium text-slate-100 hover:text-sky-300">
-                      {r.name}
-                    </Link>
-                  </Td>
-                  <Td><Badge tone="slate">{r.code || '—'}</Badge></Td>
-                  <Td>
-                    <Badge tone={openByRegion.get(r.id) ? 'amber' : 'emerald'}>
-                      {openByRegion.get(r.id) ?? 0}
-                    </Badge>
-                  </Td>
-                  <Td className="text-right text-[11px] text-slate-500">
-                    <Link href={`/water/regions/${r.id}`}>View →</Link>
-                  </Td>
-                </tr>
-              ))}
+            {rows.map((r) => (
+              <tr key={r.id} className="text-slate-300 hover:bg-slate-800/30">
+                <Td>
+                  <Link href={`/water/regions/${r.id}`} className="font-medium text-slate-100 hover:text-sky-300">
+                    {r.name}
+                  </Link>
+                </Td>
+                <Td><Badge tone="slate">{r.code || '\u2014'}</Badge></Td>
+                <Td className="text-right text-[11px] text-slate-500">
+                  <Link href={`/water/regions/${r.id}`}>View →</Link>
+                </Td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </CardBody>

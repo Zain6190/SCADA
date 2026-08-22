@@ -4,7 +4,6 @@ import { waterApi } from '@/features/water/api'
 import {
   mapIndicatorList,
   mapPredictionList,
-  mapAlertList,
   mapMapFeatureList,
   mapAssetSummaryList,
   mapAssetReadingsList,
@@ -23,8 +22,6 @@ export const waterKeys = {
   map: () => [...waterKeys.all, 'map'] as const,
   regions: () => [...waterKeys.all, 'regions'] as const,
   reports: () => [...waterKeys.all, 'reports'] as const,
-  thresholds: () => [...waterKeys.all, 'thresholds'] as const,
-  alertsAll: () => [...waterKeys.all, 'alerts', 'all'] as const,
   assets: () => [...waterKeys.all, 'assets'] as const,
   assetReadings: (assetId: number | null | undefined) =>
     [...waterKeys.all, 'assets', assetId, 'readings'] as const,
@@ -56,17 +53,20 @@ export function useWaterPredictions() {
   })
 }
 
-export function useWaterAlerts(params: Record<string, unknown> = {}) {
-  return useQuery({
-    queryKey: waterKeys.alerts(params),
-    queryFn: async () => mapAlertList(await waterApi.getAlerts(params)),
-    refetchInterval: 30_000,
-  })
-}
+// ─── Operational Alerts ─────────────────────────────────────────────────────
 
 export function useOperationalAlerts(params: { status?: string; severity?: string; asset_id?: number; limit?: number } = {}) {
   return useQuery({
     queryKey: waterKeys.operationalAlerts(params),
+    queryFn: () => waterApi.getOperationalAlerts(params),
+    refetchInterval: 30_000,
+  })
+}
+
+// Alias: legacy pages that still call useWaterAlerts
+export function useWaterAlerts(params: { status?: string; severity?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: waterKeys.alerts(params),
     queryFn: () => waterApi.getOperationalAlerts(params),
     refetchInterval: 30_000,
   })
@@ -93,6 +93,30 @@ export function useResolveOperationalAlert() {
     },
   })
 }
+
+export function useInvestigateOperationalAlert() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { alertId: number; performedBy?: string; notes?: string }) =>
+      waterApi.investigateOperationalAlert(payload.alertId, payload.performedBy ?? 'Admin', payload.notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: waterKeys.all })
+    },
+  })
+}
+
+export function useEscalateOperationalAlert() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { alertId: number; performedBy?: string; notes?: string }) =>
+      waterApi.escalateOperationalAlert(payload.alertId, payload.performedBy ?? 'Admin', payload.notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: waterKeys.all })
+    },
+  })
+}
+
+// ─── Map Data ───────────────────────────────────────────────────────────────
 
 export function useWaterMapData(params: { week?: string; region_type?: string } = {}) {
   return useQuery({
@@ -131,35 +155,6 @@ export function useGenerateReport() {
 export function useDownloadReport() {
   return useMutation({
     mutationFn: waterApi.downloadReport,
-  })
-}
-
-export function useWaterThresholds() {
-  return useQuery({
-    queryKey: waterKeys.thresholds(),
-    queryFn: waterApi.getThresholds,
-  })
-}
-
-export function useAcknowledgeWaterAlert() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (payload: { alertId: number; notes?: string }) =>
-      waterApi.acknowledgeAlert(payload.alertId, payload.notes),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: waterKeys.all })
-    },
-  })
-}
-
-export function useResolveWaterAlert() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (payload: { alertId: number; notes?: string }) =>
-      waterApi.resolveAlert(payload.alertId, payload.notes),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: waterKeys.all })
-    },
   })
 }
 

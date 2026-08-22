@@ -20,7 +20,7 @@ import { SeverityBadge, Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { ProgressBar } from '@/components/ui/progress'
 import { useWaterIndicators, useWaterAlerts, useWaterPredictions, useWaterRegions } from '@/features/water/hooks'
-import { regionNameById, sortBySeverity } from '@/features/water/mappers'
+import { regionNameById } from '@/features/water/mappers'
 import { fmtNumber, fmtDate } from '@/lib/format'
 
 export function RegionDetailClient() {
@@ -35,8 +35,7 @@ export function RegionDetailClient() {
   const indicators = indicatorsQuery.data ?? []
   const sorted = [...indicators].sort((a, b) => a.weekStart.localeCompare(b.weekStart))
   const chart = sorted.map((i) => ({ week: i.weekStart, wai: i.waiScore, sev: i.severity }))
-  const sortedAlerts = sortBySeverity((alertsQuery.data ?? []).filter((a) => a.regionId === id))
-  const openAlerts = sortedAlerts.filter((a) => a.status !== 'Resolved')
+  const openAlerts = (alertsQuery.data ?? []).filter((a) => a.status !== 'RESOLVED')
   const regionPred = predictionsQuery.data?.find((p) => p.regionId === id)
 
   return (
@@ -109,10 +108,10 @@ export function RegionDetailClient() {
                 ) : (
                   <div className="space-y-3">
                     {openAlerts.map((a) => (
-                      <Link href="/water/alerts" key={a.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 p-3 hover:border-slate-700">
+                      <Link href="/water/operator/alerts" key={a.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 p-3 hover:border-slate-700">
                         <div>
-                          <p className="text-sm font-medium text-slate-200">{a.alertType}</p>
-                          <p className="text-[11px] text-slate-500">{fmtDate(a.weekStartDate)}</p>
+                          <p className="text-sm font-medium text-slate-200">{a.asset_name ? `${a.asset_name} · ` : ''}{a.alert_type}</p>
+                          <p className="text-[11px] text-slate-500">{a.created_at ? fmtDate(a.created_at) : '—'}</p>
                         </div>
                         <SeverityBadge severity={a.severity} />
                       </Link>

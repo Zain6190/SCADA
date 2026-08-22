@@ -45,26 +45,6 @@ export interface WaterPrediction {
   confidence?: number | null
 }
 
-export type AlertStatus = 'New' | 'Acknowledged' | 'Resolved'
-
-export interface WaterAlert {
-  id: number
-  region_id: number
-  week_start_date: string
-  alert_type: string
-  severity: string
-  wai_score?: number | null
-  rainfall_anomaly?: number | null
-  et_anomaly?: number | null
-  surface_water_change_pct?: number | null
-  status: AlertStatus
-  assigned_to_user_id?: number | null
-  created_at: string
-  acknowledged_at?: string | null
-  resolved_at?: string | null
-  notes?: string | null
-}
-
 export interface WaterReport {
   id: number
   week_start_date: string
@@ -75,14 +55,6 @@ export interface WaterReport {
   generated_by_user_id?: number | null
   generated_at: string
   status: string
-}
-
-export interface WaterThreshold {
-  id: number
-  threshold_name: string
-  value: number
-  description?: string | null
-  updated_at: string
 }
 
 export interface Region {
@@ -156,23 +128,6 @@ export interface PredictionVM {
   predictedSeverity?: SeverityLevel | null
   predictedWaiScore?: number | null
   confidence?: number | null
-}
-
-export interface AlertVM {
-  id: number
-  regionId: number
-  weekStartDate: string
-  alertType: string
-  severity: SeverityLevel
-  waiScore?: number | null
-  rainfallAnomaly?: number | null
-  etAnomaly?: number | null
-  surfaceWaterChangePct?: number | null
-  status: WaterAlert['status']
-  createdAt: string
-  acknowledgedAt?: string | null
-  resolvedAt?: string | null
-  notes?: string | null
 }
 
 export interface MapFeatureVM {
@@ -274,6 +229,8 @@ export interface OperationalAlert {
   acknowledged_at?: string | null
   resolved_at?: string | null
   notes?: string | null
+  episode_id?: number | null
+  alert_source?: string | null
   // Downstream impact
   downstream_impact_summary?: string | null
   downstream_population_exposed?: number | null
@@ -284,7 +241,7 @@ export interface OperationalAlert {
   // Flood classification
   flood_probability?: number | null
   flood_severity?: string | null
-  flood_confidence?: string | null
+  flood_confidence?: number | null
   flood_recommendation?: string | null
 }
 

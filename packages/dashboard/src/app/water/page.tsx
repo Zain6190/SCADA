@@ -37,7 +37,7 @@ export default function WaterOverviewPage() {
   const indicators = useWaterIndicators({ limit: 20 })
 
   const alerts = alertsQuery.data ?? []
-  const openAlerts = alerts.filter((a) => a.status !== 'Resolved')
+  const openAlerts = alerts.filter((a) => a.status !== 'RESOLVED')
   const latest = overview.data?.week_start_date
   const latestRows = (indicators.data ?? []).filter((i) => i.weekStart === latest)
   const latestRow = latestRows[0]
@@ -272,7 +272,7 @@ export default function WaterOverviewPage() {
               subtitle="Auto-generated early-warning events"
               icon={<AlertTriangle size={18} />}
               accent="bg-amber-500/10 text-amber-300"
-              action={<Link href="/water/alerts"><Badge tone="amber">Manage →</Badge></Link>}
+              action={<Link href="/water/operator/alerts"><Badge tone="amber">Manage →</Badge></Link>}
             />
             <CardBody>
               {alertsQuery.isPending ? (
@@ -284,9 +284,9 @@ export default function WaterOverviewPage() {
                   {openAlerts.slice(0, 5).map((a) => (
                     <div key={a.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-200">{a.alertType}</p>
+                        <p className="truncate text-sm font-medium text-slate-200">{a.asset_name ? `${a.asset_name} · ` : ''}{a.alert_type}</p>
                         <p className="text-[11px] text-slate-500">
-                          {regionNameById(regions.data ?? [], a.regionId)} · {fmtDate(a.weekStartDate)}
+                          {a.created_at ? fmtDate(a.created_at) : '—'}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

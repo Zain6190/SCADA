@@ -51,6 +51,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'AquaVision · Water',
     accent: 'text-sky-400',
     items: [
+      { label: 'Command Center', href: '/water/command-center', icon: LayoutDashboard, section: 'aqua' },
       { label: 'Overview', href: '/water', icon: Droplets, section: 'aqua' },
       { label: 'Assets', href: '/water/operator/assets', icon: Workflow, section: 'aqua' },
       { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, section: 'aqua' },
@@ -64,7 +65,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Predictions', href: '/water/predictions', icon: LineChart, section: 'aqua' },
       { label: 'Anomalies', href: '/water/anomalies', icon: ShieldAlert, section: 'aqua' },
       { label: 'Sensors', href: '/water/sensors', icon: Radio, section: 'aqua' },
-      { label: 'Alerts (Weekly)', href: '/water/alerts', icon: ScrollText, section: 'aqua' },
     ],
   },
   {
