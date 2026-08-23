@@ -6,9 +6,7 @@ import type {
   WaterOverview,
   WaterIndicator,
   WaterPrediction,
-  WaterAlert,
   WaterReport,
-  WaterThreshold,
   Region,
   WaterMap,
   AssetSummaryVM as AssetSummary,
@@ -82,7 +80,7 @@ export const waterApi = {
   },
 
   getAlerts: async (params: { status?: string; severity?: string; limit?: number } = {}): Promise<any[]> => {
-    const { data } = await waterClient.get('/alerts', { params })
+    const { data } = await waterClient.get('/operational/alerts', { params })
     return data
   },
 
@@ -126,29 +124,8 @@ export const waterApi = {
     return data
   },
 
-  getThresholds: async (): Promise<WaterThreshold[]> => {
-    const { data } = await waterClient.get('/thresholds')
-    return data
-  },
-
   createIndicator: async (payload: IndicatorIngestPayload): Promise<WaterIndicator> => {
     const { data } = await waterClient.post('/indicators', payload)
-    return data
-  },
-
-  acknowledgeAlert: async (alertId: number, notes?: string): Promise<WaterAlert> => {
-    const { data } = await waterClient.patch(`/alerts/${alertId}`, {
-      status: 'Acknowledged',
-      notes: notes || null,
-    })
-    return data
-  },
-
-  resolveAlert: async (alertId: number, notes?: string): Promise<WaterAlert> => {
-    const { data } = await waterClient.patch(`/alerts/${alertId}`, {
-      status: 'Resolved',
-      notes: notes || null,
-    })
     return data
   },
 
@@ -201,6 +178,16 @@ export const waterApi = {
 
   resolveOperationalAlert: async (alertId: number, performedBy = 'Operator', notes?: string): Promise<OperationalAlert> => {
     const { data } = await waterClient.post(`/operational/alerts/${alertId}/resolve`, { performed_by: performedBy, notes })
+    return data
+  },
+
+  investigateOperationalAlert: async (alertId: number, performedBy = 'Operator', notes?: string): Promise<OperationalAlert> => {
+    const { data } = await waterClient.post(`/operational/alerts/${alertId}/investigate`, { performed_by: performedBy, notes })
+    return data
+  },
+
+  escalateOperationalAlert: async (alertId: number, performedBy = 'Operator', notes?: string): Promise<OperationalAlert> => {
+    const { data } = await waterClient.post(`/operational/alerts/${alertId}/escalate`, { performed_by: performedBy, notes })
     return data
   },
 

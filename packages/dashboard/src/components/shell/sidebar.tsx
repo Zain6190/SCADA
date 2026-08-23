@@ -108,25 +108,59 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <PortalSwitcher pathname={pathname} user={user} />
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {portalSections.map((section) => (
-          <div key={section.id}>
-            <p className={cn('mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.2em]', section.accent)}>
-              {section.title}
-            </p>
-            <div className="space-y-0.5">
-              {section.items.map((item) => (
-                <NavItemLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  icon={item.icon}
-                  active={pathIsActive(pathname, item.href)}
-                  onNavigate={onNavigate}
-                />
-              ))}
+        {portalSections.map((section) => {
+          const groups = new Map<string, typeof section.items>()
+          for (const item of section.items) {
+            const g = item.group || ''
+            if (!groups.has(g)) groups.set(g, [])
+            groups.get(g)!.push(item)
+          }
+          const hasGroups = section.items.some(i => i.group)
+
+          return (
+            <div key={section.id}>
+              <p className={cn('mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.2em]', section.accent)}>
+                {section.title}
+              </p>
+              {hasGroups ? (
+                Array.from(groups.entries()).map(([group, items]) => (
+                  <div key={group} className="mb-3">
+                    {group && (
+                      <p className="mb-0.5 px-3 pt-2 text-[10px] font-medium uppercase tracking-[0.15em] text-slate-600">
+                        {group}
+                      </p>
+                    )}
+                    <div className="space-y-0.5">
+                      {items.map((item) => (
+                        <NavItemLink
+                          key={item.href}
+                          href={item.href}
+                          label={item.label}
+                          icon={item.icon}
+                          active={pathIsActive(pathname, item.href)}
+                          onNavigate={onNavigate}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="space-y-0.5">
+                  {section.items.map((item) => (
+                    <NavItemLink
+                      key={item.href}
+                      href={item.href}
+                      label={item.label}
+                      icon={item.icon}
+                      active={pathIsActive(pathname, item.href)}
+                      onNavigate={onNavigate}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
         {portalSections.length === 0 && (
           <p className="px-3 py-6 text-center text-xs text-slate-600">
             No modules available for your role.

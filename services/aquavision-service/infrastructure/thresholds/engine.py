@@ -22,6 +22,7 @@ from infrastructure.db.engine import SessionLocal
 from infrastructure.db.models import (
     WaterAsset, WaterAssetThreshold, WaterObservation,
     WaterOperationalAlert, WaterAlertAuditLog, WaterFFDObservation,
+    WaterAlertEpisode,
 )
 
 logger = logging.getLogger("aquavision.thresholds")
@@ -190,6 +191,11 @@ def _create_alert(
     impact_arrival_hours = None
     
     flow_cusecs = reading_inflow_cusecs or reading_discharge_cusecs
+    if flow_cusecs:
+        try:
+            flow_cusecs = float(flow_cusecs)
+        except (TypeError, ValueError):
+            flow_cusecs = None
     if flow_cusecs and flow_cusecs > 100000:
         try:
             from infrastructure.impact.downstream_engine import DownstreamImpactEngine
@@ -311,6 +317,121 @@ def _create_alert(
 
     logger.info(f"Alert created: {severity} | {alert_type} | Asset {asset_id} | {message}")
     return alert
+
+
+# ─── Alert Episode Grouping ─────────────────────────────────────────────────
+
+# Which alert types belong to the same flood episode
+EPISODE_GROUPING = {
+    "flood_rising": {AlertType.LEVEL_ABOVE_WARNING, AlertType.LEVEL_ABOVE_DANGER, AlertType.LEVEL_ABOVE_CRITICAL,
+                     AlertType.HIGH_INFLOW, AlertType.RAPID_RISE, AlertType.RISING_LEVEL,
+                     AlertType.FFD_FLOOD_HIGH, AlertType.FFD_FLOOD_MEDIUM},
+    "discharge": {AlertType.HIGH_DISCHARGE, AlertType.FFD_FLOOD_HIGH, AlertType.FFD_FLOOD_MEDIUM},
+    "relationship": {AlertType.HIGH_INFLOW_LOW_OUTFLOW},
+}
+
+
+def _get_episode_group(alert_type: str) -> Optional[str]:
+    """Return the episode group name for an alert type, or None if standalone."""
+    for group_name, types in EPISODE_GROUPING.items():
+        if alert_type in types:
+            return group_name
+    return None
+
+
+def _get_or_create_episode(
+    db: Session,
+    asset_id: int,
+    alert_type: str,
+    severity: str,
+    message: str,
+    impact_population: int = None,
+    impact_furthest: str = None,
+    impact_arrival_hours: float = None,
+) -> WaterAlertEpisode:
+    """Get existing open episode for this asset+group, or create a new one.
+    
+    Episode key format: {asset_id}_{group}_{date}
+    This ensures one active episode per asset per flood event.
+    """
+    group = _get_episode_group(alert_type)
+    if not group:
+        return None  # Standalone alert, no episode
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    episode_key = f"asset{asset_id}_{group}_{today}"
+
+    # Check for existing open episode
+    existing = db.execute(
+        select(WaterAlertEpisode).where(
+            WaterAlertEpisode.episode_key == episode_key,
+            WaterAlertEpisode.status == "OPEN",
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        # Update severity if new alert is higher
+        if _higher_severity(severity, existing.severity) != existing.severity:
+            existing.severity = _higher_severity(severity, existing.severity)
+            db.flush()
+        return existing
+
+    # Create new episode
+    asset = db.get(WaterAsset, asset_id)
+    asset_name = asset.canonical_name if asset else f"Asset {asset_id}"
+    title = f"{group.replace('_', ' ').title()} — {asset_name} ({today})"
+
+    episode = WaterAlertEpisode(
+        episode_key=episode_key,
+        title=title,
+        severity=severity,
+        status="OPEN",
+        triggered_by_asset_id=asset_id,
+        notes=f"Auto-created for {alert_type} on {asset_name}",
+    )
+    db.add(episode)
+    db.flush()
+
+    logger.info(f"Episode created: {episode_key} | {title}")
+    return episode
+
+
+def _link_alert_to_episode(
+    db: Session,
+    alert: WaterOperationalAlert,
+    episode: WaterAlertEpisode,
+):
+    """Link an alert to an episode and update episode metadata."""
+    if not episode or not alert:
+        return
+
+    alert.episode_id = episode.id
+
+    # Update episode with worst impact data from all linked alerts
+    if alert.downstream_population_exposed:
+        # Check if this is the worst impact so far
+        linked = db.execute(
+            select(WaterOperationalAlert).where(
+                WaterOperationalAlert.episode_id == episode.id,
+                WaterOperationalAlert.downstream_population_exposed.isnot(None),
+            )
+        ).scalars().all()
+        
+        worst_pop = max([a.downstream_population_exposed or 0 for a in linked] + [0])
+        worst_furthest = None
+        worst_hours = None
+        for a in linked:
+            if (a.downstream_population_exposed or 0) == worst_pop:
+                worst_furthest = a.downstream_furthest_asset
+                worst_hours = a.downstream_furthest_arrival_hours
+        
+        episode.notes = (
+            f"Total population at risk: {worst_pop:,} | "
+            f"Furthest: {worst_furthest or 'N/A'} | "
+            f"Arrival: {worst_hours or 'N/A'}h"
+        )
+
+    db.flush()
 
 
 # ─── Phase 2C: Auto-Clear ──────────────────────────────────────────────────
@@ -853,12 +974,267 @@ def evaluate_asset(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
         )
         new_alerts.append(alert)
 
+        # Link to episode if applicable
+        episode = _get_or_create_episode(
+            db, asset_id, alert_type, severity, message,
+            impact_population=alert.downstream_population_exposed,
+            impact_furthest=alert.downstream_furthest_asset,
+            impact_arrival_hours=alert.downstream_furthest_arrival_hours,
+        )
+        if episode:
+            _link_alert_to_episode(db, alert, episode)
+
     # Phase 2C: Dispatch notifications for new critical/warning alerts
     if new_alerts:
         _dispatch_notifications(db, new_alerts)
 
     db.commit()
     return new_alerts
+
+
+# ─── ML Prediction → Alert Pipeline ─────────────────────────────────────────
+
+def check_prediction_alerts(db: Session, asset_id: int) -> List[WaterOperationalAlert]:
+    """Check ML predictions against thresholds and generate forecast alerts.
+    
+    Runs after each prediction. If predicted level exceeds danger/critical
+    thresholds within the forecast horizon, creates FORECAST_DANGER alerts.
+    """
+    alerts = []
+    
+    try:
+        from ml.models.flood_predictor import FloodPredictor
+        from pathlib import Path
+        
+        asset = db.get(WaterAsset, asset_id)
+        if not asset:
+            return []
+        
+        threshold = _get_threshold(db, asset_id)
+        if not threshold:
+            return []
+        
+        # Try 7-day prediction
+        model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{asset_id}_7.joblib"
+        if not model_path.exists():
+            return []
+        
+        predictor = FloodPredictor()
+        if not predictor.load_model(asset_id, 7):
+            return []
+        
+        # Get latest observation for prediction
+        obs = _get_latest_observation(db, asset_id)
+        if not obs or not obs.inflow_cusecs:
+            return []
+        
+        # Build minimal feature set for prediction
+        from infrastructure.db.engine import engine as sa_engine
+        from sqlalchemy import text
+        import numpy as np
+        
+        with sa_engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT observed_at, inflow_cusecs, outflow_cusecs,
+                           water_level_ft, discharge_cusecs
+                    FROM aquavision.water_observations
+                    WHERE asset_id = :asset_id
+                    ORDER BY observed_at DESC
+                    LIMIT 30
+                """),
+                {"asset_id": asset_id},
+            ).mappings().all()
+        
+        if len(rows) < 10:
+            return []
+        
+        # Use the predictor's feature builder
+        from ml.features.feature_engineering import FloodFeatureBuilder
+        builder = FloodFeatureBuilder(db)
+        
+        from datetime import datetime as dt, timedelta
+        end = dt.now(timezone.utc)
+        start = end - timedelta(days=400)
+        
+        X, y, feature_names, weights = builder.build_training_table(
+            asset_id=asset_id,
+            start_date=start,
+            end_date=end,
+            forecast_horizon=7,
+        )
+        
+        if len(X) == 0:
+            return []
+        
+        # Predict on latest row
+        prediction = predictor.predict(X[-1:])
+        if not prediction:
+            return []
+        
+        predicted_level = prediction.get("predicted_level_ft")
+        if predicted_level is None:
+            return []
+        
+        # Check against thresholds
+        now = dt.now(timezone.utc)
+        
+        if threshold.critical_level_ft and predicted_level >= threshold.critical_level_ft:
+            if not _open_alert_exists(db, asset_id, AlertType.FORECAST_DANGER_7D):
+                alert = _create_alert(
+                    db=db,
+                    asset_id=asset_id,
+                    alert_type=AlertType.FORECAST_DANGER_7D,
+                    severity=SEVERITY_CRITICAL,
+                    message=f"ML forecast: level predicted to reach {predicted_level:.0f} ft in 7 days (critical={threshold.critical_level_ft} ft)",
+                    triggered_value=predicted_level,
+                    threshold_value=threshold.critical_level_ft,
+                    alert_source="ML",
+                    model_version=f"xgb_{asset_id}_7d",
+                )
+                alerts.append(alert)
+        elif threshold.danger_level_ft and predicted_level >= threshold.danger_level_ft:
+            if not _open_alert_exists(db, asset_id, AlertType.FORECAST_DANGER_7D):
+                alert = _create_alert(
+                    db=db,
+                    asset_id=asset_id,
+                    alert_type=AlertType.FORECAST_DANGER_7D,
+                    severity=SEVERITY_WARNING,
+                    message=f"ML forecast: level predicted to reach {predicted_level:.0f} ft in 7 days (danger={threshold.danger_level_ft} ft)",
+                    triggered_value=predicted_level,
+                    threshold_value=threshold.danger_level_ft,
+                    alert_source="ML",
+                    model_version=f"xgb_{asset_id}_7d",
+                )
+                alerts.append(alert)
+        
+        if alerts:
+            logger.info(f"ML prediction alerts: {len(alerts)} for {asset.canonical_name}")
+    
+    except Exception as e:
+        logger.warning(f"ML prediction alert check failed for asset {asset_id}: {e}")
+    
+    return alerts
+
+
+# ─── Prediction Persistence ─────────────────────────────────────────────────
+
+def store_prediction(
+    db: Session,
+    asset_id: int,
+    predicted_level_ft: float = None,
+    predicted_inflow: float = None,
+    predicted_outflow: float = None,
+    predicted_discharge: float = None,
+    confidence: float = None,
+    model_version: str = None,
+    horizon_days: int = 7,
+):
+    """Store an ML prediction in water_asset_forecasts for historical tracking."""
+    from infrastructure.db.models import WaterAssetForecast
+    from datetime import datetime as dt, timedelta
+    
+    now = dt.now(timezone.utc)
+    target_time = now + timedelta(days=horizon_days)
+    
+    forecast = WaterAssetForecast(
+        asset_id=asset_id,
+        generated_at=now,
+        target_time=target_time,
+        predicted_level_ft=predicted_level_ft,
+        predicted_inflow=predicted_inflow,
+        predicted_outflow=predicted_outflow,
+        predicted_discharge=predicted_discharge,
+        confidence=confidence,
+        model_version=model_version or f"xgb_{asset_id}_{horizon_days}d",
+        notes=f"Auto-persisted by threshold engine",
+    )
+    db.add(forecast)
+    db.flush()
+    logger.info(f"Prediction stored: asset={asset_id}, level={predicted_level_ft}, horizon={horizon_days}d")
+    return forecast
+
+
+def run_prediction_pipeline(db: Session = None) -> dict:
+    """Run full prediction pipeline: train→predict→store→alert.
+    
+    Called after ingestion or on schedule.
+    """
+    close_session = False
+    if db is None:
+        db = SessionLocal()
+        close_session = True
+    
+    try:
+        assets = db.execute(
+            select(WaterAsset).where(WaterAsset.is_active == True)
+        ).scalars().all()
+        
+        total_stored = 0
+        total_alerts = 0
+        
+        for asset in assets:
+            try:
+                from ml.models.flood_predictor import FloodPredictor
+                from ml.features.feature_engineering import FloodFeatureBuilder
+                from pathlib import Path
+                from datetime import datetime as dt, timedelta
+                import numpy as np
+                
+                # Check if model exists
+                model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{asset.id}_7.joblib"
+                if not model_path.exists():
+                    continue
+                
+                predictor = FloodPredictor()
+                if not predictor.load_model(asset.id, 7):
+                    continue
+                
+                # Build features
+                builder = FloodFeatureBuilder(db)
+                end = dt.now(timezone.utc)
+                start = end - timedelta(days=400)
+                
+                X, y, feature_names, weights = builder.build_training_table(
+                    asset_id=asset.id,
+                    start_date=start,
+                    end_date=end,
+                    forecast_horizon=7,
+                )
+                
+                if len(X) == 0:
+                    continue
+                
+                # Predict
+                prediction = predictor.predict(X[-1:])
+                if not prediction or "error" in prediction:
+                    continue
+                
+                # Store prediction
+                store_prediction(
+                    db=db,
+                    asset_id=asset.id,
+                    predicted_level_ft=prediction.get("predicted_level_ft"),
+                    confidence=prediction.get("confidence"),
+                    model_version=f"xgb_{asset.id}_7d",
+                    horizon_days=7,
+                )
+                total_stored += 1
+                
+                # Check for alerts
+                alerts = check_prediction_alerts(db, asset.id)
+                total_alerts += len(alerts)
+                
+            except Exception as e:
+                logger.warning(f"Prediction pipeline failed for {asset.canonical_name}: {e}")
+        
+        db.commit()
+        logger.info(f"Prediction pipeline: {total_stored} predictions stored, {total_alerts} alerts generated")
+        return {"predictions_stored": total_stored, "alerts_generated": total_alerts}
+    
+    finally:
+        if close_session:
+            db.close()
 
 
 def evaluate_all_assets(db: Session = None) -> dict:

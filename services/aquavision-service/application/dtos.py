@@ -51,26 +51,6 @@ class WaterPredictionResponse(BaseModel):
     confidence: Optional[float] = None
 
 
-class WaterAlertResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    region_id: int
-    week_start_date: date
-    alert_type: str
-    severity: str
-    wai_score: Optional[float] = None
-    rainfall_anomaly: Optional[float] = None
-    et_anomaly: Optional[float] = None
-    surface_water_change_pct: Optional[float] = None
-    status: str
-    assigned_to_user_id: Optional[int] = None
-    created_at: datetime
-    acknowledged_at: Optional[datetime] = None
-    resolved_at: Optional[datetime] = None
-    notes: Optional[str] = None
-
-
 class WaterReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,16 +63,6 @@ class WaterReportResponse(BaseModel):
     generated_by_user_id: Optional[int] = None
     generated_at: datetime
     status: str
-
-
-class WaterThresholdResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    threshold_name: str
-    value: float
-    description: Optional[str] = None
-    updated_at: datetime
 
 
 class RegionResponse(BaseModel):
@@ -131,10 +101,6 @@ class WaterIndicatorCreate(BaseModel):
     et_anomaly: Optional[float] = None
     wai_score: Optional[float] = Field(default=None, ge=0, le=100)
     data_source_version: Optional[str] = None
-
-
-class AlertStatusInput(BaseModel):
-    notes: Optional[str] = None
 
 
 class ReportGenerateInput(BaseModel):

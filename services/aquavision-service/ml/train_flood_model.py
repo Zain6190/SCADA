@@ -46,7 +46,7 @@ def train_all_assets(horizons=[7, 14, 30]):
             for horizon in horizons:
                 logger.info(f"\n--- Horizon: {horizon} days ---")
                 
-                X, y, feature_names = builder.build_training_table(
+                X, y, feature_names, weights = builder.build_training_table(
                     asset_id=asset.id,
                     start_date=start_date,
                     end_date=end_date,

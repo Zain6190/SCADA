@@ -187,3 +187,151 @@ def get_impact_assets():
             """)
         ).mappings().all()
         return [dict(r) for r in rows]
+
+
+@router.get("/latest-flow/{asset_id}")
+def get_latest_flow(asset_id: int):
+    """Get latest inflow/discharge for an asset (for dynamic flood map)."""
+    from sqlalchemy import text
+    from infrastructure.db.engine import engine as db_engine
+
+    with db_engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT inflow_cusecs, discharge_cusecs, observed_at
+                FROM aquavision.water_observations
+                WHERE asset_id = :asset_id
+                AND (inflow_cusecs IS NOT NULL OR discharge_cusecs IS NOT NULL)
+                ORDER BY observed_at DESC
+                LIMIT 1
+            """),
+            {"asset_id": asset_id},
+        ).mappings().first()
+
+        if not row:
+            raise HTTPException(404, f"No flow data for asset {asset_id}")
+
+        return {
+            "asset_id": asset_id,
+            "inflow_cusecs": float(row["inflow_cusecs"]) if row["inflow_cusecs"] else None,
+            "discharge_cusecs": float(row["discharge_cusecs"]) if row["discharge_cusecs"] else None,
+            "observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
+            "effective_flow": float(row["inflow_cusecs"] or row["discharge_cusecs"] or 0),
+        }
+
+
+class ImpactMarkerResponse(BaseModel):
+    id: str
+    type: str  # population | bridge | hospital
+    name: str
+    lat: float
+    lng: float
+    population: Optional[int] = None
+    segment: str  # e.g. "Tarbela - Kalabagh"
+    river: Optional[str] = None
+
+
+@router.get("/markers", response_model=List[ImpactMarkerResponse])
+def get_impact_markers():
+    """Get individual impact markers (population centers, bridges, hospitals) with coordinates."""
+    from sqlalchemy import text
+
+    with sa_engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    di.source_asset_id,
+                    di.downstream_asset_id,
+                    di.affected_population_est,
+                    di.bridges_count,
+                    di.hospitals_count,
+                    di.affected_village_count,
+                    di.affected_town_count,
+                    sa.canonical_name as upstream_name,
+                    sa.latitude as up_lat,
+                    sa.longitude as up_lng,
+                    da.canonical_name as downstream_name,
+                    da.latitude as down_lat,
+                    da.longitude as down_lng,
+                    rn.river_name
+                FROM aquavision.water_downstream_impacts di
+                JOIN aquavision.water_assets sa ON di.source_asset_id = sa.id
+                JOIN aquavision.water_assets da ON di.downstream_asset_id = da.id
+                JOIN aquavision.water_river_network rn
+                    ON rn.upstream_asset_id = di.source_asset_id
+                    AND rn.downstream_asset_id = di.downstream_asset_id
+            """)
+        ).mappings().all()
+
+        markers = []
+        marker_id = 0
+
+        for row in rows:
+            up_lat = float(row["up_lat"]) if row["up_lat"] else None
+            up_lng = float(row["up_lng"]) if row["up_lng"] else None
+            down_lat = float(row["down_lat"]) if row["down_lat"] else None
+            down_lng = float(row["down_lng"]) if row["down_lng"] else None
+
+            if up_lat is None or down_lat is None:
+                continue
+
+            segment_name = f"{row['upstream_name']} - {row['downstream_name']}"
+            river = row["river_name"]
+
+            # Population center at midpoint
+            pop = row["affected_population_est"] or 0
+            if pop > 0:
+                mid_lat = (up_lat + down_lat) / 2
+                mid_lng = (up_lng + down_lng) / 2
+                # Slight offset so it doesn't overlap the river line
+                villages = row["affected_village_count"] or 0
+                towns = row["affected_town_count"] or 0
+                markers.append(ImpactMarkerResponse(
+                    id=f"pop-{marker_id}",
+                    type="population",
+                    name=f"{villages} villages, {towns} towns",
+                    lat=mid_lat + 0.08,
+                    lng=mid_lng + 0.05,
+                    population=pop,
+                    segment=segment_name,
+                    river=river,
+                ))
+                marker_id += 1
+
+            # Bridges distributed along segment
+            bridges = row["bridges_count"] or 0
+            for b in range(bridges):
+                t = (b + 1) / (bridges + 1)
+                br_lat = up_lat + (down_lat - up_lat) * t
+                br_lng = up_lng + (down_lng - up_lng) * t
+                # Offset perpendicular to river
+                br_lat += 0.03
+                br_lng -= 0.03
+                markers.append(ImpactMarkerResponse(
+                    id=f"bridge-{marker_id}",
+                    type="bridge",
+                    name=f"Bridge #{b+1} ({segment_name})",
+                    lat=br_lat,
+                    lng=br_lng,
+                    segment=segment_name,
+                    river=river,
+                ))
+                marker_id += 1
+
+            # Hospitals near downstream asset
+            hospitals = row["hospitals_count"] or 0
+            for h in range(hospitals):
+                ho_lat = down_lat + 0.02 * (h + 1)
+                ho_lng = down_lng - 0.02 * (h + 1)
+                markers.append(ImpactMarkerResponse(
+                    id=f"hosp-{marker_id}",
+                    type="hospital",
+                    name=f"Hospital #{h+1} ({row['downstream_name']})",
+                    lat=ho_lat,
+                    lng=ho_lng,
+                    segment=segment_name,
+                    river=river,
+                ))
+                marker_id += 1
+
+        return markers

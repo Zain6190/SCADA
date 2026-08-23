@@ -1,26 +1,43 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { CloudRain, Download } from 'lucide-react'
+import { AppShell } from '@/components/shell/app-shell'
+import { PageHeader } from '@/components/ui/page-header'
+import { Card, CardHeader, CardBody } from '@/components/ui/card'
+import { KpiCard } from '@/components/ui/kpi'
+import { Badge } from '@/components/ui/badge'
+import { Spinner, EmptyState, ErrorState } from '@/components/ui/state'
 import { waterApi } from '@/features/water/api'
+import { fmtNumber } from '@/lib/format'
 import type { FFDObservation } from '@/features/water/types'
 
-const STATUS_COLORS: Record<string, string> = {
-  NORMAL: 'bg-green-100 text-green-800',
-  BELOW_LOW: 'bg-blue-100 text-blue-800',
-  LOW: 'bg-yellow-100 text-yellow-800',
-  MEDIUM: 'bg-orange-100 text-orange-800',
-  HIGH: 'bg-red-100 text-red-800',
-  VERY_HIGH: 'bg-red-200 text-red-900',
-  EXCEPTIONALLY_HIGH: 'bg-red-300 text-red-900',
+const STATUS_BADGE_TONE: Record<string, 'emerald' | 'sky' | 'amber' | 'violet' | 'red' | 'slate'> = {
+  NORMAL: 'emerald',
+  BELOW_LOW: 'sky',
+  LOW: 'amber',
+  MEDIUM: 'violet',
+  HIGH: 'red',
+  VERY_HIGH: 'red',
+  EXCEPTIONALLY_HIGH: 'red',
 }
 
-const RIVER_COLORS: Record<string, string> = {
-  Indus: 'border-l-blue-500',
-  Kabul: 'border-l-cyan-500',
-  Jhelum: 'border-l-teal-500',
-  Chenab: 'border-l-green-500',
-  Ravi: 'border-l-amber-500',
-  Sutlej: 'border-l-orange-500',
+const RIVER_ACCENT: Record<string, string> = {
+  Indus: 'border-l-sky-400',
+  Kabul: 'border-l-cyan-400',
+  Jhelum: 'border-l-teal-400',
+  Chenab: 'border-l-emerald-400',
+  Ravi: 'border-l-amber-400',
+  Sutlej: 'border-l-orange-400',
+}
+
+const RIVER_DOT: Record<string, string> = {
+  Indus: 'bg-sky-400',
+  Kabul: 'bg-cyan-400',
+  Jhelum: 'bg-teal-400',
+  Chenab: 'bg-emerald-400',
+  Ravi: 'bg-amber-400',
+  Sutlej: 'bg-orange-400',
 }
 
 export default function FFDPage() {
@@ -43,9 +60,7 @@ export default function FFDPage() {
     }
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   const handleIngest = async () => {
     try {
@@ -60,7 +75,6 @@ export default function FFDPage() {
     }
   }
 
-  // Group by river
   const byRiver = observations.reduce((acc, obs) => {
     const river = obs.river_name || 'Unknown'
     if (!acc[river]) acc[river] = []
@@ -68,115 +82,115 @@ export default function FFDPage() {
     return acc
   }, {} as Record<string, FFDObservation[]>)
 
-  // Count by status
   const statusCounts = observations.reduce((acc, obs) => {
     acc[obs.flood_status] = (acc[obs.flood_status] || 0) + 1
     return acc
   }, {} as Record<string, number>)
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">FFD Flood Bulletins</h1>
-            <p className="text-slate-600 mt-1">Pakistan Meteorological Department - Flood Forecasting Division</p>
-          </div>
-          <button
-            onClick={handleIngest}
-            disabled={ingesting}
-            className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
-          >
-            {ingesting ? 'Ingesting...' : 'Ingest Latest Bulletin'}
-          </button>
-        </div>
+    <AppShell>
+      <div className="space-y-6">
+        <PageHeader
+          title="FFD Flood Bulletins"
+          description="Pakistan Meteorological Department — Flood Forecasting Division"
+          icon={<CloudRain className="h-6 w-6" />}
+          accent="bg-cyan-500/10 text-cyan-300"
+          action={
+            <button
+              onClick={handleIngest}
+              disabled={ingesting}
+              className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm font-medium text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {ingesting ? 'Ingesting...' : 'Ingest Latest Bulletin'}
+            </button>
+          }
+        />
 
         {lastIngest && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl text-green-800">
-            {lastIngest}
-          </div>
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-300">{lastIngest}</div>
         )}
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
-            {error}
-          </div>
-        )}
+        {error && <ErrorState title="Failed to load FFD data" message={error} onRetry={fetchData} />}
 
-        {/* Status Summary */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {Object.entries(statusCounts).map(([status, count]) => (
-            <div key={status} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
-              <div className="text-sm text-slate-500">Stations</div>
-              <div className={`text-lg font-bold ${STATUS_COLORS[status]?.split(' ')[1] || 'text-slate-900'}`}>
-                {status.replace(/_/g, ' ')}
+        {loading ? (
+          <Spinner label="Loading FFD data" />
+        ) : (
+          <>
+            {/* Status Summary */}
+            {Object.keys(statusCounts).length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                {Object.entries(statusCounts).map(([status, count]) => {
+                  const tone = STATUS_BADGE_TONE[status] || 'slate'
+                  const accentMap: Record<string, string> = {
+                    emerald: 'bg-emerald-500/10 text-emerald-300',
+                    sky: 'bg-sky-500/10 text-sky-300',
+                    amber: 'bg-amber-500/10 text-amber-300',
+                    violet: 'bg-violet-500/10 text-violet-300',
+                    red: 'bg-red-500/10 text-red-300',
+                    slate: 'bg-slate-500/10 text-slate-300',
+                  }
+                  return (
+                    <KpiCard
+                      key={status}
+                      label="Stations"
+                      value={count}
+                      detail={status.replace(/_/g, ' ')}
+                      accent={accentMap[tone]}
+                    />
+                  )
+                })}
               </div>
-              <div className="text-2xl font-bold text-slate-900">{count}</div>
-            </div>
-          ))}
-        </div>
+            )}
 
-        {/* Loading */}
-        {loading && (
-          <div className="text-center py-12">
-            <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="mt-4 text-slate-600">Loading FFD data...</p>
-          </div>
-        )}
-
-        {/* River Groups */}
-        {!loading && Object.entries(byRiver).map(([river, obs]) => (
-          <div key={river} className="mb-8">
-            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <span className={`w-3 h-8 rounded ${RIVER_COLORS[river]?.replace('border-l-', 'bg-') || 'bg-slate-400'}`} />
-              {river} River
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {obs.map((o) => (
-                <div
-                  key={o.id}
-                  className={`bg-white rounded-2xl border border-slate-200 shadow-sm p-5 border-l-4 ${RIVER_COLORS[river] || 'border-l-slate-400'}`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-bold text-slate-900">{o.station_name}</h3>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[o.flood_status] || 'bg-slate-100 text-slate-800'}`}>
-                      {o.flood_status.replace(/_/g, ' ')}
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 mb-3">
-                    <div>
-                      <div className="text-xs text-slate-500">Inflow</div>
-                      <div className="text-lg font-bold text-slate-900">
-                        {o.discharge_cusecs ? `${(o.discharge_cusecs / 1000).toFixed(1)}K` : '-'} <span className="text-xs text-slate-500">cusecs</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-500">Gauge Level</div>
-                      <div className="text-lg font-bold text-slate-900">
-                        {o.gauge_level_ft?.toFixed(1) || '-'} <span className="text-xs text-slate-500">ft</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>Trend: {o.forecast_trend}</span>
-                    <span>{o.observed_at}</span>
-                  </div>
+            {/* River Groups */}
+            {Object.entries(byRiver).map(([river, obs]) => (
+              <div key={river} className="space-y-3">
+                <h2 className="flex items-center gap-2.5 text-lg font-semibold text-slate-200">
+                  <span className={`h-6 w-1.5 rounded-full ${RIVER_DOT[river] || 'bg-slate-500'}`} />
+                  {river} River
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {obs.map(o => (
+                    <Card key={o.id} className={`border-l-4 ${RIVER_ACCENT[river] || 'border-l-slate-500'}`}>
+                      <CardBody>
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-semibold text-slate-100">{o.station_name}</h3>
+                          <Badge tone={STATUS_BADGE_TONE[o.flood_status] || 'slate'}>
+                            {o.flood_status.replace(/_/g, ' ')}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <div className="text-[11px] text-slate-500">Inflow</div>
+                            <div className="text-lg font-bold text-slate-100">
+                              {o.discharge_cusecs ? `${(o.discharge_cusecs / 1000).toFixed(1)}K` : '—'} <span className="text-[11px] text-slate-500">cusecs</span>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[11px] text-slate-500">Gauge Level</div>
+                            <div className="text-lg font-bold text-slate-100">
+                              {o.gauge_level_ft?.toFixed(1) || '—'} <span className="text-[11px] text-slate-500">ft</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                          <span>Trend: {o.forecast_trend}</span>
+                          <span>{o.observed_at}</span>
+                        </div>
+                      </CardBody>
+                    </Card>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
+              </div>
+            ))}
 
-        {!loading && observations.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
-            <p className="text-slate-500 text-lg">No FFD observations found</p>
-            <p className="text-slate-400 mt-2">Click "Ingest Latest Bulletin" to fetch FFD data</p>
-          </div>
+            {observations.length === 0 && (
+              <EmptyState title="No FFD observations found" message='Click "Ingest Latest Bulletin" to fetch FFD data' />
+            )}
+          </>
         )}
       </div>
-    </div>
+    </AppShell>
   )
 }

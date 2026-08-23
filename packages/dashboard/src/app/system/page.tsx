@@ -1,9 +1,9 @@
 // packages/dashboard/src/app/system/page.tsx
-// AquaVision System Health - service uptime, alert state, and thresholds.
+// AquaVision System Health - service uptime, alert state.
 'use client'
 
 import type { ReactNode } from 'react'
-import { Cpu, Server, Bell, BellRing, SlidersHorizontal } from 'lucide-react'
+import { Cpu, Server, Bell, BellRing } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -11,26 +11,21 @@ import { Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { ProgressBar } from '@/components/ui/progress'
-import { useWaterOverview, useWaterAlerts, useWaterThresholds } from '@/features/water/hooks'
+import { useWaterOverview, useOperationalAlerts } from '@/features/water/hooks'
 import { fmtNumber } from '@/lib/format'
-import type { WaterThreshold } from '@/features/water/types'
 
 const AMBER = 'bg-amber-500/10 text-amber-300'
 
-type AlertStatus = 'New' | 'Acknowledged' | 'Resolved'
-
-function statusCount(alerts: { status: string }[], status: AlertStatus): number {
+function statusCount(alerts: { status: string }[], status: string): number {
   return alerts.filter((a) => a.status === status).length
 }
 
 export default function SystemHealthPage() {
   const overview = useWaterOverview()
-  const alertsQuery = useWaterAlerts()
-  const thresholdsQuery = useWaterThresholds()
+  const alertsQuery = useOperationalAlerts()
 
   const serviceOnline = Boolean(overview.data)
   const alerts = alertsQuery.data ?? []
-  const thresholds = thresholdsQuery.data ?? []
 
   return (
     <AppShell>
@@ -65,17 +60,17 @@ export default function SystemHealthPage() {
           />
           <KpiCard
             label="Active Alerts"
-            value={overview.data?.active_alerts ?? alerts.filter((a) => a.status !== 'Resolved').length}
-            detail={`${statusCount(alerts, 'New')} new · ${statusCount(alerts, 'Acknowledged')} acked`}
+            value={overview.data?.active_alerts ?? alerts.filter((a) => a.status !== 'RESOLVED').length}
+            detail={`${statusCount(alerts, 'NEW')} new · ${statusCount(alerts, 'ACKNOWLEDGED')} acked`}
             icon={Bell}
             accent={AMBER}
           />
           <KpiCard
-            label="Thresholds Configured"
-            value={thresholds.length}
-            detail="Anomaly detection rules"
-            icon={SlidersHorizontal}
-            accent={AMBER}
+            label="Data Sources"
+            value={5}
+            detail="IRSA · FFD · Kaggle · Sensor · Synthetic"
+            icon={Server}
+            accent="bg-sky-500/10 text-sky-300"
           />
         </div>
 
@@ -97,15 +92,15 @@ export default function SystemHealthPage() {
                 name="PostGIS Database"
                 detail="Spatial + time-series data store"
                 badge={
-                  <Badge tone={thresholds.length || alerts.length ? 'emerald' : 'red'}>
-                    {thresholds.length || alerts.length ? 'Online' : 'Offline'}
+                  <Badge tone={alerts.length ? 'emerald' : 'red'}>
+                    {alerts.length ? 'Online' : 'Offline'}
                   </Badge>
                 }
               />
               <ServiceRow
-                name="GEE Pipeline"
-                detail="Google Earth Engine processing run"
-                badge={<Badge tone="violet">Simulation</Badge>}
+                name="ML Pipeline"
+                detail="XGBoost flood prediction models"
+                badge={<Badge tone="violet">38 models</Badge>}
               />
             </CardBody>
           </Card>
@@ -122,9 +117,9 @@ export default function SystemHealthPage() {
               {alertsQuery.isPending ? (
                 <div className="p-8"><Spinner label="Loading alerts" /></div>
               ) : alertsQuery.isError ? (
-                <div className="p-8" >
+                <div className="p-8">
                   <ErrorState title="Alert queue unavailable" onRetry={() => alertsQuery.refetch()} />
-                </div >
+                </div>
               ) : alerts.length === 0 ? (
                 <div className="p-8">
                   <EmptyState title="No alerts tracked" message="The anomaly pipeline has not emitted events." />
@@ -133,9 +128,10 @@ export default function SystemHealthPage() {
                 <div className="space-y-5 p-5">
                   {(
                     [
-                      ['New', statusCount(alerts, 'New'), 'amber'],
-                      ['Acknowledged', statusCount(alerts, 'Acknowledged'), 'sky'],
-                      ['Resolved', statusCount(alerts, 'Resolved'), 'emerald'],
+                      ['NEW', statusCount(alerts, 'NEW'), 'amber'],
+                      ['ACKNOWLEDGED', statusCount(alerts, 'ACKNOWLEDGED'), 'sky'],
+                      ['INVESTIGATING', statusCount(alerts, 'INVESTIGATING'), 'violet'],
+                      ['RESOLVED', statusCount(alerts, 'RESOLVED'), 'emerald'],
                     ] as const
                   ).map(([label, count, color]) => (
                     <div key={label}>
@@ -151,46 +147,6 @@ export default function SystemHealthPage() {
             </CardBody>
           </Card>
         </div>
-
-        <Card>
-          <CardHeader
-            title="Thresholds"
-            subtitle="Configured anomaly-detection rules"
-            icon={<SlidersHorizontal className="h-5 w-5" />}
-            accent={AMBER}
-            action={<Badge tone="slate">{fmtNumber(thresholds.length, 0)} rules</Badge>}
-          />
-          <CardBody className="p-0">
-            {thresholdsQuery.isPending ? (
-              <div className="p-8"><Spinner label="Loading thresholds" /></div>
-            ) : thresholdsQuery.isError ? (
-              <div className="p-8">
-                <ErrorState title="Thresholds unavailable" onRetry={() => thresholdsQuery.refetch()} />
-              </div>
-            ) : thresholds.length === 0 ? (
-              <div className="p-8">
-                <EmptyState title="No thresholds configured" message="Define anomaly rules to drive alert generation." />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-800/70 text-[11px] uppercase tracking-wider text-slate-500">
-                      <th className="px-5 py-3 font-medium">Threshold</th>
-                      <th className="px-5 py-3 font-medium">Value</th>
-                      <th className="px-5 py-3 font-medium">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/70">
-                    {thresholds.map((t) => (
-                      <ThresholdRow key={t.id} threshold={t} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardBody>
-        </Card>
       </div>
     </AppShell>
   )
@@ -213,15 +169,5 @@ function ServiceRow({
       </div>
       {badge}
     </div>
-  )
-}
-
-function ThresholdRow({ threshold }: { threshold: WaterThreshold }) {
-  return (
-    <tr className="transition-colors hover:bg-slate-800/20">
-      <td className="px-5 py-3 font-medium text-slate-200">{threshold.threshold_name}</td>
-      <td className="px-5 py-3 font-mono text-slate-300">{fmtNumber(threshold.value)}</td>
-      <td className="px-5 py-3 text-slate-400">{threshold.description ?? '—'}</td>
-    </tr>
   )
 }

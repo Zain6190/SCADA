@@ -25,19 +25,17 @@ import {
   useAssetReadings,
   useAssetNotes,
   useAddAssetNote,
-  useWaterAlerts,
-  useWaterRegions,
-  useAcknowledgeWaterAlert,
-  useResolveWaterAlert,
+  useOperationalAlerts,
+  useAckOperationalAlert,
+  useResolveOperationalAlert,
 } from '@/features/water/hooks'
-import { regionNameById, sortBySeverity } from '@/features/water/mappers'
 import { fmtNumber, fmtPct, fmtDateTime, timeAgo } from '@/lib/format'
 import { useAuth } from '@/context/AuthContext'
 import { PERMISSIONS } from '@/lib/permissions'
 import type {
   AssetSummaryVM,
   AssetTelemetryVM,
-  AlertVM,
+  OperationalAlert,
 } from '@/features/water/types'
 
 const AQUA = 'bg-sky-500/10 text-sky-300'
@@ -68,10 +66,9 @@ function dataTone(status?: string | null): BadgeTone {
 export default function WaterOperatorPage() {
   const { user, hasPermission } = useAuth()
   const assetsQuery = useWaterAssets()
-  const alertsQuery = useWaterAlerts()
-  const regions = useWaterRegions()
-  const ack = useAcknowledgeWaterAlert()
-  const resolve = useResolveWaterAlert()
+  const alertsQuery = useOperationalAlerts()
+  const ack = useAckOperationalAlert()
+  const resolve = useResolveOperationalAlert()
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [noteText, setNoteText] = useState('')
@@ -84,19 +81,9 @@ export default function WaterOperatorPage() {
   const notesQuery = useAssetNotes(activeId)
   const addNote = useAddAssetNote()
 
-  const alerts = sortBySeverity((alertsQuery.data ?? []).filter((a) => a.status !== 'Resolved'))
+  const alerts = (alertsQuery.data ?? []).filter((a) => a.status !== 'RESOLVED')
   const canOperate = hasPermission(PERMISSIONS.AQUAVISION_ACKNOWLEDGE_ALERT)
   const canNote = hasPermission(PERMISSIONS.AQUAVISION_ADD_NOTE)
-
-  const scopeIds = user?.region_ids ?? []
-  const scopedRegionNames = scopeIds.length
-    ? scopeIds.map((id) => regionNameById(regions.data ?? [], id)).filter(Boolean)
-    : null
-  const scopeBadge = scopeIds.length
-    ? scopedRegionNames?.length
-      ? scopedRegionNames.join(', ')
-      : `${scopeIds.length} regions`
-    : 'National scope'
 
   const latest = selected?.latest
 
@@ -120,17 +107,11 @@ export default function WaterOperatorPage() {
             alerts.length ? (
               <Badge tone="amber">
                 <Bell className="h-3 w-3" />
-                {alerts.filter((a) => a.status === 'New').length} new alert(s)
+                {alerts.filter((a) => a.status === 'NEW').length} new alert(s)
               </Badge>
             ) : (
               <Badge tone="emerald">All clear</Badge>
             )
-          }
-          action={
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] font-medium text-sky-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-              Scope: {scopeBadge}
-            </span>
           }
         />
 
@@ -146,7 +127,7 @@ export default function WaterOperatorPage() {
           <KpiCard
             label="Open Alerts"
             value={alerts.length}
-            detail={`${alerts.filter((a) => a.status === 'New').length} New awaiting ack`}
+            detail={`${alerts.filter((a) => a.status === 'NEW').length} New awaiting ack`}
             icon={Bell}
             accent="bg-amber-500/10 text-amber-300"
           />
@@ -305,10 +286,9 @@ export default function WaterOperatorPage() {
             ) : (
               <div className="divide-y divide-slate-800/70">
                 {alerts.map((a) => (
-                  <AlertRow
+                  <OperationalAlertRow
                     key={a.id}
                     alert={a}
-                    regionName={regionNameById(regions.data ?? [], a.regionId)}
                     canOperate={canOperate}
                     busy={ack.isPending || resolve.isPending}
                     onAck={() => ack.mutate({ alertId: a.id })}
@@ -417,21 +397,20 @@ function SeriesSparkline({ readings }: { readings: AssetTelemetryVM[] }) {
   )
 }
 
-function AlertRow({
+function OperationalAlertRow({
   alert,
-  regionName,
   canOperate,
   busy,
   onAck,
   onResolve,
 }: {
-  alert: AlertVM
-  regionName: string
+  alert: OperationalAlert
   canOperate: boolean
   busy: boolean
   onAck: () => void
   onResolve: () => void
 }) {
+  const statusTone = alert.status === 'NEW' ? 'amber' : alert.status === 'RESOLVED' ? 'emerald' : 'sky'
   return (
     <div className="p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -439,25 +418,42 @@ function AlertRow({
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-mono text-xs text-slate-500">#{alert.id}</p>
             <SeverityBadge severity={alert.severity} />
-            <Badge tone={alert.status === 'New' ? 'amber' : 'sky'}>{alert.status}</Badge>
+            <Badge tone={statusTone}>{alert.status}</Badge>
+            {alert.alert_source && <Badge tone="slate">{alert.alert_source}</Badge>}
           </div>
-          <h3 className="mt-2 text-base font-semibold text-slate-100">{alert.alertType}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {regionName} · {timeAgo(alert.createdAt)}
-          </p>
+          <h3 className="mt-2 text-base font-semibold text-slate-100">
+            {alert.asset_name ? `${alert.asset_name} · ` : ''}{alert.alert_type}
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-500">{alert.message}</p>
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
-            {alert.waiScore != null && <Metric label="WAI" value={fmtNumber(alert.waiScore)} />}
-            {alert.surfaceWaterChangePct != null && (
-              <Metric label="Δ surface water" value={fmtPct(alert.surfaceWaterChangePct)} />
-            )}
+            {alert.triggered_value != null && <Metric label="Triggered" value={fmtNumber(alert.triggered_value)} />}
+            {alert.threshold_value != null && <Metric label="Threshold" value={fmtNumber(alert.threshold_value)} />}
+            {alert.reading_level_ft != null && <Metric label="Level" value={`${fmtNumber(alert.reading_level_ft)} ft`} />}
+            {alert.reading_inflow_cusecs != null && <Metric label="Inflow" value={`${fmtNumber(alert.reading_inflow_cusecs)} cusecs`} />}
           </div>
+          {alert.downstream_population_exposed != null && alert.downstream_population_exposed > 0 && (
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
+              <span className="text-amber-400 font-medium">Downstream:</span>
+              <Metric label="Pop. exposed" value={`${fmtNumber(alert.downstream_population_exposed)}`} />
+              {alert.downstream_bridges_at_risk != null && <Metric label="Bridges" value={`${alert.downstream_bridges_at_risk}`} />}
+              {alert.downstream_hospitals_at_risk != null && <Metric label="Hospitals" value={`${alert.downstream_hospitals_at_risk}`} />}
+            </div>
+          )}
+          {alert.flood_severity && (
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
+              <span className="text-red-400 font-medium">Flood:</span>
+              <Metric label="Severity" value={alert.flood_severity} />
+              {alert.flood_probability != null && <Metric label="Probability" value={`${(alert.flood_probability * 100).toFixed(0)}%`} />}
+              {alert.flood_recommendation && <span className="text-slate-300">{alert.flood_recommendation}</span>}
+            </div>
+          )}
         </div>
         {canOperate && (
           <div className="flex shrink-0 flex-col gap-2">
             <button
               type="button"
               onClick={onAck}
-              disabled={busy || alert.status === 'Acknowledged'}
+              disabled={busy || alert.status !== 'NEW'}
               className="flex items-center justify-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" /> Acknowledge

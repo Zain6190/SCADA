@@ -4,11 +4,9 @@ import { normalizeSeverity, worstOf, SEVERITY_RANK, type SeverityLevel } from '@
 import type {
   WaterIndicator,
   WaterPrediction,
-  WaterAlert,
   MapFeature,
   IndicatorVM,
   PredictionVM,
-  AlertVM,
   MapFeatureVM,
   AssetSummaryVM,
   AssetTelemetryVM,
@@ -57,29 +55,6 @@ export function mapPrediction(raw: any): PredictionVM {
 
 export function mapPredictionList(raw: any[]): PredictionVM[] {
   return (raw ?? []).map(mapPrediction)
-}
-
-export function mapAlert(raw: any): AlertVM {
-  return {
-    id: raw.id,
-    regionId: raw.region_id,
-    weekStartDate: raw.week_start_date,
-    alertType: raw.alert_type,
-    severity: normalizeSeverity(raw.severity),
-    waiScore: raw.wai_score,
-    rainfallAnomaly: raw.rainfall_anomaly,
-    etAnomaly: raw.et_anomaly,
-    surfaceWaterChangePct: raw.surface_water_change_pct,
-    status: raw.status,
-    createdAt: raw.created_at,
-    acknowledgedAt: raw.acknowledged_at,
-    resolvedAt: raw.resolved_at,
-    notes: raw.notes,
-  }
-}
-
-export function mapAlertList(raw: any[]): AlertVM[] {
-  return (raw ?? []).map(mapAlert)
 }
 
 export function mapMapFeature(raw: MapFeature): MapFeatureVM {

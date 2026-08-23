@@ -4,6 +4,7 @@
 import logging
 import sys
 import time
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -82,8 +83,33 @@ async def lifespan(app: FastAPI):
     app.state.notification_dispatcher = NotificationDispatcher(db_session, notifiers)
     app.state.notification_notifiers = notifiers
 
+    # Start background ingestion task (IRSA every 2 hours, FFD every 6 hours)
+    async def background_ingestion():
+        while True:
+            try:
+                from infrastructure.ingestion.irsa_downloader import auto_ingest_irsa
+                logger.info("Background: Starting IRSA ingestion")
+                result = auto_ingest_irsa()
+                logger.info("Background: IRSA ingestion complete: %s", result)
+            except Exception as e:
+                logger.warning("Background: IRSA ingestion failed: %s", e)
+
+            await asyncio.sleep(2 * 3600)  # 2 hours
+
+            try:
+                from infrastructure.ingestion.ffd_ingest import ingest_ffd_bulletin
+                logger.info("Background: Starting FFD ingestion")
+                result = ingest_ffd_bulletin()
+                logger.info("Background: FFD ingestion complete: %s", result)
+            except Exception as e:
+                logger.warning("Background: FFD ingestion failed: %s", e)
+
+    ingestion_task = asyncio.create_task(background_ingestion())
+    logger.info("Background ingestion task started (IRSA every 2h, FFD every 6h)")
+
     yield
 
+    ingestion_task.cancel()
     db_session.close()
 
 
@@ -125,7 +151,6 @@ async def log_requests(request: Request, call_next):
 
 # ─── Routers ───────────────────────────────────────────────────────────────
 from presentation.http.routers import (  # noqa: E402
-    alerts,
     auth,
     health,
     impact,
@@ -137,10 +162,10 @@ from presentation.http.routers import (  # noqa: E402
     regions,
     reports,
     sensors,
-    thresholds,
     validation,
 )
 from ml.prediction_api import router as ml_router
+from presentation.http.routers.prediction_pipeline import router as prediction_pipeline_router
 
 WATER_PREFIX = "/water"
 TAG = ["AquaVision"]
@@ -152,14 +177,13 @@ app.include_router(overview.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(map_data.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(indicators.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(predictions.router, prefix=WATER_PREFIX, tags=TAG)
-app.include_router(alerts.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(reports.router, prefix=WATER_PREFIX, tags=TAG)
-app.include_router(thresholds.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(operational.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(regions.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(prediction_pipeline_router, prefix=WATER_PREFIX, tags=TAG)
 
 
 @app.get("/")

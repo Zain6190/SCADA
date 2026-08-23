@@ -687,6 +687,7 @@ class WaterObservationQuarantine(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     asset_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    observation_id: Mapped[Optional[int]] = mapped_column(BigInteger)
     source_record_id: Mapped[Optional[int]] = mapped_column(Integer)
     raw_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     parsed_values: Mapped[Optional[dict]] = mapped_column(JSON)

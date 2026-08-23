@@ -1,36 +1,49 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Bell, CheckCircle2, Search, ShieldAlert, ArrowUpCircle, CheckCircle } from 'lucide-react'
+import { AppShell } from '@/components/shell/app-shell'
+import { PageHeader } from '@/components/ui/page-header'
+import { Card } from '@/components/ui/card'
+import { SeverityBadge, Badge } from '@/components/ui/badge'
+import { Spinner, EmptyState } from '@/components/ui/state'
 import { waterApi } from '@/features/water/api'
+import { fmtNumber, fmtDateTime } from '@/lib/format'
+import { normalizeSeverity } from '@/lib/severity'
 import type { OperationalAlert } from '@/features/water/types'
 
-const SEVERITY_STYLES: Record<string, { bg: string; border: string; text: string; dot: string; badge: string }> = {
-  CRITICAL: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-900', dot: 'bg-red-500', badge: 'bg-red-100 text-red-700 border-red-200' },
-  WARNING: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', dot: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700 border-amber-200' },
-  ADVISORY: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-900', dot: 'bg-yellow-500', badge: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  WATCH: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-900', dot: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700 border-blue-200' },
-  NORMAL: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-900', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+const STATUS_STYLES: Record<string, { bg: string; text: string; border: string; tone: 'slate' | 'sky' | 'amber' | 'violet' | 'emerald' | 'red' }> = {
+  NEW: { bg: 'bg-red-500/10', text: 'text-red-300', border: 'border-red-500/30', tone: 'red' },
+  ACKNOWLEDGED: { bg: 'bg-sky-500/10', text: 'text-sky-300', border: 'border-sky-500/30', tone: 'sky' },
+  INVESTIGATING: { bg: 'bg-amber-500/10', text: 'text-amber-300', border: 'border-amber-500/30', tone: 'amber' },
+  ESCALATED: { bg: 'bg-violet-500/10', text: 'text-violet-300', border: 'border-violet-500/30', tone: 'violet' },
+  RESOLVED: { bg: 'bg-emerald-500/10', text: 'text-emerald-300', border: 'border-emerald-500/30', tone: 'emerald' },
+  FALSE_OR_INVALID_DATA: { bg: 'bg-slate-500/10', text: 'text-slate-400', border: 'border-slate-500/30', tone: 'slate' },
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  NEW: 'bg-red-100 text-red-700 border-red-200',
-  ACKNOWLEDGED: 'bg-blue-100 text-blue-700 border-blue-200',
-  INVESTIGATING: 'bg-amber-100 text-amber-700 border-amber-200',
-  ESCALATED: 'bg-purple-100 text-purple-700 border-purple-200',
-  RESOLVED: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  FALSE_OR_INVALID_DATA: 'bg-slate-100 text-slate-700 border-slate-200',
+const STATUS_LABELS: Record<string, string> = {
+  NEW: 'New',
+  ACKNOWLEDGED: 'Acknowledged',
+  INVESTIGATING: 'Investigating',
+  ESCALATED: 'Escalated',
+  RESOLVED: 'Resolved',
+  FALSE_OR_INVALID_DATA: 'Invalid',
 }
 
-function formatNumber(n: number | null | undefined): string {
-  if (n == null) return '—'
-  return n.toLocaleString('en-US')
+const SEVERITY_BORDER: Record<string, string> = {
+  CRITICAL: 'border-l-red-400',
+  WARNING: 'border-l-amber-400',
+  ADVISORY: 'border-l-yellow-400',
+  WATCH: 'border-l-sky-400',
+  NORMAL: 'border-l-emerald-400',
 }
 
 export default function OperatorAlertsPage() {
   const [alerts, setAlerts] = useState<OperationalAlert[]>([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<string>('')
-  const [severityFilter, setSeverityFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [severityFilter, setSeverityFilter] = useState('')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
 
   const loadAlerts = () => {
     const params: any = { limit: 100 }
@@ -41,178 +54,194 @@ export default function OperatorAlertsPage() {
 
   useEffect(() => { loadAlerts() }, [statusFilter, severityFilter])
 
-  const handleAck = async (id: number) => {
-    await waterApi.ackOperationalAlert(id, 'Operator')
-    loadAlerts()
-  }
-
-  const handleResolve = async (id: number) => {
-    await waterApi.resolveOperationalAlert(id, 'Operator')
-    loadAlerts()
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-600">
-          <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          Loading alerts...
-        </div>
-      </div>
-    )
-  }
+  const handleAck = async (id: number) => { await waterApi.ackOperationalAlert(id, 'Operator'); loadAlerts() }
+  const handleInvestigate = async (id: number) => { await waterApi.investigateOperationalAlert(id, 'Operator'); loadAlerts() }
+  const handleEscalate = async (id: number) => { await waterApi.escalateOperationalAlert(id, 'Operator'); loadAlerts() }
+  const handleResolve = async (id: number) => { await waterApi.resolveOperationalAlert(id, 'Operator'); loadAlerts() }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Operational Alerts</h1>
-          <p className="text-sm text-slate-500 mt-1">Active alerts from threshold engine</p>
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">All Status</option>
-              <option value="NEW">New</option>
-              <option value="ACKNOWLEDGED">Acknowledged</option>
-              <option value="INVESTIGATING">Investigating</option>
-              <option value="RESOLVED">Resolved</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Severity</label>
-            <select
-              value={severityFilter}
-              onChange={e => setSeverityFilter(e.target.value)}
-              className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">All Severity</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="WARNING">Warning</option>
-              <option value="WATCH">Watch</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              onClick={loadAlerts}
-              className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
-            >
+    <AppShell>
+      <div className="space-y-6">
+        <PageHeader
+          title="Operational Alerts"
+          description="Full workflow: Ack → Investigate → Escalate → Resolve"
+          icon={<Bell className="h-6 w-6" />}
+          accent="bg-red-500/10 text-red-300"
+          action={
+            <button onClick={loadAlerts} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2 text-sm text-slate-300 transition-colors hover:border-sky-500/40 hover:text-sky-300">
               Refresh
             </button>
-          </div>
-        </div>
+          }
+        />
 
-        {/* Alert Count */}
-        <div className="flex items-center gap-2 text-sm text-slate-600">
-          <span className="font-semibold">{alerts.length}</span> alert{alerts.length !== 1 ? 's' : ''} found
-        </div>
-
-        {/* Alert List */}
-        {alerts.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
-            <svg className="w-12 h-12 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-slate-500 font-medium">No alerts found</p>
-            <p className="text-sm text-slate-400 mt-1">All systems operating normally</p>
-          </div>
+        {loading ? (
+          <Spinner label="Loading alerts" />
         ) : (
-          <div className="space-y-3">
-            {alerts.map(alert => {
-              const style = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.NORMAL
-              return (
-                <div key={alert.id} className={`bg-white rounded-2xl border ${style.border} shadow-sm overflow-hidden`}>
-                  {/* Severity bar */}
-                  <div className={`h-1 ${style.dot}`}></div>
+          <>
+            {/* Filters */}
+            <div className="flex flex-wrap gap-3">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500">Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2.5 text-sm text-slate-300 focus:border-sky-500/50 focus:outline-none"
+                >
+                  <option value="">All Status</option>
+                  <option value="NEW">New</option>
+                  <option value="ACKNOWLEDGED">Acknowledged</option>
+                  <option value="INVESTIGATING">Investigating</option>
+                  <option value="ESCALATED">Escalated</option>
+                  <option value="RESOLVED">Resolved</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500">Severity</label>
+                <select
+                  value={severityFilter}
+                  onChange={e => setSeverityFilter(e.target.value)}
+                  className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2.5 text-sm text-slate-300 focus:border-sky-500/50 focus:outline-none"
+                >
+                  <option value="">All Severity</option>
+                  <option value="CRITICAL">Critical</option>
+                  <option value="WARNING">Warning</option>
+                  <option value="WATCH">Watch</option>
+                </select>
+              </div>
+            </div>
 
-                  <div className="p-4 sm:p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                      {/* Left: Alert info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className="font-bold text-slate-900">{alert.asset_name || `Asset ${alert.asset_id}`}</span>
-                          <span className="text-slate-400">·</span>
-                          <span className="text-sm font-medium text-slate-600">{alert.alert_type.replace(/_/g, ' ')}</span>
-                        </div>
+            <p className="text-xs text-slate-500">
+              <span className="font-semibold text-slate-400">{alerts.length}</span> alert{alerts.length !== 1 ? 's' : ''}
+            </p>
 
-                        <p className="text-sm text-slate-700 mb-3">{alert.message}</p>
+            {alerts.length === 0 ? (
+              <EmptyState title="No alerts found" message="All systems operating normally" />
+            ) : (
+              <div className="space-y-3">
+                {alerts.map(alert => {
+                  const isExpanded = expandedId === alert.id
+                  const statusStyle = STATUS_STYLES[alert.status] || STATUS_STYLES.NEW
+                  const borderClass = SEVERITY_BORDER[alert.severity] || 'border-l-slate-500'
+                  return (
+                    <Card key={alert.id} className={`border-l-4 ${borderClass} overflow-hidden`}>
+                      <div className="p-4 sm:p-5">
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className="font-bold text-slate-100">{alert.asset_name || `Asset ${alert.asset_id}`}</span>
+                              <span className="text-slate-600">·</span>
+                              <span className="text-sm text-slate-400">{alert.alert_type.replace(/_/g, ' ')}</span>
+                              {alert.alert_source && <Badge tone="slate">{alert.alert_source}</Badge>}
+                              {alert.episode_id && <Badge tone="sky">EP-{alert.episode_id}</Badge>}
+                            </div>
 
-                        {/* Readings */}
-                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                          {alert.reading_level_ft != null && (
-                            <span className="text-slate-600">
-                              Level: <strong className="text-slate-900 font-mono">{alert.reading_level_ft.toFixed(2)} ft</strong>
-                            </span>
-                          )}
-                          {alert.reading_inflow_cusecs != null && (
-                            <span className="text-slate-600">
-                              Inflow: <strong className="text-slate-900 font-mono">{formatNumber(alert.reading_inflow_cusecs)}</strong>
-                            </span>
-                          )}
-                          {alert.reading_outflow_cusecs != null && (
-                            <span className="text-slate-600">
-                              Outflow: <strong className="text-slate-900 font-mono">{formatNumber(alert.reading_outflow_cusecs)}</strong>
-                            </span>
-                          )}
-                          {alert.rate_of_change_ft_6h != null && (
-                            <span className="text-slate-600">
-                              Rate: <strong className="text-slate-900 font-mono">+{alert.rate_of_change_ft_6h.toFixed(2)} ft/6h</strong>
-                            </span>
-                          )}
-                        </div>
+                            <p className="text-sm text-slate-400 mb-3">{alert.message}</p>
 
-                        {/* Timestamps */}
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
-                          <span>Created: {new Date(alert.created_at).toLocaleString()}</span>
-                          {alert.acknowledged_at && <span>Acked: {new Date(alert.acknowledged_at).toLocaleString()}</span>}
-                          {alert.resolved_at && <span>Resolved: {new Date(alert.resolved_at).toLocaleString()}</span>}
+                            {/* Readings */}
+                            <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+                              {alert.reading_level_ft != null && (
+                                <span className="text-slate-500">
+                                  Level: <strong className="font-mono text-slate-200">{alert.reading_level_ft.toFixed(2)} ft</strong>
+                                </span>
+                              )}
+                              {alert.reading_inflow_cusecs != null && (
+                                <span className="text-slate-500">
+                                  Inflow: <strong className="font-mono text-slate-200">{fmtNumber(alert.reading_inflow_cusecs, 0)}</strong>
+                                </span>
+                              )}
+                              {alert.reading_outflow_cusecs != null && (
+                                <span className="text-slate-500">
+                                  Outflow: <strong className="font-mono text-slate-200">{fmtNumber(alert.reading_outflow_cusecs, 0)}</strong>
+                                </span>
+                              )}
+                              {alert.rate_of_change_ft_6h != null && (
+                                <span className="text-slate-500">
+                                  Rate: <strong className="font-mono text-slate-200">+{alert.rate_of_change_ft_6h.toFixed(2)} ft/6h</strong>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Downstream Impact */}
+                            {alert.downstream_population_exposed != null && alert.downstream_population_exposed > 0 && (
+                              <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-amber-400">Downstream Impact</p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-300/80">
+                                  <span>Population: <strong>{fmtNumber(alert.downstream_population_exposed, 0)}</strong></span>
+                                  {alert.downstream_bridges_at_risk != null && alert.downstream_bridges_at_risk > 0 && (
+                                    <span>Bridges: <strong>{alert.downstream_bridges_at_risk}</strong></span>
+                                  )}
+                                  {alert.downstream_hospitals_at_risk != null && alert.downstream_hospitals_at_risk > 0 && (
+                                    <span>Hospitals: <strong>{alert.downstream_hospitals_at_risk}</strong></span>
+                                  )}
+                                  {alert.downstream_furthest_asset && (
+                                    <span>Furthest: <strong>{alert.downstream_furthest_asset}</strong></span>
+                                  )}
+                                  {alert.downstream_furthest_arrival_hours != null && (
+                                    <span>Arrival: <strong>{alert.downstream_furthest_arrival_hours.toFixed(0)}h</strong></span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Flood Classification */}
+                            {alert.flood_probability != null && (
+                              <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/5 p-3">
+                                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-red-400">Flood Classification</p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-red-300/80">
+                                  <span>Probability: <strong>{(alert.flood_probability * 100).toFixed(1)}%</strong></span>
+                                  {alert.flood_severity && <span>Severity: <strong>{alert.flood_severity}</strong></span>}
+                                  {alert.flood_recommendation && <span>Rec: <strong>{alert.flood_recommendation}</strong></span>}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Timestamps */}
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-slate-600">
+                              <span>Created: {fmtDateTime(alert.created_at)}</span>
+                              {alert.acknowledged_at && <span>Acked: {fmtDateTime(alert.acknowledged_at)}</span>}
+                              {alert.resolved_at && <span>Resolved: {fmtDateTime(alert.resolved_at)}</span>}
+                            </div>
+                          </div>
+
+                          {/* Right: Status + Actions */}
+                          <div className="flex flex-col items-end gap-3 sm:min-w-[140px]">
+                            <Badge tone={statusStyle.tone}>
+                              {STATUS_LABELS[alert.status] || alert.status.replace(/_/g, ' ')}
+                            </Badge>
+
+                            <div className="flex flex-wrap gap-2 justify-end">
+                              {alert.status === 'NEW' && (
+                                <button onClick={() => handleAck(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/20">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Acknowledge
+                                </button>
+                              )}
+                              {alert.status === 'ACKNOWLEDGED' && (
+                                <button onClick={() => handleInvestigate(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/20">
+                                  <Search className="h-3.5 w-3.5" /> Investigate
+                                </button>
+                              )}
+                              {alert.status === 'INVESTIGATING' && (
+                                <button onClick={() => handleEscalate(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/20">
+                                  <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
+                                </button>
+                              )}
+                              {(alert.status === 'NEW' || alert.status === 'ACKNOWLEDGED' || alert.status === 'INVESTIGATING' || alert.status === 'ESCALATED') && (
+                                <button onClick={() => handleResolve(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20">
+                                  <CheckCircle className="h-3.5 w-3.5" /> Resolve
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-
-                      {/* Right: Status + Actions */}
-                      <div className="flex flex-col items-end gap-3 sm:min-w-[140px]">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${STATUS_STYLES[alert.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                          {alert.status.replace(/_/g, ' ')}
-                        </span>
-
-                        <div className="flex gap-2">
-                          {alert.status === 'NEW' && (
-                            <button
-                              onClick={() => handleAck(alert.id)}
-                              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 shadow-sm transition-colors"
-                            >
-                              Acknowledge
-                            </button>
-                          )}
-                          {(alert.status === 'NEW' || alert.status === 'ACKNOWLEDGED' || alert.status === 'INVESTIGATING') && (
-                            <button
-                              onClick={() => handleResolve(alert.id)}
-                              className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 shadow-sm transition-colors"
-                            >
-                              Resolve
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
-    </div>
+    </AppShell>
   )
 }
