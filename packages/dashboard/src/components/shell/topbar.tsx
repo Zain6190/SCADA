@@ -41,7 +41,7 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
       <div className="flex items-center gap-3">
         <SystemStatusIndicator />
         <Link
-          href="/water/alerts"
+          href="/water/operator/alerts"
           className="relative rounded-lg border border-slate-800 bg-slate-900/60 p-2 text-slate-300 hover:bg-slate-800/70"
           aria-label="Alerts"
         >

@@ -28,6 +28,7 @@ export interface NavItem {
   href: string
   icon: LucideIcon
   section: NavSectionId
+  group?: string
 }
 
 export type NavSectionId = 'command' | 'aqua' | 'crop' | 'geo' | 'system' | 'admin'
@@ -51,20 +52,20 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'AquaVision · Water',
     accent: 'text-sky-400',
     items: [
-      { label: 'Command Center', href: '/water/command-center', icon: LayoutDashboard, section: 'aqua' },
-      { label: 'Overview', href: '/water', icon: Droplets, section: 'aqua' },
-      { label: 'Assets', href: '/water/operator/assets', icon: Workflow, section: 'aqua' },
-      { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, section: 'aqua' },
-      { label: 'FFD Bulletins', href: '/water/ffd', icon: FileText, section: 'aqua' },
-      { label: 'Operations', href: '/water/operator', icon: Workflow, section: 'aqua' },
-      { label: 'Analyst', href: '/water/analyst', icon: LineChart, section: 'aqua' },
-      { label: 'Live Map', href: '/water/map', icon: MapIcon, section: 'aqua' },
-      { label: 'Flood Map', href: '/water/flood-map', icon: MapIcon, section: 'aqua' },
-      { label: 'Indicators', href: '/water/indicators', icon: Activity, section: 'aqua' },
-      { label: 'Regions', href: '/water/regions', icon: MapIcon, section: 'aqua' },
-      { label: 'Predictions', href: '/water/predictions', icon: LineChart, section: 'aqua' },
-      { label: 'Anomalies', href: '/water/anomalies', icon: ShieldAlert, section: 'aqua' },
-      { label: 'Sensors', href: '/water/sensors', icon: Radio, section: 'aqua' },
+      { label: 'Command Center', href: '/water/command-center', icon: LayoutDashboard, section: 'aqua', group: 'Operational' },
+      { label: 'Operations', href: '/water/operator', icon: Workflow, section: 'aqua', group: 'Operational' },
+      { label: 'Assets', href: '/water/operator/assets', icon: Workflow, section: 'aqua', group: 'Operational' },
+      { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, section: 'aqua', group: 'Operational' },
+      { label: 'Sensors', href: '/water/sensors', icon: Radio, section: 'aqua', group: 'Operational' },
+      { label: 'Overview', href: '/water', icon: Droplets, section: 'aqua', group: 'Analysis' },
+      { label: 'Analyst', href: '/water/analyst', icon: LineChart, section: 'aqua', group: 'Analysis' },
+      { label: 'Indicators', href: '/water/indicators', icon: Activity, section: 'aqua', group: 'Analysis' },
+      { label: 'Regions', href: '/water/regions', icon: MapPin, section: 'aqua', group: 'Analysis' },
+      { label: 'Predictions', href: '/water/predictions', icon: LineChart, section: 'aqua', group: 'Analysis' },
+      { label: 'Anomalies', href: '/water/anomalies', icon: ShieldAlert, section: 'aqua', group: 'Analysis' },
+      { label: 'FFD Bulletins', href: '/water/ffd', icon: FileText, section: 'aqua', group: 'Analysis' },
+      { label: 'Live Map', href: '/water/map', icon: MapIcon, section: 'aqua', group: 'Maps' },
+      { label: 'Flood Map', href: '/water/flood-map', icon: MapIcon, section: 'aqua', group: 'Maps' },
     ],
   },
   {
