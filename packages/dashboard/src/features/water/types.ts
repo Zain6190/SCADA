@@ -384,6 +384,35 @@ export interface MLAnomalyTrainResult {
   }>
 }
 
+// ─── Weekly Observation Summary (Analyst Workspace) ──────────────────────
+
+export interface WeeklyObservationRow {
+  asset_id: number
+  asset_name: string
+  river?: string | null
+  province?: string | null
+  week_start: string
+  observations: number
+  avg_level_ft?: number | null
+  avg_inflow?: number | null
+  avg_outflow?: number | null
+  avg_discharge?: number | null
+  max_inflow?: number | null
+  min_inflow?: number | null
+  data_sources: string[]
+  data_origins: string[]
+}
+
+export interface AssetWeeklySummary {
+  asset_id: number
+  asset_name: string
+  river?: string | null
+  province?: string | null
+  total_observations: number
+  date_range: string
+  weeks: WeeklyObservationRow[]
+}
+
 // ─── Admin Types ──────────────────────────────────────────────────────────
 
 export interface PipelineHealth {

@@ -24,6 +24,7 @@ import type {
   MLAnomaly,
   MLAnomalyTrainResult,
   PipelineHealth,
+  AssetWeeklySummary,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -253,6 +254,15 @@ export const waterApi = {
 
   getPipelineHealth: async (): Promise<PipelineHealth> => {
     const { data } = await axios.get(`${API_BASE_URL}/api/v1/admin/pipeline-health`)
+    return data
+  },
+
+  // ─── Weekly Observation Summary (Analyst) ────────────────────────────────
+
+  getWeeklySummary: async (weeks = 16, assetId?: number): Promise<AssetWeeklySummary[]> => {
+    const params: Record<string, any> = { weeks }
+    if (assetId) params.asset_id = assetId
+    const { data } = await waterClient.get('/operational/weekly-summary', { params })
     return data
   },
 }
