@@ -5,6 +5,7 @@
 #
 # Phase 2B: Updated field names, added model_status, EXPERIMENTAL labels.
 
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -16,7 +17,31 @@ from sqlalchemy.orm import Session
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import WaterAsset
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+def _regenerate_model_metadata():
+    """Try to regenerate model_metadata.json after training.
+
+    This only works when sklearn/xgboost are installed (local dev or full container).
+    In slim containers, it logs a warning and the JSON stays stale until next local run.
+    """
+    try:
+        import subprocess
+        script = Path(__file__).parent.parent / "scripts" / "generate_model_metadata.py"
+        if script.exists():
+            result = subprocess.run(
+                ["python", str(script)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                logger.info("Model metadata JSON regenerated")
+            else:
+                logger.warning(f"Metadata generation failed: {result.stderr[:200]}")
+    except Exception as e:
+        logger.warning(f"Could not regenerate model metadata: {e}")
 
 
 class PredictionResponse(BaseModel):
@@ -78,52 +103,60 @@ async def get_predictions(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    from ml.models.flood_predictor import FloodPredictor
-    from ml.features.feature_engineering import FloodFeatureBuilder
-
-    predictor = FloodPredictor()
-    builder = FloodFeatureBuilder(session)
-
-    X, feature_names = builder.build_prediction_features(
-        asset_id=asset_id,
-        as_of_date=datetime.utcnow(),
-    )
-
-    if X is None:
+    try:
+        from ml.models.flood_predictor import FloodPredictor
+        from ml.features.feature_engineering import FloodFeatureBuilder
+    except ImportError as e:
+        logger.warning(f"ML packages not available in container: {e}")
         return []
 
-    horizon_list = [int(h.strip()) for h in horizons.split(",")]
-    predictions = []
+    try:
+        predictor = FloodPredictor()
+        builder = FloodFeatureBuilder(session)
 
-    for horizon in horizon_list:
-        pred = predictor.predict(
+        X, feature_names = builder.build_prediction_features(
             asset_id=asset_id,
-            asset_name=asset.canonical_name,
-            X=X,
-            feature_names=feature_names,
-            horizon=horizon,
-            warning_level=float(asset.warning_level_ft) if asset.warning_level_ft else None,
-            danger_level=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+            as_of_date=datetime.utcnow(),
         )
-        if pred:
-            predictions.append(PredictionResponse(
-                asset_id=pred.asset_id,
-                asset_name=pred.asset_name,
-                prediction_date=pred.prediction_date,
-                horizon_days=pred.horizon_days,
-                predicted_level_ft=pred.predicted_level_ft,
-                lower_bound=pred.lower_bound,
-                upper_bound=pred.upper_bound,
-                risk_score=pred.risk_score,
-                risk_level=pred.risk_level,
-                exceeds_warning=pred.exceeds_warning,
-                exceeds_danger=pred.exceeds_danger,
-                model_version=pred.model_version,
-                model_status=pred.model_status,
-                feature_importance=pred.feature_importance,
-            ))
 
-    return predictions
+        if X is None:
+            return []
+
+        horizon_list = [int(h.strip()) for h in horizons.split(",")]
+        predictions = []
+
+        for horizon in horizon_list:
+            pred = predictor.predict(
+                asset_id=asset_id,
+                asset_name=asset.canonical_name,
+                X=X,
+                feature_names=feature_names,
+                horizon=horizon,
+                warning_level=float(asset.warning_level_ft) if asset.warning_level_ft else None,
+                danger_level=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+            )
+            if pred:
+                predictions.append(PredictionResponse(
+                    asset_id=pred.asset_id,
+                    asset_name=pred.asset_name,
+                    prediction_date=pred.prediction_date,
+                    horizon_days=pred.horizon_days,
+                    predicted_level_ft=pred.predicted_level_ft,
+                    lower_bound=pred.lower_bound,
+                    upper_bound=pred.upper_bound,
+                    risk_score=pred.risk_score,
+                    risk_level=pred.risk_level,
+                    exceeds_warning=pred.exceeds_warning,
+                    exceeds_danger=pred.exceeds_danger,
+                    model_version=pred.model_version,
+                    model_status=pred.model_status,
+                    feature_importance=pred.feature_importance,
+                ))
+
+        return predictions
+    except Exception as e:
+        logger.warning(f"Prediction failed for asset {asset_id}: {e}")
+        return []
 
 
 @router.post("/ml/train", response_model=TrainResponse)
@@ -134,6 +167,7 @@ async def trigger_training(
     from ml.train_flood_model import train_all_assets
 
     results = train_all_assets(horizons=payload.horizons)
+    _regenerate_model_metadata()
 
     return TrainResponse(
         models_trained=len(results),
@@ -306,8 +340,61 @@ async def train_flood_classifiers():
 
     results = train_all_classifiers(horizon=7)
     trained = len([r for r in results if "error" not in r])
+    _regenerate_model_metadata()
 
     return {
         "models_trained": trained,
         "results": results,
     }
+
+
+# ─── Model Performance Endpoint ────────────────────────────────────────────
+
+
+class ModelPerformance(BaseModel):
+    asset_id: int
+    asset_name: str
+    model_type: str  # "flood_predictor" | "flood_classifier" | "anomaly_detector"
+    model_status: str
+    trained_at: Optional[str] = None
+    saved_at: Optional[str] = None
+    samples: Optional[int] = None
+    train_samples: Optional[int] = None
+    test_samples: Optional[int] = None
+    # Regression metrics
+    r2: Optional[float] = None
+    mae: Optional[float] = None
+    rmse: Optional[float] = None
+    mape: Optional[float] = None
+    # Classification metrics
+    accuracy: Optional[float] = None
+    auc: Optional[float] = None
+    f1: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    # Feature importance (top 10)
+    feature_importance: dict = {}
+    # Extra info
+    horizon_days: Optional[int] = None
+    model_version: Optional[str] = None
+    model_file: str = ""
+
+
+@router.get("/ml/model-performance", response_model=List[ModelPerformance])
+async def get_model_performance():
+    """Read model performance metadata from pre-generated JSON.
+
+    Run `scripts/generate_model_metadata.py` locally to produce the JSON
+    after training models. This avoids needing sklearn/xgboost in the API container.
+    """
+    import json
+    from pathlib import Path
+
+    metadata_path = Path(__file__).parent.parent / "data" / "model_metadata.json"
+    if not metadata_path.exists():
+        return []
+
+    with open(metadata_path) as f:
+        raw = json.load(f)
+
+    return [ModelPerformance(**item) for item in raw]

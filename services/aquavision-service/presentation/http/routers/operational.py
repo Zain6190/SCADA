@@ -1044,3 +1044,140 @@ async def trigger_irsa_ingest(target_date: Optional[str] = None):
         return IRSAIngestResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"IRSA ingestion failed: {str(e)}")
+
+
+# ─── Weekly Observation Aggregation ────────────────────────────────────────
+
+
+class WeeklyObservationSummary(BaseModel):
+    asset_id: int
+    asset_name: str
+    river: Optional[str]
+    province: Optional[str]
+    week_start: str
+    observations: int
+    avg_level_ft: Optional[float] = None
+    avg_inflow: Optional[float] = None
+    avg_outflow: Optional[float] = None
+    avg_discharge: Optional[float] = None
+    max_inflow: Optional[float] = None
+    min_inflow: Optional[float] = None
+    data_sources: List[str] = []
+    data_origins: List[str] = []
+
+
+class AssetWeeklySummary(BaseModel):
+    asset_id: int
+    asset_name: str
+    river: Optional[str]
+    province: Optional[str]
+    total_observations: int
+    date_range: str
+    weeks: List[WeeklyObservationSummary]
+
+
+@router.get("/operational/weekly-summary", response_model=List[AssetWeeklySummary])
+async def get_weekly_summary(
+    weeks: int = Query(16, description="Number of weeks to look back"),
+    asset_id: Optional[int] = Query(None, description="Filter to specific asset"),
+    session: Session = Depends(get_session),
+):
+    """Aggregate observations by asset and week for the Analyst workspace."""
+    from datetime import timezone
+
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(weeks=weeks)
+
+    # Fetch observations in range
+    q = (
+        select(WaterObservation, WaterAsset)
+        .join(WaterAsset, WaterAsset.id == WaterObservation.asset_id)
+        .where(
+            and_(
+                WaterObservation.observed_at >= datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc),
+                WaterObservation.observed_at <= datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc),
+            )
+        )
+        .order_by(WaterObservation.asset_id, WaterObservation.observed_at)
+    )
+    if asset_id:
+        q = q.where(WaterObservation.asset_id == asset_id)
+
+    rows = session.execute(q).all()
+
+    # Group by asset, then by week
+    from collections import defaultdict
+    asset_data: dict[int, dict] = {}
+
+    for obs, asset in rows:
+        aid = asset.id
+        if aid not in asset_data:
+            asset_data[aid] = {
+                "asset_id": aid,
+                "asset_name": asset.canonical_name,
+                "river": asset.river,
+                "province": asset.province,
+                "weeks": defaultdict(lambda: {
+                    "level": [], "inflow": [], "outflow": [], "discharge": [],
+                    "sources": set(), "origins": set(), "count": 0,
+                }),
+            }
+
+        # Calculate ISO week start (Monday)
+        obs_date = obs.observed_at.date() if hasattr(obs.observed_at, 'date') else obs.observed_at
+        week_start = obs_date - timedelta(days=obs_date.weekday())
+        wd = asset_data[aid]["weeks"][week_start.isoformat()]
+
+        wd["count"] += 1
+        if obs.water_level_ft is not None:
+            wd["level"].append(float(obs.water_level_ft))
+        if obs.inflow_cusecs is not None:
+            wd["inflow"].append(float(obs.inflow_cusecs))
+        if obs.outflow_cusecs is not None:
+            wd["outflow"].append(float(obs.outflow_cusecs))
+        if obs.discharge_cusecs is not None:
+            wd["discharge"].append(float(obs.discharge_cusecs))
+        if obs.source_authority:
+            wd["sources"].add(obs.source_authority)
+        if obs.data_origin:
+            wd["origins"].add(obs.data_origin)
+
+    # Build response
+    result = []
+    for aid, data in sorted(asset_data.items()):
+        weeks_list = []
+        for wk in sorted(data["weeks"].keys()):
+            w = data["weeks"][wk]
+            avg = lambda lst: round(sum(lst) / len(lst), 2) if lst else None
+            mx = lambda lst: round(max(lst), 2) if lst else None
+            mn = lambda lst: round(min(lst), 2) if lst else None
+            weeks_list.append(WeeklyObservationSummary(
+                asset_id=aid,
+                asset_name=data["asset_name"],
+                river=data["river"],
+                province=data["province"],
+                week_start=wk,
+                observations=w["count"],
+                avg_level_ft=avg(w["level"]),
+                avg_inflow=avg(w["inflow"]),
+                avg_outflow=avg(w["outflow"]),
+                avg_discharge=avg(w["discharge"]),
+                max_inflow=mx(w["inflow"]),
+                min_inflow=mn(w["inflow"]),
+                data_sources=sorted(w["sources"]),
+                data_origins=sorted(w["origins"]),
+            ))
+
+        total_obs = sum(w["count"] for w in data["weeks"].values())
+        date_range = f"{start_date} → {end_date}" if weeks_list else "No data"
+        result.append(AssetWeeklySummary(
+            asset_id=aid,
+            asset_name=data["asset_name"],
+            river=data["river"],
+            province=data["province"],
+            total_observations=total_obs,
+            date_range=date_range,
+            weeks=weeks_list,
+        ))
+
+    return result

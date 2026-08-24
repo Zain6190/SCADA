@@ -109,20 +109,25 @@ class FloodPredictor:
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # Train XGBoost
+        # Train XGBoost with early stopping to prevent overfitting
         model = xgb.XGBRegressor(
-            n_estimators=200,
-            max_depth=6,
-            learning_rate=0.05,
+            n_estimators=500,
+            max_depth=4,
+            learning_rate=0.03,
             subsample=0.8,
-            colsample_bytree=0.8,
-            reg_alpha=0.1,
-            reg_lambda=1.0,
+            colsample_bytree=0.7,
+            reg_alpha=0.5,
+            reg_lambda=2.0,
+            min_child_weight=5,
             random_state=42,
             n_jobs=-1,
+            early_stopping_rounds=30,
         )
 
-        fit_kwargs = {"eval_set": [(X_test_scaled, y_test)], "verbose": False}
+        fit_kwargs = {
+            "eval_set": [(X_test_scaled, y_test)],
+            "verbose": False,
+        }
         if w_train is not None:
             fit_kwargs["sample_weight"] = w_train
 
@@ -211,7 +216,7 @@ class FloodPredictor:
         exceeds_warning = warning_level and prediction >= warning_level
         exceeds_danger = danger_level and prediction >= danger_level
 
-        importance = dict(zip(feature_names_loaded, model.feature_importances_))
+        importance = dict(zip(feature_names_loaded, [float(v) for v in model.feature_importances_]))
         top_features = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:5])
 
         return FloodPrediction(
@@ -224,7 +229,7 @@ class FloodPredictor:
             predicted_outflow=None,
             lower_bound=round(float(lower_bound), 2),
             upper_bound=round(float(upper_bound), 2),
-            risk_score=round(risk_score, 1),
+            risk_score=round(float(risk_score), 1),
             risk_level=risk_level,
             exceeds_warning=bool(exceeds_warning),
             exceeds_danger=bool(exceeds_danger),
@@ -331,7 +336,7 @@ class HighFlowPredictor:
         from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
         import xgboost as xgb
 
-        if len(X) < 20:
+        if len(X) < 15:
             logger.warning(f"Insufficient high-flow data for training: {len(X)} samples")
             return {"error": "insufficient_data"}
 
@@ -342,7 +347,7 @@ class HighFlowPredictor:
         y_hf = y[high_flow_mask]
         w_hf = sample_weights[high_flow_mask] if sample_weights is not None else None
 
-        if len(X_hf) < 10:
+        if len(X_hf) < 8:
             logger.warning(f"Insufficient high-flow samples after filtering: {len(X_hf)}")
             return {"error": "insufficient_high_flow_data"}
 
@@ -364,19 +369,20 @@ class HighFlowPredictor:
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # Train with high-flow optimized hyperparameters
+        # Train with conservative hyperparameters to prevent overfitting
         model = xgb.XGBRegressor(
             n_estimators=300,
-            max_depth=8,
+            max_depth=4,
             learning_rate=0.03,
-            subsample=0.7,
+            subsample=0.8,
             colsample_bytree=0.7,
-            reg_alpha=0.05,
-            reg_lambda=0.5,
-            min_child_weight=3,
+            reg_alpha=0.5,
+            reg_lambda=2.0,
+            min_child_weight=5,
             gamma=0.1,
             random_state=42,
             n_jobs=-1,
+            early_stopping_rounds=30,
         )
 
         fit_kwargs = {"eval_set": [(X_test_scaled, y_test)], "verbose": False}
@@ -469,7 +475,7 @@ class HighFlowPredictor:
         exceeds_warning = warning_level and prediction >= warning_level
         exceeds_danger = danger_level and prediction >= danger_level
 
-        importance = dict(zip(feature_names_loaded, model.feature_importances_))
+        importance = dict(zip(feature_names_loaded, [float(v) for v in model.feature_importances_]))
         top_features = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:5])
 
         return FloodPrediction(
@@ -482,7 +488,7 @@ class HighFlowPredictor:
             predicted_outflow=None,
             lower_bound=round(float(lower_bound), 2),
             upper_bound=round(float(upper_bound), 2),
-            risk_score=round(risk_score, 1),
+            risk_score=round(float(risk_score), 1),
             risk_level=risk_level,
             exceeds_warning=bool(exceeds_warning),
             exceeds_danger=bool(exceeds_danger),

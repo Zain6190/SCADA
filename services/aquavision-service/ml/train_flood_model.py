@@ -39,9 +39,9 @@ def train_all_assets(horizons=[7, 14, 30]):
             
             builder = FloodFeatureBuilder(session)
             
-            # Use all available data
+            # Use ALL available data — Kaggle has 4.7 years
             end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=400)  # Get all available data
+            start_date = datetime(2020, 1, 1)  # Get everything since 2020
             
             for horizon in horizons:
                 logger.info(f"\n--- Horizon: {horizon} days ---")
@@ -51,10 +51,16 @@ def train_all_assets(horizons=[7, 14, 30]):
                     start_date=start_date,
                     end_date=end_date,
                     forecast_horizon=horizon,
+                    source_priority=True,  # Use best value per date (IRSA > FFD > Kaggle)
                 )
                 
                 if len(X) == 0:
                     logger.warning(f"  No training data for {asset.canonical_name} horizon={horizon}")
+                    continue
+                
+                # Need at least 50 samples for 46 features — below that, model just memorizes
+                if len(X) < 50:
+                    logger.warning(f"  Skipping {asset.canonical_name} horizon={horizon}: only {len(X)} samples (need 50+)")
                     continue
                 
                 # Train standard model
@@ -67,8 +73,8 @@ def train_all_assets(horizons=[7, 14, 30]):
                 )
                 results.append(metrics)
                 
-                # Train high-flow model
-                if len(X) >= 20:
+                # Train high-flow model only when enough data (needs 200+ for meaningful 75th percentile)
+                if len(X) >= 200:
                     hf_metrics = hf_predictor.train(
                         asset_id=asset.id,
                         X=X,

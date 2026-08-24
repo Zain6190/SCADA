@@ -384,6 +384,62 @@ export interface MLAnomalyTrainResult {
   }>
 }
 
+// ─── Weekly Observation Summary (Analyst Workspace) ──────────────────────
+
+export interface WeeklyObservationRow {
+  asset_id: number
+  asset_name: string
+  river?: string | null
+  province?: string | null
+  week_start: string
+  observations: number
+  avg_level_ft?: number | null
+  avg_inflow?: number | null
+  avg_outflow?: number | null
+  avg_discharge?: number | null
+  max_inflow?: number | null
+  min_inflow?: number | null
+  data_sources: string[]
+  data_origins: string[]
+}
+
+export interface AssetWeeklySummary {
+  asset_id: number
+  asset_name: string
+  river?: string | null
+  province?: string | null
+  total_observations: number
+  date_range: string
+  weeks: WeeklyObservationRow[]
+}
+
+// ─── Model Performance (Analyst Workspace) ───────────────────────────────
+
+export interface ModelPerformance {
+  asset_id: number
+  asset_name: string
+  model_type: string
+  model_status: string
+  trained_at?: string | null
+  saved_at?: string | null
+  samples?: number | null
+  train_samples?: number | null
+  test_samples?: number | null
+  r2?: number | null
+  mae?: number | null
+  rmse?: number | null
+  mape?: number | null
+  accuracy?: number | null
+  auc?: number | null
+  f1?: number | null
+  precision?: number | null
+  recall?: number | null
+  feature_importance: Record<string, number>
+  horizon_days?: number | null
+  model_version?: string | null
+  model_file: string
+}
+
 // ─── Admin Types ──────────────────────────────────────────────────────────
 
 export interface PipelineHealth {
