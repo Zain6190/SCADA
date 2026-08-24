@@ -30,7 +30,10 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import select
 
 from infrastructure.db.engine import SessionLocal
-from infrastructure.db.models import WaterAsset, WaterObservation, WaterSource, RawSourceRecord
+from infrastructure.db.models import (
+    WaterAsset, WaterObservation, WaterSource, RawSourceRecord,
+    WaterFFDObservation,
+)
 from infrastructure.ingestion.pmd_html_parser import parse_ffd_html
 
 logger = logging.getLogger(__name__)
@@ -192,6 +195,31 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
             db.add(water_obs)
             stored += 1
             logger.info(f"Stored: {obs.canonical_name} = {discharge_cusecs} cusecs, status={obs.flood_status}")
+
+            # Also write to water_ffd_observations for backward compatibility
+            # (threshold engine reads from this table)
+            existing_ffd = db.execute(
+                select(WaterFFDObservation).where(
+                    WaterFFDObservation.station_name == obs.canonical_name,
+                    WaterFFDObservation.observed_at == target_date,
+                )
+            ).scalar_one_or_none()
+
+            if not existing_ffd:
+                ffd_obs = WaterFFDObservation(
+                    station_name=obs.canonical_name,
+                    river=obs.river,
+                    observed_at=target_date,
+                    gauge_level_ft=None,
+                    discharge_cusecs=discharge_cusecs,
+                    flood_status=obs.flood_status,
+                    forecast_trend="STEADY",
+                    forecast_range="",
+                    historical_max=None,
+                    source_url="https://ffd.pmd.gov.pk/bulletins/archive",
+                    raw_text=f"bulk_ingest: headroom={obs.headroom_current}K",
+                )
+                db.add(ffd_obs)
 
         db.commit()
 

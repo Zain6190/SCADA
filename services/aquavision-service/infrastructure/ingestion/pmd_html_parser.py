@@ -122,7 +122,74 @@ def parse_ffd_html(html: str, target_date: date) -> List[FFDObservation]:
         observations.append(obs)
         logger.debug(f"Parsed: {station_name} → {canonical} = {headroom_current}K cusecs, status={flood_status}")
 
-    logger.info(f"Parsed {len(observations)} stations from FFD bulletin HTML")
+    logger.info(f"Parsed {len(observations)} stations from FFD bulletin HTML (attribute-based)")
+    return observations
+
+
+def _text_fallback_parse(html: str, target_date: date, existing_stations: set) -> List[FFDObservation]:
+    """Fallback parser: extract stations from plain text that weren't found via attributes.
+
+    FFD bulletins sometimes list Nowshera/Kabul in the text body but not as
+    data-ffd-headroom attributes. This parser finds those missing stations.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text()
+
+    observations = []
+
+    # Search for stations in text that weren't found via attributes
+    for search_key, (canonical_name, river) in STATION_MAP.items():
+        if search_key in existing_stations:
+            continue
+        if search_key not in text:
+            continue
+
+        idx = text.find(search_key)
+        after = text[idx + len(search_key):]
+
+        # Find a status keyword
+        status_match = re.search(
+            r'(Below Low|Low|Medium|High|Very High|Exceptionally High|No sig)',
+            after[:200],
+        )
+        if not status_match:
+            continue
+
+        before_status = after[:status_match.start()]
+        status = status_match.group(0)
+
+        # Extract numbers before status — pattern: "37.237.2" = level + discharge
+        # Find all floats in before_status
+        nums = re.findall(r'[\d.]+', before_status)
+        gauge_level = None
+        discharge_k = None  # thousands of cusecs
+        if len(nums) >= 2:
+            try:
+                gauge_level = float(nums[0])
+                discharge_k = float(nums[1])
+            except ValueError:
+                pass
+        elif len(nums) == 1:
+            try:
+                discharge_k = float(nums[0])
+            except ValueError:
+                pass
+
+        obs = FFDObservation(
+            station_name=search_key,
+            canonical_name=canonical_name,
+            river=river,
+            observed_at=target_date,
+            headroom_current=discharge_k,
+            headroom_design=None,
+            flood_status=_normalize_status(status.upper()),
+            levels={},
+        )
+        observations.append(obs)
+        logger.info(f"Text fallback parsed: {search_key} = {discharge_k}K cusecs, status={status}")
+
     return observations
 
 
