@@ -60,9 +60,11 @@ function MiniSparkline({ data, color = 'sky' }: { data: (number | null)[]; color
   )
 }
 
-function MetricBar({ label, value, max = 1, color = 'sky' }: { label: string; value: number | null; max?: number; color?: string }) {
-  if (value == null) return null
-  const pct = Math.min(Math.abs(value) / max * 100, 100)
+function MetricBar({ label, value, max = 1, color = 'sky' }: { label: string; value: number | null | string; max?: number; color?: string }) {
+  if (value == null || value === '') return null
+  const numVal = Number(value)
+  if (isNaN(numVal)) return null
+  const pct = Math.min(Math.abs(numVal) / max * 100, 100)
   const colors: Record<string, string> = {
     sky: 'bg-sky-500', emerald: 'bg-emerald-500', amber: 'bg-amber-500',
     violet: 'bg-violet-500', red: 'bg-red-500',
@@ -74,16 +76,19 @@ function MetricBar({ label, value, max = 1, color = 'sky' }: { label: string; va
         <div className={`h-full rounded-full ${colors[color] || colors.sky}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-[10px] text-slate-300 w-12 text-right font-medium">
-        {typeof value === 'number' ? (value < 1 ? value.toFixed(4) : value.toFixed(2)) : '—'}
+        {numVal < 1 ? numVal.toFixed(4) : numVal.toFixed(2)}
       </span>
     </div>
   )
 }
 
-function FeatureImportance({ features }: { features: Record<string, number> }) {
-  const entries = Object.entries(features).slice(0, 8)
+function FeatureImportance({ features }: { features: Record<string, any> }) {
+  const entries = Object.entries(features)
+    .filter(([, v]) => v != null && v !== '')
+    .slice(0, 8)
+    .map(([k, v]) => [k, Number(v)] as [string, number])
   if (entries.length === 0) return <span className="text-[10px] text-slate-600">No features</span>
-  const maxVal = Math.max(...entries.map(([, v]) => Math.abs(v)))
+  const maxVal = Math.max(...entries.map(([, v]) => Math.abs(v))) || 1
   return (
     <div className="space-y-1">
       {entries.map(([name, val]) => (
