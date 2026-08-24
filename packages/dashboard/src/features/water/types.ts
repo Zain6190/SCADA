@@ -413,6 +413,33 @@ export interface AssetWeeklySummary {
   weeks: WeeklyObservationRow[]
 }
 
+// ─── Model Performance (Analyst Workspace) ───────────────────────────────
+
+export interface ModelPerformance {
+  asset_id: number
+  asset_name: string
+  model_type: string
+  model_status: string
+  trained_at?: string | null
+  saved_at?: string | null
+  samples?: number | null
+  train_samples?: number | null
+  test_samples?: number | null
+  r2?: number | null
+  mae?: number | null
+  rmse?: number | null
+  mape?: number | null
+  accuracy?: number | null
+  auc?: number | null
+  f1?: number | null
+  precision?: number | null
+  recall?: number | null
+  feature_importance: Record<string, number>
+  horizon_days?: number | null
+  model_version?: string | null
+  model_file: string
+}
+
 // ─── Admin Types ──────────────────────────────────────────────────────────
 
 export interface PipelineHealth {

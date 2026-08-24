@@ -3,11 +3,11 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Download, RefreshCw, TrendingUp, TrendingDown, Droplets, BarChart3, Activity, Building2 } from 'lucide-react'
+import { ArrowLeft, Download, RefreshCw, TrendingUp, TrendingDown, Droplets, BarChart3, Activity, Building2, Brain, Shield, AlertTriangle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { waterApi } from '@/features/water/api'
-import type { AssetWeeklySummary, WeeklyObservationRow } from '@/features/water/types'
-import { fmtNumber, fmtDate } from '@/lib/format'
+import type { AssetWeeklySummary, ModelPerformance } from '@/features/water/types'
+import { fmtNumber } from '@/lib/format'
 
 const WEEK_OPTIONS = [4, 8, 12, 16, 24, 52]
 const REFRESH_MS = 60_000
@@ -60,6 +60,127 @@ function MiniSparkline({ data, color = 'sky' }: { data: (number | null)[]; color
   )
 }
 
+function MetricBar({ label, value, max = 1, color = 'sky' }: { label: string; value: number | null; max?: number; color?: string }) {
+  if (value == null) return null
+  const pct = Math.min(Math.abs(value) / max * 100, 100)
+  const colors: Record<string, string> = {
+    sky: 'bg-sky-500', emerald: 'bg-emerald-500', amber: 'bg-amber-500',
+    violet: 'bg-violet-500', red: 'bg-red-500',
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-slate-500 w-16 text-right">{label}</span>
+      <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${colors[color] || colors.sky}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] text-slate-300 w-12 text-right font-medium">
+        {typeof value === 'number' ? (value < 1 ? value.toFixed(4) : value.toFixed(2)) : '—'}
+      </span>
+    </div>
+  )
+}
+
+function FeatureImportance({ features }: { features: Record<string, number> }) {
+  const entries = Object.entries(features).slice(0, 8)
+  if (entries.length === 0) return <span className="text-[10px] text-slate-600">No features</span>
+  const maxVal = Math.max(...entries.map(([, v]) => Math.abs(v)))
+  return (
+    <div className="space-y-1">
+      {entries.map(([name, val]) => (
+        <div key={name} className="flex items-center gap-1.5">
+          <span className="text-[9px] text-slate-500 w-28 truncate" title={name}>{name}</span>
+          <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full bg-violet-500 rounded-full" style={{ width: `${(Math.abs(val) / maxVal) * 100}%` }} />
+          </div>
+          <span className="text-[9px] text-slate-400 w-10 text-right">{val.toFixed(3)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ModelPerformanceCard({ model }: { model: ModelPerformance }) {
+  const isClassifier = model.model_type === 'flood_classifier'
+  const isPredictor = model.model_type === 'flood_predictor'
+  const isAnomaly = model.model_type === 'anomaly_detector'
+
+  const typeLabel = isPredictor ? 'Flood Predictor' : isClassifier ? 'Flood Classifier' : 'Anomaly Detector'
+  const typeColor = isPredictor ? 'sky' : isClassifier ? 'amber' : 'violet'
+  const typeIcon = isPredictor ? Droplets : isClassifier ? Shield : AlertTriangle
+
+  return (
+    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4 space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center bg-${typeColor}-500/10`}>
+            {(() => { const Icon = typeIcon; return <Icon className={`w-3.5 h-3.5 text-${typeColor}-400`} /> })()}
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold text-slate-200">{model.asset_name}</h4>
+            <p className="text-[10px] text-slate-500">{typeLabel} {model.horizon_days ? `(${model.horizon_days}d)` : ''}</p>
+          </div>
+        </div>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${
+          model.model_status === 'APPROVED' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+          model.model_status === 'SHADOW' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+          'bg-slate-700/50 text-slate-400 border-slate-600/50'
+        }`}>
+          {model.model_status}
+        </span>
+      </div>
+
+      {/* Metrics grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {isPredictor && (
+          <>
+            <MetricBar label="R²" value={model.r2} max={1} color="emerald" />
+            <MetricBar label="MAE" value={model.mae} max={500} color="sky" />
+            <MetricBar label="RMSE" value={model.rmse} max={500} color="sky" />
+            <MetricBar label="MAPE" value={model.mape} max={100} color="violet" />
+          </>
+        )}
+        {isClassifier && (
+          <>
+            <MetricBar label="Accuracy" value={model.accuracy} max={1} color="emerald" />
+            <MetricBar label="AUC" value={model.auc} max={1} color="amber" />
+            <MetricBar label="F1" value={model.f1} max={1} color="sky" />
+            <MetricBar label="Precision" value={model.precision} max={1} color="violet" />
+          </>
+        )}
+        {isAnomaly && (
+          <div className="col-span-2 text-[10px] text-slate-500">
+            Samples: {model.samples?.toLocaleString() || '—'} · Version: {model.model_version || '—'}
+          </div>
+        )}
+      </div>
+
+      {/* Sample counts */}
+      {(model.train_samples || model.test_samples) && (
+        <div className="flex items-center gap-3 text-[10px] text-slate-500">
+          <span>Train: {model.train_samples?.toLocaleString()}</span>
+          <span>Test: {model.test_samples?.toLocaleString()}</span>
+        </div>
+      )}
+
+      {/* Feature importance */}
+      {Object.keys(model.feature_importance).length > 0 && (
+        <div>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Top Features</div>
+          <FeatureImportance features={model.feature_importance} />
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="pt-2 border-t border-slate-800/50 flex items-center justify-between text-[9px] text-slate-600">
+        <span>{model.model_file}</span>
+        {model.trained_at && <span>Trained: {model.trained_at.slice(0, 10)}</span>}
+      </div>
+    </div>
+  )
+}
+
+
 export default function AnalystWorkspacePage() {
   const [weeks, setWeeks] = useState(16)
   const [selectedAsset, setSelectedAsset] = useState<number | null>(null)
@@ -67,6 +188,12 @@ export default function AnalystWorkspacePage() {
   const { data: summaries, isLoading, refetch, isFetching } = useQuery<AssetWeeklySummary[]>({
     queryKey: ['weekly-summary', weeks, selectedAsset],
     queryFn: () => waterApi.getWeeklySummary(weeks, selectedAsset ?? undefined),
+    refetchInterval: REFRESH_MS,
+  })
+
+  const { data: models, isLoading: modelsLoading } = useQuery<ModelPerformance[]>({
+    queryKey: ['model-performance'],
+    queryFn: () => waterApi.getModelPerformance(),
     refetchInterval: REFRESH_MS,
   })
 
@@ -88,6 +215,16 @@ export default function AnalystWorkspacePage() {
     const sources = new Set(allWeeks.flatMap(w => w.data_sources))
     return { totalObs, totalAssets, avgInflow, sources: Array.from(sources) }
   }, [summaries])
+
+  // Model stats
+  const modelStats = useMemo(() => {
+    if (!models?.length) return null
+    const predictors = models.filter(m => m.model_type === 'flood_predictor')
+    const classifiers = models.filter(m => m.model_type === 'flood_classifier')
+    const avgR2 = predictors.length ? predictors.reduce((s, m) => s + (m.r2 || 0), 0) / predictors.length : null
+    const avgAUC = classifiers.length ? classifiers.reduce((s, m) => s + (m.auc || 0), 0) / classifiers.length : null
+    return { totalModels: models.length, predictors: predictors.length, classifiers: classifiers.length, avgR2, avgAUC }
+  }, [models])
 
   const handleExportCSV = () => {
     if (!summaries?.length) return
@@ -122,7 +259,7 @@ export default function AnalystWorkspacePage() {
             </Link>
             <div>
               <h1 className="text-sm font-semibold text-slate-100">Analyst Workspace</h1>
-              <p className="text-[11px] text-slate-500">Real observation data from IRSA, Kaggle, and FFD sources</p>
+              <p className="text-[11px] text-slate-500">Real observation data and model performance metrics</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -142,12 +279,14 @@ export default function AnalystWorkspacePage() {
 
       <main className="mx-auto max-w-screen-2xl px-6 py-6 space-y-6">
         {/* KPI row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
             { label: 'Assets Tracked', value: stats?.totalAssets ?? '—', icon: Building2, color: 'sky' },
             { label: 'Total Observations', value: stats?.totalObs?.toLocaleString() ?? '—', icon: BarChart3, color: 'emerald' },
-            { label: 'Avg Inflow (latest)', value: stats?.avgInflow ? fmtNumber(stats.avgInflow) : '—', icon: Droplets, color: 'violet' },
+            { label: 'Avg Inflow', value: stats?.avgInflow ? fmtNumber(stats.avgInflow) : '—', icon: Droplets, color: 'violet' },
             { label: 'Data Sources', value: stats?.sources?.length ?? '—', icon: Activity, color: 'amber' },
+            { label: 'Avg R²', value: modelStats?.avgR2 != null ? modelStats.avgR2.toFixed(3) : '—', icon: Brain, color: 'emerald' },
+            { label: 'Avg AUC', value: modelStats?.avgAUC != null ? modelStats.avgAUC.toFixed(3) : '—', icon: Shield, color: 'amber' },
           ].map((kpi) => (
             <div key={kpi.label} className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
               <div className="flex items-center gap-2 mb-2">
@@ -159,6 +298,36 @@ export default function AnalystWorkspacePage() {
               <div className="text-xl font-semibold text-slate-100">{kpi.value}</div>
             </div>
           ))}
+        </div>
+
+        {/* Section: Model Performance */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Brain className="w-4 h-4 text-violet-400" />
+            <h2 className="text-sm font-semibold text-slate-200">Model Performance</h2>
+            {modelStats && (
+              <span className="text-[11px] text-slate-500">({modelStats.totalModels} models · {modelStats.predictors} predictors · {modelStats.classifiers} classifiers)</span>
+            )}
+          </div>
+
+          {modelsLoading ? (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-8 text-center">
+              <RefreshCw className="w-5 h-5 text-slate-600 animate-spin mx-auto mb-2" />
+              <p className="text-sm text-slate-500">Loading model metadata...</p>
+            </div>
+          ) : !models?.length ? (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-8 text-center">
+              <Brain className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+              <p className="text-sm text-slate-400">No trained models found</p>
+              <p className="text-xs text-slate-600 mt-1">Run model training from the Predictions page</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {models.filter(m => m.model_type !== 'anomaly_detector').map((m, i) => (
+                <ModelPerformanceCard key={`${m.asset_id}-${m.model_type}-${m.horizon_days}`} model={m} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Controls */}
@@ -196,26 +365,32 @@ export default function AnalystWorkspacePage() {
           </div>
         </div>
 
-        {/* Loading / Empty */}
-        {isLoading && (
-          <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-12 text-center">
-            <RefreshCw className="w-5 h-5 text-slate-600 animate-spin mx-auto mb-2" />
-            <p className="text-sm text-slate-500">Loading observations...</p>
+        {/* Section: Observations */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <BarChart3 className="w-4 h-4 text-sky-400" />
+            <h2 className="text-sm font-semibold text-slate-200">Observation Data</h2>
           </div>
-        )}
 
-        {!isLoading && (!summaries || summaries.length === 0) && (
-          <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-12 text-center">
-            <BarChart3 className="w-8 h-8 text-slate-700 mx-auto mb-2" />
-            <p className="text-sm text-slate-400">No observation data available</p>
-            <p className="text-xs text-slate-600 mt-1">Run IRSA/FFD ingestion or load Kaggle data</p>
-          </div>
-        )}
+          {isLoading && (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-12 text-center">
+              <RefreshCw className="w-5 h-5 text-slate-600 animate-spin mx-auto mb-2" />
+              <p className="text-sm text-slate-500">Loading observations...</p>
+            </div>
+          )}
 
-        {/* Asset cards */}
-        {summaries?.map(asset => (
-          <AssetCard key={asset.asset_id} asset={asset} />
-        ))}
+          {!isLoading && (!summaries || summaries.length === 0) && (
+            <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-12 text-center">
+              <BarChart3 className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+              <p className="text-sm text-slate-400">No observation data available</p>
+              <p className="text-xs text-slate-600 mt-1">Run IRSA/FFD ingestion or load Kaggle data</p>
+            </div>
+          )}
+
+          {summaries?.map(asset => (
+            <AssetCard key={asset.asset_id} asset={asset} />
+          ))}
+        </div>
       </main>
     </div>
   )
@@ -228,13 +403,10 @@ function AssetCard({ asset }: { asset: AssetWeeklySummary }) {
   const inflowTrend = latest?.avg_inflow != null && previous?.avg_inflow != null
     ? latest.avg_inflow - previous.avg_inflow : null
 
-  // Sparkline data
   const inflowSeries = asset.weeks.map(w => w.avg_inflow)
-  const levelSeries = asset.weeks.map(w => w.avg_level_ft)
 
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 overflow-hidden">
-      {/* Header */}
+    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 overflow-hidden mb-3">
       <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-100">{asset.asset_name}</h3>
@@ -256,7 +428,6 @@ function AssetCard({ asset }: { asset: AssetWeeklySummary }) {
         </div>
       </div>
 
-      {/* Weekly table */}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>

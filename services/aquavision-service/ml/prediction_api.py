@@ -5,6 +5,7 @@
 #
 # Phase 2B: Updated field names, added model_status, EXPERIMENTAL labels.
 
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import WaterAsset
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -311,3 +314,55 @@ async def train_flood_classifiers():
         "models_trained": trained,
         "results": results,
     }
+
+
+# ─── Model Performance Endpoint ────────────────────────────────────────────
+
+
+class ModelPerformance(BaseModel):
+    asset_id: int
+    asset_name: str
+    model_type: str  # "flood_predictor" | "flood_classifier" | "anomaly_detector"
+    model_status: str
+    trained_at: Optional[str] = None
+    saved_at: Optional[str] = None
+    samples: Optional[int] = None
+    train_samples: Optional[int] = None
+    test_samples: Optional[int] = None
+    # Regression metrics
+    r2: Optional[float] = None
+    mae: Optional[float] = None
+    rmse: Optional[float] = None
+    mape: Optional[float] = None
+    # Classification metrics
+    accuracy: Optional[float] = None
+    auc: Optional[float] = None
+    f1: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    # Feature importance (top 10)
+    feature_importance: dict = {}
+    # Extra info
+    horizon_days: Optional[int] = None
+    model_version: Optional[str] = None
+    model_file: str = ""
+
+
+@router.get("/ml/model-performance", response_model=List[ModelPerformance])
+async def get_model_performance():
+    """Read model performance metadata from pre-generated JSON.
+
+    Run `scripts/generate_model_metadata.py` locally to produce the JSON
+    after training models. This avoids needing sklearn/xgboost in the API container.
+    """
+    import json
+    from pathlib import Path
+
+    metadata_path = Path(__file__).parent.parent / "data" / "model_metadata.json"
+    if not metadata_path.exists():
+        return []
+
+    with open(metadata_path) as f:
+        raw = json.load(f)
+
+    return [ModelPerformance(**item) for item in raw]

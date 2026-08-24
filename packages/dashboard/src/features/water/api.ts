@@ -25,6 +25,7 @@ import type {
   MLAnomalyTrainResult,
   PipelineHealth,
   AssetWeeklySummary,
+  ModelPerformance,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -263,6 +264,13 @@ export const waterApi = {
     const params: Record<string, any> = { weeks }
     if (assetId) params.asset_id = assetId
     const { data } = await waterClient.get('/operational/weekly-summary', { params })
+    return data
+  },
+
+  // ─── Model Performance (Analyst) ─────────────────────────────────────────
+
+  getModelPerformance: async (): Promise<ModelPerformance[]> => {
+    const { data } = await waterClient.get('/ml/model-performance')
     return data
   },
 }
