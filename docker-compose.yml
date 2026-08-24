@@ -21,23 +21,7 @@ services:
       retries: 5
       start_period: 10s
 
-  # ── Alembic Migration Service (one-shot) ─────────────────────────
-  migration:
-    build:
-      context: ./services/aquavision-service
-      dockerfile: Dockerfile
-    container_name: ibcp-migration
-    environment:
-      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
-    depends_on:
-      db:
-        condition: service_healthy
-    command: alembic upgrade head
-    networks:
-      - scada-net
-    restart: "no"
-
-  # ── AquaVision API ──────────────────────────────────────────────
+  # ── AquaVision API (auto-setup: migrations + seed + ingest + train) ──
   aquavision:
     build:
       context: ./services/aquavision-service
@@ -61,69 +45,16 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
     depends_on:
-      migration:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     networks:
       - scada-net
-    volumes:
-      - irsa-archive:/app/raw_archive
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8100/health/live')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
-
-  # ── IRSA/FFD/ML Scheduler ──────────────────────────────────────
-  scheduler:
-    build:
-      context: ./services/scheduler
-      dockerfile: Dockerfile
-    container_name: ibcp-scheduler
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
-    depends_on:
-      migration:
-        condition: service_completed_successfully
-    networks:
-      - scada-net
-    volumes:
-      - irsa-archive:/app/raw_archive
-
-  # ── Daily Database Backup ────────────────────────────────────────
-  backup:
-    image: postgres:16-alpine
-    container_name: ibcp-backup
-    restart: unless-stopped
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD:-1234}
-      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - pgbackups:/backups
-    networks:
-      - scada-net
-    entrypoint: >
-      sh -c '
-        echo "Backup service started. Running daily at 02:00 UTC."
-        while true; do
-          TIMESTAMP=$$(date +%Y%m%d_%H%M%S)
-          echo "[$$(date)] Starting backup: ibcp_scada_$$TIMESTAMP.sql.gz"
-          pg_dump -h db -U postgres ibcp_scada --no-owner --no-privileges | gzip > /backups/ibcp_scada_$$TIMESTAMP.sql.gz
-          if [ $$? -eq 0 ]; then
-            echo "[$$(date)] Backup successful"
-            # Keep only last 30 backups
-            ls -1t /backups/ibcp_scada_*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm --
-          else
-            echo "[$$(date)] BACKUP FAILED"
-          fi
-          echo "[$$(date)] Next backup in 24 hours"
-          sleep 86400
-        done
-      '
+      start_period: 120s
 
   # ── Frontend ─────────────────────────────────────────────────────
   frontend:
@@ -143,8 +74,6 @@ services:
 
 volumes:
   pgdata:
-  pgbackups:
-  irsa-archive:
 
 networks:
   scada-net:

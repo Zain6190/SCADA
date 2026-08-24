@@ -36,7 +36,7 @@ for f in sorted(clf_dir.glob("flood_classifier_asset_*.pkl")):
         "model_file": f.name,
     })
 
-# Flood predictors (.joblib)
+# Flood predictors (.joblib) — standard
 pred_dir = Path("services/aquavision-service/models/flood_xgb")
 for f in sorted(pred_dir.glob("*.joblib")):
     if "_hf" in f.name:
@@ -54,6 +54,39 @@ for f in sorted(pred_dir.glob("*.joblib")):
             "asset_id": metrics.get("asset_id", int(parts[0])),
             "asset_name": f"Asset {parts[0]}",
             "model_type": "flood_predictor",
+            "model_status": data.get("model_status", "EXPERIMENTAL"),
+            "trained_at": metrics.get("trained_at"),
+            "saved_at": data.get("saved_at"),
+            "samples": metrics.get("samples"),
+            "train_samples": metrics.get("train_samples"),
+            "test_samples": metrics.get("test_samples"),
+            "r2": metrics.get("r2"),
+            "mae": metrics.get("mae"),
+            "rmse": metrics.get("rmse"),
+            "mape": metrics.get("mape"),
+            "feature_importance": fi,
+            "horizon_days": int(parts[1]) if len(parts) > 1 else 7,
+            "model_version": data.get("version"),
+            "model_file": f.name,
+        })
+    except Exception as e:
+        print(f"WARN: {f.name}: {e}")
+
+# High-flow predictors (.joblib)
+for f in sorted(pred_dir.glob("*_hf.joblib")):
+    try:
+        data = joblib.load(f)
+        metrics = data.get("metrics", {})
+        fi = metrics.get("top_features", {})
+        if isinstance(fi, list):
+            fi = dict(fi[:10])
+        elif isinstance(fi, dict):
+            fi = dict(sorted(fi.items(), key=lambda x: abs(x[1]), reverse=True)[:10])
+        parts = f.stem.replace("_hf", "").split("_")
+        results.append({
+            "asset_id": metrics.get("asset_id", int(parts[0])),
+            "asset_name": f"Asset {parts[0]}",
+            "model_type": "high_flow_predictor",
             "model_status": data.get("model_status", "EXPERIMENTAL"),
             "trained_at": metrics.get("trained_at"),
             "saved_at": data.get("saved_at"),

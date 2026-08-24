@@ -70,8 +70,8 @@ class FloodFeatureBuilder:
             real_only=real_only, source_priority=source_priority
         )
         
-        if len(observations) < 20:
-            logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations")
+        if len(observations) < 12:
+            logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations (need 12+)")
             return np.array([]), np.array([]), [], np.array([])
         
         # Build feature matrix
@@ -80,7 +80,9 @@ class FloodFeatureBuilder:
         weights = []
         feature_names = None
         
-        min_history = min(10, len(observations) - 1)  # Need at least 10 for lag features
+        # Adaptive min_history: need enough for lag features, but don't block data-poor assets
+        # For 30 obs → min_history=10, for 1688 obs → min_history=30
+        min_history = min(30, max(5, len(observations) // 3))
         
         for i in range(min_history, len(observations) - forecast_horizon):
             row_obs = observations[i]
@@ -109,8 +111,13 @@ class FloodFeatureBuilder:
         y = np.array(targets, dtype=np.float32)
         w = np.array(weights, dtype=np.float32)
         
-        # Replace NaN with 0 for training
-        X = np.nan_to_num(X, nan=0.0)
+        # Replace NaN with column median (not zero — zero corrupts features like level)
+        for col in range(X.shape[1]):
+            col_vals = X[:, col]
+            nan_mask = np.isnan(col_vals)
+            if nan_mask.any():
+                median = np.nanmedian(col_vals)
+                X[nan_mask, col] = median if not np.isnan(median) else 0.0
         
         real_count = int(np.sum(w == 1.0))
         synth_count = int(np.sum(w < 1.0))
@@ -356,14 +363,15 @@ class FloodFeatureBuilder:
             )
         ).scalar_one_or_none()
     
-    def _get_ffd_status(self, asset_id: int, date: datetime) -> Optional[str]:
+    def _get_ffd_status(self, asset_id: int, date) -> Optional[str]:
         """Get FFD flood status for asset on date."""
         if date is None:
             return None
+        d = date.date() if hasattr(date, 'date') else date
         obs = self.session.execute(
             select(WaterFFDObservation.flood_status).where(
                 WaterFFDObservation.asset_id == asset_id,
-                WaterFFDObservation.observed_at == date.date() if hasattr(date, 'date') else date,
+                func.date(WaterFFDObservation.observed_at) == d,
             ).limit(1)
         ).scalar_one_or_none()
         return obs

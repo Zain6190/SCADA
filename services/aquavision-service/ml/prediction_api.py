@@ -103,52 +103,60 @@ async def get_predictions(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    from ml.models.flood_predictor import FloodPredictor
-    from ml.features.feature_engineering import FloodFeatureBuilder
-
-    predictor = FloodPredictor()
-    builder = FloodFeatureBuilder(session)
-
-    X, feature_names = builder.build_prediction_features(
-        asset_id=asset_id,
-        as_of_date=datetime.utcnow(),
-    )
-
-    if X is None:
+    try:
+        from ml.models.flood_predictor import FloodPredictor
+        from ml.features.feature_engineering import FloodFeatureBuilder
+    except ImportError as e:
+        logger.warning(f"ML packages not available in container: {e}")
         return []
 
-    horizon_list = [int(h.strip()) for h in horizons.split(",")]
-    predictions = []
+    try:
+        predictor = FloodPredictor()
+        builder = FloodFeatureBuilder(session)
 
-    for horizon in horizon_list:
-        pred = predictor.predict(
+        X, feature_names = builder.build_prediction_features(
             asset_id=asset_id,
-            asset_name=asset.canonical_name,
-            X=X,
-            feature_names=feature_names,
-            horizon=horizon,
-            warning_level=float(asset.warning_level_ft) if asset.warning_level_ft else None,
-            danger_level=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+            as_of_date=datetime.utcnow(),
         )
-        if pred:
-            predictions.append(PredictionResponse(
-                asset_id=pred.asset_id,
-                asset_name=pred.asset_name,
-                prediction_date=pred.prediction_date,
-                horizon_days=pred.horizon_days,
-                predicted_level_ft=pred.predicted_level_ft,
-                lower_bound=pred.lower_bound,
-                upper_bound=pred.upper_bound,
-                risk_score=pred.risk_score,
-                risk_level=pred.risk_level,
-                exceeds_warning=pred.exceeds_warning,
-                exceeds_danger=pred.exceeds_danger,
-                model_version=pred.model_version,
-                model_status=pred.model_status,
-                feature_importance=pred.feature_importance,
-            ))
 
-    return predictions
+        if X is None:
+            return []
+
+        horizon_list = [int(h.strip()) for h in horizons.split(",")]
+        predictions = []
+
+        for horizon in horizon_list:
+            pred = predictor.predict(
+                asset_id=asset_id,
+                asset_name=asset.canonical_name,
+                X=X,
+                feature_names=feature_names,
+                horizon=horizon,
+                warning_level=float(asset.warning_level_ft) if asset.warning_level_ft else None,
+                danger_level=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+            )
+            if pred:
+                predictions.append(PredictionResponse(
+                    asset_id=pred.asset_id,
+                    asset_name=pred.asset_name,
+                    prediction_date=pred.prediction_date,
+                    horizon_days=pred.horizon_days,
+                    predicted_level_ft=pred.predicted_level_ft,
+                    lower_bound=pred.lower_bound,
+                    upper_bound=pred.upper_bound,
+                    risk_score=pred.risk_score,
+                    risk_level=pred.risk_level,
+                    exceeds_warning=pred.exceeds_warning,
+                    exceeds_danger=pred.exceeds_danger,
+                    model_version=pred.model_version,
+                    model_status=pred.model_status,
+                    feature_importance=pred.feature_importance,
+                ))
+
+        return predictions
+    except Exception as e:
+        logger.warning(f"Prediction failed for asset {asset_id}: {e}")
+        return []
 
 
 @router.post("/ml/train", response_model=TrainResponse)
