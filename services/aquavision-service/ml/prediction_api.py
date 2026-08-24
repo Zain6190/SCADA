@@ -22,6 +22,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _regenerate_model_metadata():
+    """Try to regenerate model_metadata.json after training.
+
+    This only works when sklearn/xgboost are installed (local dev or full container).
+    In slim containers, it logs a warning and the JSON stays stale until next local run.
+    """
+    try:
+        import subprocess
+        script = Path(__file__).parent.parent / "scripts" / "generate_model_metadata.py"
+        if script.exists():
+            result = subprocess.run(
+                ["python", str(script)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                logger.info("Model metadata JSON regenerated")
+            else:
+                logger.warning(f"Metadata generation failed: {result.stderr[:200]}")
+    except Exception as e:
+        logger.warning(f"Could not regenerate model metadata: {e}")
+
+
 class PredictionResponse(BaseModel):
     asset_id: int
     asset_name: str
@@ -137,6 +159,7 @@ async def trigger_training(
     from ml.train_flood_model import train_all_assets
 
     results = train_all_assets(horizons=payload.horizons)
+    _regenerate_model_metadata()
 
     return TrainResponse(
         models_trained=len(results),
@@ -309,6 +332,7 @@ async def train_flood_classifiers():
 
     results = train_all_classifiers(horizon=7)
     trained = len([r for r in results if "error" not in r])
+    _regenerate_model_metadata()
 
     return {
         "models_trained": trained,
