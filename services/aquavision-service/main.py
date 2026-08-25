@@ -124,9 +124,15 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+import re
+
+_cors_origins = settings.cors_origin_list
+_allow_all_vercel = bool(re.match(r"https://.*\.vercel\.app", _cors_origins[0])) if _cors_origins else False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
