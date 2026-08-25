@@ -1,0 +1,10 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/aquavision-service/Dockerfile"
+
+[deploy]
+startCommand = "/app/entrypoint.sh"
+healthcheckPath = "/health/live"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
