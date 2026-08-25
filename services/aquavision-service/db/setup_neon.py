@@ -1,25 +1,29 @@
-"""Setup Neon DB: create all tables, views, stamp Alembic at 014."""
+"""Setup DB: create all tables, views, stamp Alembic at 014. Reads DATABASE_URL from env."""
+import os
 import pathlib
-from sqlalchemy import create_engine, text
+import psycopg2
 
-NEON_URL = "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+DB_URL = os.environ.get("DATABASE_URL", "")
+if not DB_URL:
+    print("DATABASE_URL not set — skipping schema setup")
+    exit(0)
 
-e = create_engine(NEON_URL)
-c = e.connect()
+conn = psycopg2.connect(DB_URL)
+cur = conn.cursor()
 
 # 1. Create schemas
 for s in ["aquavision", "shared", "system"]:
-    c.execute(text(f"CREATE SCHEMA IF NOT EXISTS {s}"))
-c.commit()
+    cur.execute(f"CREATE SCHEMA IF NOT EXISTS {s}")
+conn.commit()
 print("Schemas OK")
 
 # 2. Apply SQL migration (base tables)
 sql = pathlib.Path("alembic/versions/000_recreate_base_tables.sql").read_text()
-c.execute(text(sql))
-c.commit()
+cur.execute(sql)
+conn.commit()
 print("Base tables OK")
 
-# 3. Create tables that Python migrations add but SQL doesn't
+# 3. Create extra tables
 extras = [
     """CREATE TABLE IF NOT EXISTS aquavision.pipeline_runs (
         id BIGSERIAL PRIMARY KEY, pipeline_name TEXT NOT NULL,
@@ -60,19 +64,52 @@ extras = [
         created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())""",
 ]
 
-for sql in extras:
-    c.execute(text(sql))
-c.commit()
+for ddl in extras:
+    cur.execute(ddl)
+conn.commit()
 print("Extra tables OK")
 
-# 4. Skip views — they reference pivoted columns that don't exist in the SQL schema
-#    The app uses ORM queries, not raw views. Views will be created when data is ingested.
+# 4. Add source-aware columns if missing
+for col in [
+    'ALTER TABLE aquavision.water_observations ADD COLUMN IF NOT EXISTS source_authority TEXT',
+    'ALTER TABLE aquavision.water_observations ADD COLUMN IF NOT EXISTS source_publication_time TIMESTAMPTZ',
+    'ALTER TABLE aquavision.water_observations ADD COLUMN IF NOT EXISTS source_parser_version TEXT',
+    'ALTER TABLE aquavision.water_observations ADD COLUMN IF NOT EXISTS source_content_hash TEXT',
+    'ALTER TABLE aquavision.water_observations ADD COLUMN IF NOT EXISTS source_priority INTEGER DEFAULT 4',
+]:
+    cur.execute(col)
+cur.execute('CREATE INDEX IF NOT EXISTS ix_water_obs_source_authority ON aquavision.water_observations (source_authority)')
+cur.execute('CREATE INDEX IF NOT EXISTS ix_water_obs_asset_date_source ON aquavision.water_observations (asset_id, observed_at DESC, source_priority)')
+conn.commit()
+print("Source-aware columns OK")
 
-# 5. Stamp Alembic at latest version
-c.execute(text("CREATE TABLE IF NOT EXISTS aquavision.alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"))
-c.execute(text("INSERT INTO aquavision.alembic_version (version_num) VALUES ('014') ON CONFLICT DO NOTHING"))
-c.commit()
+# 5. Create views
+cur.execute('''CREATE OR REPLACE VIEW aquavision.v_best_observations AS
+    SELECT DISTINCT ON (asset_id, observed_at, parameter)
+        asset_id, observed_at, parameter, value, source, priority, data_origin, data_status, quality_status
+    FROM (
+        SELECT asset_id, observed_at, 'water_level_ft' as parameter, water_level_ft as value,
+               source_authority as source, source_priority as priority, data_origin, data_status, quality_status
+        FROM aquavision.water_observations WHERE water_level_ft IS NOT NULL
+        UNION ALL
+        SELECT asset_id, observed_at, 'inflow_cusecs', inflow_cusecs, source_authority, source_priority, data_origin, data_status, quality_status
+        FROM aquavision.water_observations WHERE inflow_cusecs IS NOT NULL
+        UNION ALL
+        SELECT asset_id, observed_at, 'outflow_cusecs', outflow_cusecs, source_authority, source_priority, data_origin, data_status, quality_status
+        FROM aquavision.water_observations WHERE outflow_cusecs IS NOT NULL
+        UNION ALL
+        SELECT asset_id, observed_at, 'discharge_cusecs', discharge_cusecs, source_authority, source_priority, data_origin, data_status, quality_status
+        FROM aquavision.water_observations WHERE discharge_cusecs IS NOT NULL
+    ) unpivoted ORDER BY asset_id, observed_at, parameter, priority ASC''')
+conn.commit()
+print("Views OK")
+
+# 6. Stamp Alembic
+cur.execute("CREATE TABLE IF NOT EXISTS aquavision.alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
+cur.execute("INSERT INTO aquavision.alembic_version (version_num) VALUES ('014') ON CONFLICT DO NOTHING")
+conn.commit()
 print("Alembic stamped at 014")
 
-c.close()
-print("Neon DB setup complete!")
+cur.close()
+conn.close()
+print("DB setup complete!")

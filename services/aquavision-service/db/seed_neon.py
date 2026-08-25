@@ -1,7 +1,11 @@
-"""Seed Neon DB directly with SQLAlchemy."""
-from sqlalchemy import create_engine, text
+"""Seed DB directly with psycopg2. Reads DATABASE_URL from env."""
+import os
+import psycopg2
 
-NEON_URL = "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+DB_URL = os.environ.get("DATABASE_URL", "")
+if not DB_URL:
+    print("DATABASE_URL not set — skipping seed")
+    exit(0)
 
 WATER_ASSETS = [
     (1, 'Tarbela Reservoir', 'reservoir', 'Indus', 'KPK', 'Haripur', 34.0887, 72.6837, 11.47, 1550, 1355, 1540, 1550, 'IRSA', 'tarbela'),
@@ -18,14 +22,13 @@ WATER_ASSETS = [
 ]
 
 DOWNSTREAM_IMPACTS = [
-    # (id, source_asset_id, downstream_asset_id, travel_min, travel_max, travel_expected, distance_km, affected_pop, villages, towns, cities, bridges, hospitals, roads_km)
-    (1, 1, 4, 24, 30, 26, 120, 3193000, 150, 5, 2, 45, 12, 350),   # Tarbela→Kalabagh (Islamabad+Rawalpindi)
-    (2, 4, 5, 68, 76, 72, 250, 590000, 80, 3, 1, 30, 8, 280),      # Kalabagh→Taunsa (Mianwali+DG Khan)
-    (3, 5, 6, 44, 52, 48, 350, 2413000, 120, 4, 2, 55, 10, 400),   # Taunsa→Guddu (Sukkur+Multan)
-    (4, 6, 7, 20, 28, 24, 180, 2274000, 90, 3, 1, 35, 7, 220),     # Guddu→Sukkur (Hyderabad)
-    (5, 7, 8, 74, 82, 78, 380, 16644000, 200, 8, 3, 60, 15, 500),  # Sukkur→Kotri (Karachi)
-    (6, 10, 11, 105, 117, 111, 500, 500000, 60, 2, 1, 25, 5, 180),  # Marala→Panjnad
-    (7, 11, 6, 20, 28, 24, 150, 1872000, 70, 3, 1, 20, 4, 160),    # Panjnad→Guddu (Multan)
+    (1, 1, 4, 24, 30, 26, 120, 3193000, 150, 5, 2, 45, 12, 350),
+    (2, 4, 5, 68, 76, 72, 250, 590000, 80, 3, 1, 30, 8, 280),
+    (3, 5, 6, 44, 52, 48, 350, 2413000, 120, 4, 2, 55, 10, 400),
+    (4, 6, 7, 20, 28, 24, 180, 2274000, 90, 3, 1, 35, 7, 220),
+    (5, 7, 8, 74, 82, 78, 380, 16644000, 200, 8, 3, 60, 15, 500),
+    (6, 10, 11, 105, 117, 111, 500, 500000, 60, 2, 1, 25, 5, 180),
+    (7, 11, 6, 20, 28, 24, 150, 1872000, 70, 3, 1, 20, 4, 160),
 ]
 
 AUTH_USERS = [
@@ -34,53 +37,50 @@ AUTH_USERS = [
     (3, 'Field Officer', 'field@ibcp.gov.pk', '$2b$12$n/RxH0M7swDkKqZAspuFS.uUYZu8uyM5oYdkFIzKUIonaktDUAl2K'),
 ]
 
-e = create_engine(NEON_URL)
-c = e.connect()
+conn = psycopg2.connect(DB_URL)
+cur = conn.cursor()
 
-count = c.execute(text("SELECT count(*) FROM aquavision.water_assets")).scalar()
+cur.execute("SELECT count(*) FROM aquavision.water_assets")
+count = cur.fetchone()[0]
 if count >= 11:
     print(f"Already seeded ({count} assets). Skipping.")
 else:
     print("Seeding water_assets...")
     for a in WATER_ASSETS:
-        c.execute(text("""
+        cur.execute("""
             INSERT INTO aquavision.water_assets 
             (id, canonical_name, asset_type, river, province, district, 
              latitude, longitude, capacity_maf, normal_level_ft, dead_level_ft,
              warning_level_ft, critical_level_ft, source_authority, source_identifier, is_active)
-            VALUES (:id, :name, :type, :river, :province, :district,
-                    :lat, :lon, :cap, :normal, :dead, :warn, :crit, :auth, :src, true)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
             ON CONFLICT (id) DO UPDATE SET canonical_name=EXCLUDED.canonical_name
-        """), {"id": a[0], "name": a[1], "type": a[2], "river": a[3], "province": a[4],
-               "district": a[5], "lat": a[6], "lon": a[7], "cap": a[8],
-               "normal": a[9], "dead": a[10], "warn": a[11], "crit": a[12],
-               "auth": a[13], "src": a[14]})
-    c.execute(text("SELECT setval('aquavision.water_assets_id_seq', 11)"))
+        """, (a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
+              a[9], a[10], a[11], a[12], a[13], a[14]))
+    cur.execute("SELECT setval('aquavision.water_assets_id_seq', 11)")
 
     print("Seeding downstream_impacts...")
     for i in DOWNSTREAM_IMPACTS:
-        c.execute(text("""
+        cur.execute("""
             INSERT INTO aquavision.water_downstream_impacts
             (id, source_asset_id, downstream_asset_id, travel_time_hours_min, travel_time_hours_max,
              travel_time_hours_expected, distance_km, affected_population_est, affected_village_count,
              affected_town_count, affected_city_count, bridges_count, hospitals_count, roads_km)
-            VALUES (:id, :src, :dst, :tmin, :tmax, :texp, :dist, :pop, :villages, :towns, :cities, :bridges, :hospitals, :roads)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
-        """), {"id": i[0], "src": i[1], "dst": i[2], "tmin": i[3], "tmax": i[4], "texp": i[5],
-               "dist": i[6], "pop": i[7], "villages": i[8], "towns": i[9], "cities": i[10],
-               "bridges": i[11], "hospitals": i[12], "roads": i[13]})
-    c.execute(text("SELECT setval('aquavision.water_downstream_impacts_id_seq', 16)"))
+        """, (i[0], i[1], i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9], i[10], i[11], i[12], i[13]))
+    cur.execute("SELECT setval('aquavision.water_downstream_impacts_id_seq', 16)")
 
     print("Seeding auth users...")
     for u in AUTH_USERS:
-        c.execute(text("""
+        cur.execute("""
             INSERT INTO shared.users (id, name, email, password_hash, is_active)
-            VALUES (:id, :name, :email, :hash, true)
+            VALUES (%s, %s, %s, %s, true)
             ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name
-        """), {"id": u[0], "name": u[1], "email": u[2], "hash": u[3]})
-    c.execute(text("SELECT setval('shared.users_id_seq', 3)"))
+        """, (u[0], u[1], u[2], u[3]))
+    cur.execute("SELECT setval('shared.users_id_seq', 3)")
 
-    c.commit()
+    conn.commit()
     print("Seeding complete: 11 assets, 8 impacts, 3 users")
 
-c.close()
+cur.close()
+conn.close()
