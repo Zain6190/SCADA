@@ -50,18 +50,53 @@ extras = [
         id BIGSERIAL PRIMARY KEY, asset_id BIGINT REFERENCES aquavision.water_assets(id),
         model_type TEXT NOT NULL, model_path TEXT, metrics JSONB,
         trained_at TIMESTAMPTZ DEFAULT NOW(), is_active BOOLEAN DEFAULT true)""",
+    """CREATE TABLE IF NOT EXISTS shared.regions (
+        id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, code TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL DEFAULT 'province', parent_region_id BIGINT REFERENCES shared.regions(id),
+        created_at TIMESTAMPTZ DEFAULT now())""",
+    """INSERT INTO shared.regions (name, code, type) VALUES
+        ('Khyber Pakhtunkhwa','KPK','province'),('Punjab','PUN','province'),
+        ('Sindh','SIN','province'),('Balochistan','BAL','province'),
+        ('Azad Kashmir','AJK','province'),('Gilgit-Baltistan','GB','province'),
+        ('Islamabad','ISB','territory') ON CONFLICT (code) DO NOTHING""",
     """CREATE TABLE IF NOT EXISTS aquavision.water_indicators_weekly (
-        id BIGSERIAL PRIMARY KEY, asset_id BIGINT, week_start DATE,
-        avg_inflow NUMERIC, avg_outflow NUMERIC, max_inflow NUMERIC,
-        min_inflow NUMERIC, source TEXT)""",
+        id BIGSERIAL PRIMARY KEY, region_id BIGINT NOT NULL REFERENCES shared.regions(id),
+        week_start_date DATE NOT NULL, week_number INTEGER, year INTEGER,
+        surface_water_area_km2 NUMERIC, surface_water_change_pct NUMERIC,
+        rainfall_mm_30day NUMERIC, rainfall_anomaly NUMERIC,
+        et_mm_8day NUMERIC, et_anomaly NUMERIC, wai_score NUMERIC,
+        severity TEXT, data_source_version TEXT,
+        created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (region_id, week_start_date))""",
     """CREATE TABLE IF NOT EXISTS aquavision.water_predictions_weekly (
-        id BIGSERIAL PRIMARY KEY, asset_id BIGINT, week_start DATE,
-        predicted_inflow NUMERIC, predicted_outflow NUMERIC,
-        horizon_days INTEGER, model_version TEXT)""",
+        id BIGSERIAL PRIMARY KEY, region_id BIGINT NOT NULL REFERENCES shared.regions(id),
+        target_week_start_date DATE NOT NULL, model_type TEXT, model_version TEXT NOT NULL,
+        predicted_severity TEXT, predicted_wai_score NUMERIC, confidence NUMERIC,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (region_id, target_week_start_date, model_version))""",
+    """CREATE TABLE IF NOT EXISTS aquavision.water_alerts (
+        id BIGSERIAL PRIMARY KEY, region_id BIGINT NOT NULL REFERENCES shared.regions(id),
+        week_start_date DATE NOT NULL, alert_type TEXT NOT NULL, severity TEXT NOT NULL,
+        alert_source TEXT NOT NULL DEFAULT 'WAI_MODEL', alert_domain TEXT NOT NULL DEFAULT 'WATER_STRESS',
+        model_version TEXT, wai_score NUMERIC, rainfall_anomaly NUMERIC, et_anomaly NUMERIC,
+        surface_water_change_pct NUMERIC, status TEXT DEFAULT 'New',
+        assigned_to_user_id BIGINT REFERENCES shared.users(id),
+        created_at TIMESTAMPTZ DEFAULT now(), acknowledged_at TIMESTAMPTZ,
+        resolved_at TIMESTAMPTZ, notes TEXT)""",
+    """CREATE TABLE IF NOT EXISTS aquavision.water_reports (
+        id BIGSERIAL PRIMARY KEY, week_start_date DATE NOT NULL,
+        title TEXT NOT NULL, scope TEXT NOT NULL,
+        region_id BIGINT REFERENCES shared.regions(id),
+        file_path TEXT, generated_by_user_id BIGINT REFERENCES shared.users(id),
+        generated_at TIMESTAMPTZ DEFAULT now(), status TEXT DEFAULT 'Success')""",
+    """CREATE TABLE IF NOT EXISTS aquavision.water_thresholds (
+        id BIGSERIAL PRIMARY KEY, threshold_name TEXT NOT NULL UNIQUE,
+        value NUMERIC NOT NULL, description TEXT,
+        updated_at TIMESTAMPTZ DEFAULT now())""",
     """CREATE TABLE IF NOT EXISTS shared.users (
         id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL, is_active BOOLEAN DEFAULT true,
-        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())""",
+        created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())""",
 ]
 
 for ddl in extras:
