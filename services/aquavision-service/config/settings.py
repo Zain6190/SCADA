@@ -26,9 +26,19 @@ class Settings(BaseSettings):
     SHARED_SCHEMA: str = "shared"
     SYSTEM_SCHEMA: str = "system"
 
-    # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000",
-                               "https://ibcp-scada.vercel.app"]
+    # CORS - accepts comma-separated string or JSON array
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,https://ibcp-scada.vercel.app"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        import json
+        try:
+            parsed = json.loads(self.CORS_ORIGINS)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     # JWT Auth
     JWT_SECRET: str = "change-me-in-production-use-openssl-rand-hex-32"
