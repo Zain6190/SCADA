@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     SYSTEM_SCHEMA: str = "system"
 
     # CORS - accepts comma-separated string or JSON array
-    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,https://ibcp-scada.vercel.app"
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,https://ibcp-scada.vercel.app,https://scada-m6gxe16px-odywk.vercel.app,https://scada-mu.vercel.app,https://scada-swart.vercel.app"
 
     @property
     def cors_origin_list(self) -> list[str]:
