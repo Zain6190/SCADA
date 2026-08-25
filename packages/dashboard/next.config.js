@@ -1,12 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  output: 'export',  // ← Important: Static export for GitHub Pages
+  output: 'export',
   images: {
-    unoptimized: true,  // ← Required for static export
+    unoptimized: true,
   },
-  basePath: process.env.NODE_ENV === 'production' ? '/IBCP-SCADA' : '',
-  assetPrefix: process.env.NODE_ENV === 'production' ? '/IBCP-SCADA' : '',
+  basePath: '',
+  assetPrefix: '',
   trailingSlash: true,
 }
 

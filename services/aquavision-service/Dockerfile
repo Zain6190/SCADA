@@ -35,9 +35,9 @@ COPY . /app/
 # Expose port
 EXPOSE 8100
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
-    CMD curl -f http://localhost:8100/health/live || exit 1
+# Health check (uses PORT env var at runtime)
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=120s \
+    CMD curl -f http://localhost:${PORT:-8100}/health/live || exit 1
 
 # Make entrypoint executable
 RUN chmod +x /app/entrypoint.sh

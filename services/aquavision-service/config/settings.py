@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     SYSTEM_SCHEMA: str = "system"
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000",
+                               "https://ibcp-scada.vercel.app"]
 
     # JWT Auth
     JWT_SECRET: str = "change-me-in-production-use-openssl-rand-hex-32"
