@@ -1,6 +1,5 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "services/aquavision-service/Dockerfile"
 
 [deploy]
 startCommand = "/app/entrypoint.sh"
