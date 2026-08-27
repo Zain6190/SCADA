@@ -74,11 +74,15 @@ function FitRegion({ features }: { features: any[] }) {
     if (!features?.length) return
     const pts = features.flatMap((f) => ringsFor(f)).flat()
     if (!pts.length) return
+    const valid = pts.filter(
+      (p): p is [number, number] => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])
+    )
+    if (!valid.length) return
     let latMin = Infinity,
       latMax = -Infinity,
       lngMin = Infinity,
       lngMax = -Infinity
-    for (const [lat, lng] of pts) {
+    for (const [lat, lng] of valid) {
       if (lat < latMin) latMin = lat
       if (lat > latMax) latMax = lat
       if (lng < lngMin) lngMin = lng

@@ -422,6 +422,51 @@ async def get_observations(
     ]
 
 
+@router.get("/operational/assets/{asset_id}/readings")
+async def get_asset_readings(
+    asset_id: int,
+    limit: int = Query(60, ge=1, le=500),
+    session: Session = Depends(get_session),
+):
+    """Get recent readings for an asset (telemetry format for sparklines)."""
+    asset = session.get(WaterAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    observations = session.execute(
+        select(WaterObservation)
+        .where(WaterObservation.asset_id == asset_id)
+        .order_by(desc(WaterObservation.observed_at))
+        .limit(limit)
+    ).scalars().all()
+
+    return [
+        {
+            "id": obs.id,
+            "asset_id": obs.asset_id,
+            "observed_at": obs.observed_at.isoformat() if obs.observed_at else None,
+            "water_level_ft": float(obs.water_level_ft) if obs.water_level_ft else None,
+            "inflow_cusecs": float(obs.inflow_cusecs) if obs.inflow_cusecs else None,
+            "outflow_cusecs": float(obs.outflow_cusecs) if obs.outflow_cusecs else None,
+            "discharge_cusecs": float(obs.discharge_cusecs) if obs.discharge_cusecs else None,
+            "data_status": obs.data_status,
+        }
+        for obs in observations
+    ]
+
+
+@router.get("/operational/assets/{asset_id}/notes")
+async def get_asset_notes(asset_id: int):
+    """Get operational notes for an asset (placeholder)."""
+    return []
+
+
+@router.post("/operational/assets/{asset_id}/notes")
+async def create_asset_note(asset_id: int, note: dict = None):
+    """Create an operational note for an asset (placeholder)."""
+    return {"status": "created", "note": note}
+
+
 # ─── ALERTS ─────────────────────────────────────────────────────────────────
 
 @router.get("/operational/alerts", response_model=List[AlertResponse])
