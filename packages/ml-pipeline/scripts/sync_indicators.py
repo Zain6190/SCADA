@@ -57,7 +57,7 @@ def engine():
 def district_ids() -> list[int]:
     with engine().connect() as conn:
         rows = conn.execute(
-            text("SELECT id FROM shared.regions WHERE type = 'district' ORDER BY id")
+            text("SELECT id FROM shared.regions WHERE geom IS NOT NULL ORDER BY id")
         ).fetchall()
     return [int(r.id) for r in rows]
 

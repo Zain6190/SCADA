@@ -21,8 +21,10 @@ import ee
 
 PROJECT = os.getenv("GEE_PROJECT", "ibcp-scada-504513")
 DB_URL = os.getenv(
-    "DATABASE_URL", "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
+    "DATABASE_URL",
+    "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require",
 )
+SERVICE_ACCOUNT_KEY = Path(__file__).resolve().parent / "service-account.json"
 # psycopg2 needs the plain postgresql:// DSN, not the SQLAlchemy dialect form.
 _PSYCOPG2_DSN = DB_URL.replace("postgresql+psycopg2://", "postgresql://")
 START_DATE = os.getenv("GEE_START_DATE", "2021-01-01")
@@ -166,7 +168,14 @@ def _first_or_fill(
 
 
 def main() -> None:
-    ee.Initialize(project=PROJECT)
+    import json as _json
+
+    credentials = ee.ServiceAccountCredentials(
+        None,
+        key_data=SERVICE_ACCOUNT_KEY.read_text(),
+    )
+    ee.Initialize(credentials, project=PROJECT)
+    print(f"[gee_fetch] Authenticated with service account for project {PROJECT}")
     regions = load_regions()
     regions_fc = ee.FeatureCollection(
         {
