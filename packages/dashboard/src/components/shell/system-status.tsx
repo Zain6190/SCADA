@@ -14,7 +14,7 @@ export function SystemStatusIndicator() {
     queryFn: async () => {
       const start = Date.now()
       try {
-        const res = await fetch(`${API_BASE_URL}/health`)
+        const res = await fetch(`${API_BASE_URL}/health/live`)
         if (!res.ok) throw new Error('bad status')
         return { ok: true, ms: Date.now() - start }
       } catch {

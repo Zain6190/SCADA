@@ -14,7 +14,10 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
   const { data: alerts } = useQuery({
     queryKey: ['alerts', 'count'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/water/alerts`)
+      const token = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
+      const res = await fetch(`${API_BASE_URL}/water/operational/alerts`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
       if (!res.ok) throw new Error('bad')
       return (await res.json()) as Array<{ status: string }>
     },

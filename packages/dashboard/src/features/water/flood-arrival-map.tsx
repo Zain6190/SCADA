@@ -193,7 +193,9 @@ function FitBounds({ segments }: { segments: SegmentData[] }) {
     const allCoords = segments.flatMap((s) => {
       const from = ASSET_COORDS[s.from_id]
       const to = ASSET_COORDS[s.to_id]
-      return [from, to].filter(Boolean) as [number, number][]
+      return [from, to].filter(
+        (c): c is [number, number] => c != null && Number.isFinite(c[0]) && Number.isFinite(c[1])
+      )
     })
     if (!allCoords.length) {
       map.fitBounds([[24, 63], [37, 78]])
