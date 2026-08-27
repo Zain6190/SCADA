@@ -6,10 +6,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+import os
 import psycopg2
 from psycopg2.extras import execute_values
 
-NEON_URL = "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+NEON_URL = os.environ.get("DATABASE_URL", "")
 
 COLUMN_MAP = {
     "Indus-Tarbela-Water-Level": ("Tarbela Reservoir", "water_level_ft"),

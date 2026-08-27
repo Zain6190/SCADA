@@ -20,10 +20,7 @@ from pathlib import Path
 import ee
 
 PROJECT = os.getenv("GEE_PROJECT", "ibcp-scada-504513")
-DB_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require",
-)
+DB_URL = os.getenv("DATABASE_URL", "")
 SERVICE_ACCOUNT_KEY = Path(__file__).resolve().parent / "service-account.json"
 # psycopg2 needs the plain postgresql:// DSN, not the SQLAlchemy dialect form.
 _PSYCOPG2_DSN = DB_URL.replace("postgresql+psycopg2://", "postgresql://")
