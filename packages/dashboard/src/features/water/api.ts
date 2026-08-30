@@ -273,4 +273,21 @@ export const waterApi = {
     const { data } = await waterClient.get('/ml/model-performance')
     return data
   },
+
+  // ─── WAI Stress Alerts ───────────────────────────────────────────────────
+
+  getStressAlerts: async (params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}): Promise<any[]> => {
+    const { data } = await waterClient.get('/stress-alerts', { params })
+    return data
+  },
+
+  ackStressAlert: async (id: number, performedBy = 'Operator'): Promise<any> => {
+    const { data } = await waterClient.post(`/stress-alerts/${id}/ack`, { performed_by: performedBy })
+    return data
+  },
+
+  resolveStressAlert: async (id: number, performedBy = 'Operator'): Promise<any> => {
+    const { data } = await waterClient.post(`/stress-alerts/${id}/resolve`, { performed_by: performedBy })
+    return data
+  },
 }

@@ -97,6 +97,8 @@ BOUNDS = {
     "et_mm": (0.0, 500.0),
     "ndvi": (-1.0, 1.0),
     "water_extent": (0.0, 1.0),
+    "sm_rootzone": (0.0, 1.0),
+    "sm_surface": (0.0, 1.0),
 }
 
 
@@ -127,6 +129,8 @@ def build_rows(feats: pd.DataFrame, districts: list[int]) -> tuple[list[dict], i
         et = float(r["et_mm"]) if (not np.isnan(r["et_mm"]) and r["et_mm"] > 0) else None
         ndvi = None if np.isnan(r["ndvi"]) else float(r["ndvi"])
         water_extent = None if (r["water_extent"] == -1 or np.isnan(r["water_extent"])) else float(r["water_extent"])
+        sm_rootzone = None if np.isnan(r.get("sm_rootzone", float("nan"))) else float(r["sm_rootzone"])
+        sm_surface = None if np.isnan(r.get("sm_surface", float("nan"))) else float(r["sm_surface"])
 
         # ---- validation gates: quarantine out-of-range rows ----
         if not _in_bounds(rainfall, *BOUNDS["rainfall_mm"]):
@@ -139,6 +143,12 @@ def build_rows(feats: pd.DataFrame, districts: list[int]) -> tuple[list[dict], i
             skipped += 1
             continue
         if water_extent is not None and not _in_bounds(water_extent, *BOUNDS["water_extent"]):
+            skipped += 1
+            continue
+        if sm_rootzone is not None and not _in_bounds(sm_rootzone, *BOUNDS["sm_rootzone"]):
+            skipped += 1
+            continue
+        if sm_surface is not None and not _in_bounds(sm_surface, *BOUNDS["sm_surface"]):
             skipped += 1
             continue
 
@@ -170,6 +180,8 @@ def build_rows(feats: pd.DataFrame, districts: list[int]) -> tuple[list[dict], i
                 rainfall_anomaly=_num(anomaly_pct(hist["rainfall_mm"], rainfall)),
                 et_mm_8day=_num(et),
                 et_anomaly=_num(anomaly_pct(hist.loc[hist["et_mm"] > 0, "et_mm"], et)) if et is not None else None,
+                sm_rootzone=_num(sm_rootzone),
+                sm_surface=_num(sm_surface),
                 wai_score=_num(r["wai_score"]),
                 severity=classify(float(r["wai_score"])),
                 is_complete_period=complete,
@@ -200,6 +212,7 @@ def upsert_rows(rows: list[dict]) -> None:
                          expected_observation_count, quality_status,
                          surface_water_area_km2, surface_water_change_pct,
                          rainfall_mm_30day, rainfall_anomaly, et_mm_8day, et_anomaly,
+                         sm_rootzone, sm_surface,
                          wai_score, severity, data_source_version, data_status,
                          data_quality, data_provider, wai_model_version,
                          source_observed_at, last_validated_at)
@@ -208,6 +221,7 @@ def upsert_rows(rows: list[dict]) -> None:
                          :period_start, :period_end, :complete,
                          :coverage, :observation_count, :expected_count, :quality,
                          :sw_area, :sw_change, :rain, :rain_anom, :et, :et_anom,
+                         :sm_root, :sm_surf,
                          :wai, :severity, :source_version, :data_status, 'Good', 'GEE',
                          :model_version, :observed_at, now())
                     ON CONFLICT (region_id, week_start_date)
@@ -226,6 +240,8 @@ def upsert_rows(rows: list[dict]) -> None:
                         rainfall_anomaly = EXCLUDED.rainfall_anomaly,
                         et_mm_8day = EXCLUDED.et_mm_8day,
                         et_anomaly = EXCLUDED.et_anomaly,
+                        sm_rootzone = EXCLUDED.sm_rootzone,
+                        sm_surface = EXCLUDED.sm_surface,
                         wai_score = EXCLUDED.wai_score,
                         severity = EXCLUDED.severity,
                         data_source_version = EXCLUDED.data_source_version,
@@ -255,6 +271,8 @@ def upsert_rows(rows: list[dict]) -> None:
                     "rain_anom": r["rainfall_anomaly"],
                     "et": r["et_mm_8day"],
                     "et_anom": r["et_anomaly"],
+                    "sm_root": r["sm_rootzone"],
+                    "sm_surf": r["sm_surface"],
                     "wai": r["wai_score"],
                     "severity": r["severity"],
                     "source_version": SOURCE_VERSION,

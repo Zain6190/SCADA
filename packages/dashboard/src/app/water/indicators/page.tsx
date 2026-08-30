@@ -2,7 +2,7 @@
 // AquaVision Indicators - Real observation metrics by region.
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Activity, TrendingUp, TrendingDown, Droplets, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -140,6 +140,87 @@ function SourceBadge({ source }: { source: string }) {
   )
 }
 
+// ─── WAI Summary Section ────────────────────────────────────────────────────
+
+interface WAIIndicator {
+  id: number
+  region_id: number
+  week_start_date: string
+  wai_score: number | null
+  severity: string | null
+  rainfall_mm_30day: number | null
+  rainfall_anomaly: number | null
+  et_mm_8day: number | null
+  et_anomaly: number | null
+  surface_water_change_pct: number | null
+}
+
+const SEVERITY_COLOR: Record<string, string> = {
+  Critical: 'text-red-400 bg-red-500/10 border-red-500/30',
+  Severe: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  Stressed: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+  Moderate: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  Normal: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
+}
+
+function WAISummarySection() {
+  const [indicators, setIndicators] = useState<WAIIndicator[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    waterApi.getIndicators({ limit: 50 }).then(data => setIndicators(data as any[])).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return null
+  if (indicators.length === 0) return null
+
+  const latest = indicators[0]
+  const severity = latest.severity || 'Unknown'
+  const colorClass = SEVERITY_COLOR[severity] || 'text-slate-400 bg-slate-500/10 border-slate-500/30'
+
+  return (
+    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Activity className="h-4 w-4 text-sky-400" />
+        <h2 className="text-sm font-semibold text-slate-200">Water Availability Index (WAI)</h2>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${colorClass}`}>{severity}</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+        <div>
+          <div className="text-slate-500">WAI Score</div>
+          <div className="text-lg font-bold text-slate-100">{latest.wai_score?.toFixed(1) ?? '—'}</div>
+        </div>
+        <div>
+          <div className="text-slate-500">Rainfall (30d)</div>
+          <div className="font-mono text-slate-200">{latest.rainfall_mm_30day?.toFixed(0) ?? '—'} mm</div>
+          {latest.rainfall_anomaly != null && (
+            <div className={`text-[10px] ${latest.rainfall_anomaly < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+              {latest.rainfall_anomaly > 0 ? '+' : ''}{latest.rainfall_anomaly.toFixed(1)}% anomaly
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-slate-500">ET (8-day)</div>
+          <div className="font-mono text-slate-200">{latest.et_mm_8day?.toFixed(0) ?? '—'} mm</div>
+          {latest.et_anomaly != null && (
+            <div className={`text-[10px] ${latest.et_anomaly > 25 ? 'text-amber-400' : 'text-slate-400'}`}>
+              {latest.et_anomaly > 0 ? '+' : ''}{latest.et_anomaly.toFixed(1)}% anomaly
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-slate-500">Surface Water</div>
+          <div className="font-mono text-slate-200">{latest.surface_water_change_pct != null ? `${latest.surface_water_change_pct > 0 ? '+' : ''}${latest.surface_water_change_pct.toFixed(1)}%` : '—'}</div>
+        </div>
+        <div>
+          <div className="text-slate-500">Week</div>
+          <div className="text-slate-300">{latest.week_start_date}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function IndicatorsPage() {
   const [selectedProvince, setSelectedProvince] = useState<string | null>(null)
 
@@ -204,6 +285,9 @@ export default function IndicatorsPage() {
       </header>
 
       <main className="mx-auto max-w-screen-2xl px-6 py-6 space-y-6">
+        {/* WAI Summary */}
+        <WAISummarySection />
+
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[

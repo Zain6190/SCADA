@@ -24,9 +24,16 @@ import numpy as np
 RAW_CSV = Path(__file__).resolve().parent.parent / "Data" / "raw" / "region_features.csv"
 OUT_CSV = Path(__file__).resolve().parent.parent / "Data" / "features" / "dataset.csv"
 
-FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi"]
+FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "sm_rootzone", "sm_surface"]
 # weight of each component in the WAI (must sum to 1)
-WEIGHTS = {"rainfall_mm": 0.35, "ndvi": 0.30, "water_extent": 0.20, "et_mm": 0.15}
+WEIGHTS = {
+    "rainfall_mm": 0.25,
+    "ndvi": 0.20,
+    "water_extent": 0.15,
+    "et_mm": 0.15,
+    "sm_rootzone": 0.15,
+    "sm_surface": 0.10,
+}
 HORIZON_MONTHS = 1
 
 
@@ -104,6 +111,8 @@ def build() -> None:
         "et_mm",
         "water_extent",
         "ndvi",
+        "sm_rootzone",
+        "sm_surface",
         "current_wai",
         "current_severity",
         "wai_score",   # label = next month WAI

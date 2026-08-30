@@ -8,6 +8,7 @@ pull MONTHLY aggregates from:
   - ERA5-Land   evapotranspiration (mm / month)      "ECMWF/ERA5_LAND/MONTHLY"
   - JRC GSW     surface water extent (%)             "JRC/GSW1_4/MonthlyHistory"
   - Sentinel-2  NDVI (median, cloud-filtered)        "COPERNICUS/S2_HARMONIZED"
+  - SMAP L4     soil moisture (vol. fraction)        "NASA/SMAP/SPL4SMGP/008"
 
 Writes long-format CSV -> Data/raw/region_features.csv
 """
@@ -148,6 +149,25 @@ def _ndvi_ic(month_ranges: list[tuple[str, str]]) -> ee.ImageCollection:
     return ee.ImageCollection(imgs)
 
 
+def _smap_ic(month_ranges: list[tuple[str, str]], band: str = "sm_rootzone") -> ee.ImageCollection:
+    """SMAP L4 soil moisture: monthly mean of volume fraction (0-0.9).
+    Bands: sm_surface (0-5cm), sm_rootzone (0-100cm).
+    """
+    smap = ee.ImageCollection("NASA/SMAP/SPL4SMGP/008").select(band)
+    imgs = []
+    for s, e in month_ranges:
+        coll = smap.filterDate(s, e)
+        img = ee.Image(
+            ee.Algorithms.If(
+                coll.size().gt(0),
+                coll.mean(),
+                ee.Image.constant(0.0).rename(band),
+            )
+        )
+        imgs.append(img.set("month", s))
+    return ee.ImageCollection(imgs)
+
+
 def _first_or_fill(
     ic: ee.ImageCollection, s: str, e: str, band: str, fill: float
 ) -> ee.Image:
@@ -192,25 +212,27 @@ def main() -> None:
 
     month_ids = [s for s, _e in months]
     results = []
-    # Efficient: stack every month as a band, ONE reduceRegions per dataset.
+    CHUNK = 12
     for name, ic in datasets.items():
         print(f"[gee_fetch] reducing {name} ...")
-        # Rename each month's band to its date, then stack -> deterministic names.
-        month_images = [
-            ic.filter(ee.Filter.eq("month", m)).first().rename(m)
-            for m in month_ids
-        ]
-        stacked = ee.Image.cat(month_images)
-        red = stacked.reduceRegions(
-            collection=regions_fc, reducer=ee.Reducer.mean(), scale=1000
-        )
-        feats = red.getInfo()["features"]
-        for f in feats:
-            rid = int(f["id"])
-            props = f.get("properties", {})
-            for m in month_ids:
-                val = props.get(m)
-                _set_nested(results, rid, name, m, val)
+        for chunk_start in range(0, len(month_ids), CHUNK):
+            chunk = month_ids[chunk_start : chunk_start + CHUNK]
+            month_images = [
+                ic.filter(ee.Filter.eq("month", m)).first().rename(m)
+                for m in chunk
+            ]
+            stacked = ee.Image.cat(month_images)
+            red = stacked.reduceRegions(
+                collection=regions_fc, reducer=ee.Reducer.mean(), scale=1000
+            )
+            feats = red.getInfo()["features"]
+            for f in feats:
+                rid = int(f["id"])
+                props = f.get("properties", {})
+                for m in chunk:
+                    val = props.get(m)
+                    _set_nested(results, rid, name, m, val)
+            print(f"[gee_fetch]   chunk {chunk_start//CHUNK+1}/{(len(month_ids)+CHUNK-1)//CHUNK} done ({len(chunk)} months)")
     print(f"[gee_fetch] {len(results)} region-months accumulated")
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     import csv

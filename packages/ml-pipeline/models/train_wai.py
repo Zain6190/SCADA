@@ -32,7 +32,7 @@ from sklearn.preprocessing import LabelEncoder
 DATASET_CSV = Path(__file__).resolve().parent.parent / "Data" / "features" / "dataset.csv"
 ARTIFACT_DIR = Path(__file__).resolve().parent.parent / "models" / "artifacts"
 
-FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "month_idx"]
+FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "sm_rootzone", "sm_surface", "month_idx"]
 TARGET_COL = "wai_score"
 SEVERITY_COL = "severity"
 SEVERITY_ORDER = ["Normal", "Moderate", "Stressed", "Severe", "Critical"]

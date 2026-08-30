@@ -199,6 +199,45 @@ def job_train_models():
             release_pipeline_lock(conn, pipeline_type)
 
 
+def job_run_wai_pipeline():
+    """Run the weekly WAI prediction + alert pipeline."""
+    import subprocess
+
+    pipeline_type = "WAI_PIPELINE"
+    ml_root = os.path.join(os.path.dirname(__file__), "..", "..", "packages", "ml-pipeline")
+
+    with get_db_session() as conn:
+        if not acquire_pipeline_lock(conn, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(conn, pipeline_type)
+
+        try:
+            logger.info("Starting WAI pipeline (sync_indicators, predict_weekly, run_risk_alerts)...")
+            result = subprocess.run(
+                [sys.executable, "-m", "scripts.run_pipeline", "--trigger", "SCHEDULED"],
+                cwd=ml_root,
+                capture_output=True,
+                text=True,
+                timeout=3600,
+            )
+            if result.returncode == 0:
+                complete_pipeline_run(conn, run_id, "SUCCESS")
+                logger.info("WAI pipeline complete")
+            else:
+                complete_pipeline_run(conn, run_id, "FAILED", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+                logger.error(f"WAI pipeline failed: rc={result.returncode}")
+        except subprocess.TimeoutExpired:
+            complete_pipeline_run(conn, run_id, "FAILED", "Timeout after 3600s")
+            logger.error("WAI pipeline timed out")
+        except Exception as e:
+            complete_pipeline_run(conn, run_id, "FAILED", str(e))
+            logger.exception(f"WAI pipeline error: {e}")
+        finally:
+            release_pipeline_lock(conn, pipeline_type)
+
+
 if __name__ == "__main__":
     # Schedule: daily at 06:30 PKT (01:30 UTC)
     schedule.every().day.at("01:30").do(job_ingest_irsa)
@@ -208,6 +247,9 @@ if __name__ == "__main__":
 
     # ML retrain: weekly on Sunday at 03:00 UTC (08:00 PKT)
     schedule.every().sunday.at("03:00").do(job_train_models)
+
+    # WAI pipeline: weekly on Sunday at 04:00 UTC (09:00 PKT) — after ML retrain
+    schedule.every().sunday.at("04:00").do(job_run_wai_pipeline)
 
     # Heartbeat: every 5 minutes
     schedule.every(5).minutes.do(update_heartbeat)

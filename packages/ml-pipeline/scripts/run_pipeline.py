@@ -2,12 +2,12 @@
 scripts/run_pipeline.py
 AquaVision - Orchestrated weekly water pipeline with full run observability.
 
-Every execution is recorded in system.pipeline_runs with a status lifecycle:
+Every execution is recorded in aquavision.pipeline_runs with a status lifecycle:
 
     QUEUED -> RUNNING -> SUCCESS | PARTIAL_SUCCESS | FAILED
              (operator abort before RUNNING: CANCELLED)
 
-Per-stage outcomes land in system.pipeline_run_stages (status, counts,
+Per-stage outcomes land in aquavision.pipeline_run_stages (status, counts,
 timing, log path). Logs are written under logs/<run_id>/<stage>.log so history
 is preserved per run.
 
@@ -89,7 +89,7 @@ def next_run_id(conn) -> str:
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     n = conn.execute(
         text(
-            "SELECT count(*) FROM system.pipeline_runs WHERE run_id LIKE :p"
+            "SELECT count(*) FROM aquavision.pipeline_runs WHERE run_id LIKE :p"
         ).bindparams(p=f"RUN-{day}-%")
     ).scalar() or 0
     return f"RUN-{day}-{n + 1:03d}"
@@ -101,7 +101,7 @@ def create_run(trigger: str) -> tuple[int, str]:
         row = conn.execute(
             text(
                 """
-                INSERT INTO system.pipeline_runs
+                INSERT INTO aquavision.pipeline_runs
                     (pipeline_name, status, run_id, trigger_type, code_version,
                      source_version, model_version, log_path, started_at)
                 VALUES (:name, 'QUEUED', :run_id, :trigger, :code, :src, :model,
@@ -122,7 +122,7 @@ def update_run(run_pk: int, **fields) -> None:
     sets = ", ".join(f"{k} = :{k}" for k in fields)
     fields["id"] = run_pk
     with engine().begin() as conn:
-        conn.execute(text(f"UPDATE system.pipeline_runs SET {sets} WHERE id = :id"), fields)
+        conn.execute(text(f"UPDATE aquavision.pipeline_runs SET {sets} WHERE id = :id"), fields)
 
 
 def acquire_lock(conn) -> bool:
@@ -142,7 +142,7 @@ def sweep_stale_runs(stale_after: str = STALE_AFTER) -> int:
         n = conn.execute(
             text(
                 """
-                UPDATE system.pipeline_runs
+                UPDATE aquavision.pipeline_runs
                 SET status = 'FAILED',
                     error_summary = COALESCE(error_summary, '')
                                      || ' [auto-failed: exceeded ' || :stale || ']',
@@ -162,7 +162,7 @@ def cancel_run(run_pk: int) -> bool:
         res = conn.execute(
             text(
                 """
-                UPDATE system.pipeline_runs
+                UPDATE aquavision.pipeline_runs
                 SET status = 'CANCELLED', ended_at = now()
                 WHERE id = :id AND status = 'QUEUED'
                 """
@@ -210,7 +210,7 @@ def record_skipped_stage(run_pk: int, run_id: str, stage: str, log_path: str,
         conn.execute(
             text(
                 """
-                INSERT INTO system.pipeline_run_stages
+                INSERT INTO aquavision.pipeline_run_stages
                     (run_pk, run_id, stage_name, status, started_at, finished_at,
                      records_read, records_written, records_skipped,
                      warning_count, error_count, log_path)
@@ -227,7 +227,7 @@ def record_skipped_stage(run_pk: int, run_id: str, stage: str, log_path: str,
         conn.execute(
             text(
                 """
-                UPDATE system.pipeline_runs
+                UPDATE aquavision.pipeline_runs
                 SET error_summary = COALESCE(error_summary, '') || :reason || E'\n'
                 WHERE id = :id AND status = 'RUNNING'
                 """
@@ -242,7 +242,7 @@ def record_stage(run_pk: int, run_id: str, stage: str, summary: dict,
         conn.execute(
             text(
                 """
-                INSERT INTO system.pipeline_run_stages
+                INSERT INTO aquavision.pipeline_run_stages
                     (run_pk, run_id, stage_name, status, started_at, finished_at,
                      records_read, records_written, records_skipped,
                      warning_count, error_count, log_path)
@@ -350,7 +350,7 @@ def finalize(run_pk: int, run_id: str, stages: list[dict], data_period: str | No
     existing = None
     with engine().connect() as conn:
         existing = conn.execute(
-            text("SELECT error_summary FROM system.pipeline_runs WHERE id = :id"),
+            text("SELECT error_summary FROM aquavision.pipeline_runs WHERE id = :id"),
             {"id": run_pk},
         ).scalar()
     parts = [p for p in (existing, "; ".join(errors[:5])) if p]
