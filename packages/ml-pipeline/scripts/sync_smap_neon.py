@@ -1,12 +1,15 @@
 """Sync region_features.csv (with SMAP) to Neon DB indicators table.
 Uses psycopg2 executemany for speed."""
 import csv
+import os
 from datetime import date
 import psycopg2
 import numpy as np
 import pandas as pd
 
-DB_DSN = 'host=ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech dbname=neondb user=neondb_owner password=npg_Gzql1mVyaO3X sslmode=require'
+DB_DSN = os.getenv('DATABASE_URL', '').replace('postgresql+psycopg2://', 'postgresql://')
+if not DB_DSN:
+    raise RuntimeError('Set DATABASE_URL env var')
 
 rows = []
 with open('/tmp/region_features.csv', 'r') as f:
