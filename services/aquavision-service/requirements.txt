@@ -19,3 +19,4 @@ xgboost
 joblib
 beautifulsoup4
 requests
+pdfplumber

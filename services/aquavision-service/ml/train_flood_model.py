@@ -20,12 +20,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aquavision.ml.train")
 
+# Train on real observations only. historical_backfill.py generates synthetic
+# series for development, and the sensor replay adapters write SIMULATED rows;
+# neither belongs in a trained model. Set AQUAVISION_TRAIN_REAL_ONLY=0 to
+# deliberately include synthetic data (e.g. to smoke-test the pipeline shape).
+REAL_ONLY = os.getenv("AQUAVISION_TRAIN_REAL_ONLY", "1") != "0"
+
 
 def train_all_assets(horizons=[7, 14, 30]):
     """Train flood prediction models for all active assets."""
     predictor = FloodPredictor()
     hf_predictor = HighFlowPredictor()
     results = []
+
+    logger.info("Training data policy: real_only=%s (%s)", REAL_ONLY,
+                "synthetic and simulated observations excluded" if REAL_ONLY
+                else "SYNTHETIC DATA INCLUDED - models are not trained on real data")
     
     with SessionLocal() as session:
         assets = session.execute(
@@ -52,6 +62,7 @@ def train_all_assets(horizons=[7, 14, 30]):
                     end_date=end_date,
                     forecast_horizon=horizon,
                     source_priority=True,  # Use best value per date (IRSA > FFD > Kaggle)
+                    real_only=REAL_ONLY,   # Exclude synthetic/simulated observations
                 )
                 
                 if len(X) == 0:

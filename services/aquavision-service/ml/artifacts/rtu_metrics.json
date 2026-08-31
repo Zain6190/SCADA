@@ -1,0 +1,67 @@
+{
+  "source": "data\\raw\\real\\usgs\\usgs_rtu_real.csv",
+  "data_origin": "REAL",
+  "cadence": "15min",
+  "sites": {
+    "03612600": {
+      "readings": 59402,
+      "grid_rows": 59845,
+      "forecast": {
+        "n_train": 46042,
+        "n_test": 11511,
+        "mae_ft": 0.2316,
+        "rmse_ft": 0.3527,
+        "r2": 0.9964,
+        "persistence_mae_ft": 0.3338,
+        "skill_vs_persistence": 0.3063,
+        "horizon_hours": 6.0
+      },
+      "anomaly": {
+        "n_train": 46519,
+        "n_scored": 58149,
+        "anomaly_rate": 0.0193,
+        "contamination": 0.02
+      }
+    },
+    "05331000": {
+      "readings": 482255,
+      "grid_rows": 163525,
+      "forecast": {
+        "n_train": 128380,
+        "n_test": 32095,
+        "mae_ft": 0.0405,
+        "rmse_ft": 0.0564,
+        "r2": 0.988,
+        "persistence_mae_ft": 0.0437,
+        "skill_vs_persistence": 0.0748,
+        "horizon_hours": 6.0
+      },
+      "anomaly": {
+        "n_train": 128930,
+        "n_scored": 161163,
+        "anomaly_rate": 0.0166,
+        "contamination": 0.02
+      }
+    },
+    "06610000": {
+      "readings": 133927,
+      "grid_rows": 138336,
+      "forecast": {
+        "n_train": 90685,
+        "n_test": 22672,
+        "mae_ft": 0.0619,
+        "rmse_ft": 0.1139,
+        "r2": 0.9956,
+        "persistence_mae_ft": 0.0634,
+        "skill_vs_persistence": 0.0235,
+        "horizon_hours": 6.0
+      },
+      "anomaly": {
+        "n_train": 91848,
+        "n_scored": 114810,
+        "anomaly_rate": 0.0174,
+        "contamination": 0.02
+      }
+    }
+  }
+}
