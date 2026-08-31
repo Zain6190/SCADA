@@ -814,3 +814,99 @@ class PredictionErrorDB(Base):
     error_pct: Mapped[float] = mapped_column(Float, nullable=False)
     data_origin: Mapped[str] = mapped_column(String(20), nullable=False)  # REAL, SYNTHETIC
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# PREDICTION PERSISTENCE (Sprint 4)
+# ---------------------------------------------------------------------------
+
+class WaterPrediction(Base):
+    """Persisted flood prediction — one row per asset/horizon/valid_from."""
+
+    __tablename__ = "water_predictions"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    horizon: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    predicted_value: Mapped[Optional[float]] = mapped_column(Float)
+    predicted_lower: Mapped[Optional[float]] = mapped_column(Float)
+    predicted_upper: Mapped[Optional[float]] = mapped_column(Float)
+    risk_score: Mapped[Optional[int]] = mapped_column(Integer)
+    risk_category: Mapped[Optional[str]] = mapped_column(String(20))
+    exceeds_warning: Mapped[bool] = mapped_column(Boolean, default=False)
+    exceeds_danger: Mapped[bool] = mapped_column(Boolean, default=False)
+    model_version: Mapped[Optional[str]] = mapped_column(String(50))
+    model_type: Mapped[str] = mapped_column(String(30), default="flood_predictor")
+    features_used: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+    feature_importance: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# NOTE: ModelVersionDB is defined above at line 758 (ML MODEL REGISTRY section).
+# Do NOT add a duplicate ModelVersion class here.
+
+
+class PredictionAccuracy(Base):
+    """Actual vs predicted for monitoring model performance over time."""
+
+    __tablename__ = "prediction_accuracy"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    horizon: Mapped[int] = mapped_column(Integer, nullable=False)
+    prediction_id: Mapped[Optional[int]] = mapped_column(Integer)
+    predicted_value: Mapped[Optional[float]] = mapped_column(Float)
+    actual_value: Mapped[Optional[float]] = mapped_column(Float)
+    error: Mapped[Optional[float]] = mapped_column(Float)
+    abs_error: Mapped[Optional[float]] = mapped_column(Float)
+    squared_error: Mapped[Optional[float]] = mapped_column(Float)
+    pct_error: Mapped[Optional[float]] = mapped_column(Float)
+    predicted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    actual_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    model_version: Mapped[Optional[str]] = mapped_column(String(50))
+    matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FeatureDrift(Base):
+    """PSI and drift metrics per feature per asset."""
+
+    __tablename__ = "feature_drift"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    feature_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    psi: Mapped[Optional[float]] = mapped_column(Float)
+    ks_statistic: Mapped[Optional[float]] = mapped_column(Float)
+    mean_current: Mapped[Optional[float]] = mapped_column(Float)
+    mean_baseline: Mapped[Optional[float]] = mapped_column(Float)
+    std_current: Mapped[Optional[float]] = mapped_column(Float)
+    std_baseline: Mapped[Optional[float]] = mapped_column(Float)
+    drift_status: Mapped[str] = mapped_column(String(20), default="STABLE", index=True)
+    evaluation_window: Mapped[Optional[str]] = mapped_column(String(20))
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PredictionLog(Base):
+    """Audit trail for all prediction runs."""
+
+    __tablename__ = "prediction_logs"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    assets_predicted: Mapped[int] = mapped_column(Integer, default=0)
+    assets_failed: Mapped[int] = mapped_column(Integer, default=0)
+    predictions_written: Mapped[int] = mapped_column(Integer, default=0)
+    duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
+    model_versions: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    errors: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), default="RUNNING")

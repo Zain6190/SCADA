@@ -446,3 +446,106 @@ async def acknowledge_drift_alert(alert_id: int, performed_by: str = "operator")
             raise HTTPException(404, "Drift alert not found")
 
     return {"status": "ok", "message": f"Alert {alert_id} acknowledged"}
+
+
+# ── Persisted Predictions ───────────────────────────────────────────────────
+
+@router.get("/predictions")
+async def get_predictions(
+    asset_id: Optional[int] = Query(None),
+    horizon: Optional[int] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Get persisted flood predictions from DB."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    query = """
+        SELECT wp.id, wp.asset_id, wp.horizon, wp.predicted_value,
+               wp.predicted_lower, wp.predicted_upper,
+               wp.risk_score, wp.risk_category,
+               wp.exceeds_warning, wp.exceeds_danger,
+               wp.model_version, wp.confidence,
+               wp.valid_from::text as valid_from,
+               wp.valid_to::text as valid_to,
+               wp.generated_at::text as generated_at,
+               wa.canonical_name as asset_name
+        FROM aquavision.water_predictions wp
+        LEFT JOIN aquavision.water_assets wa ON wa.id = wp.asset_id
+        WHERE 1=1
+    """
+    params = {}
+
+    if asset_id is not None:
+        query += " AND wp.asset_id = :asset_id"
+        params["asset_id"] = asset_id
+    if horizon is not None:
+        query += " AND wp.horizon = :horizon"
+        params["horizon"] = horizon
+
+    query += " ORDER BY wp.generated_at DESC, wp.asset_id, wp.horizon LIMIT :limit"
+    params["limit"] = limit
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).mappings().all()
+
+    return {"count": len(rows), "predictions": [dict(r) for r in rows]}
+
+
+@router.get("/prediction-summary")
+async def get_predictions_summary():
+    """Get latest prediction per asset/horizon."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT DISTINCT ON (wp.asset_id, wp.horizon)
+                wp.asset_id, wp.horizon, wp.predicted_value,
+                wp.risk_score, wp.risk_category,
+                wp.confidence, wp.model_version,
+                wp.valid_from::text as valid_from,
+                wp.generated_at::text as generated_at,
+                wa.canonical_name as asset_name
+            FROM aquavision.water_predictions wp
+            LEFT JOIN aquavision.water_assets wa ON wa.id = wp.asset_id
+            ORDER BY wp.asset_id, wp.horizon, wp.generated_at DESC
+        """)).mappings().all()
+
+    return {"count": len(rows), "predictions": [dict(r) for r in rows]}
+
+
+@router.post("/run-predictions")
+async def trigger_predictions(background_tasks: BackgroundTasks):
+    """Trigger prediction persistence job."""
+    def _run():
+        try:
+            subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; sys.path.insert(0,'/app'); from scripts.persist_predictions import main; main()"],
+                capture_output=True, text=True, timeout=300, cwd="/app"
+            )
+        except Exception as e:
+            logger.error(f"Prediction persistence failed: {e}")
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "Prediction persistence started in background"}
+
+
+@router.get("/prediction-logs")
+async def get_prediction_logs(limit: int = Query(20, ge=1, le=100)):
+    """Get prediction run history."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT id, run_type, assets_predicted, assets_failed,
+                   predictions_written, duration_seconds, status,
+                   started_at::text as started_at, completed_at::text as completed_at
+            FROM aquavision.prediction_logs
+            ORDER BY started_at DESC
+            LIMIT :limit
+        """), {"limit": limit}).mappings().all()
+
+    return {"count": len(rows), "logs": [dict(r) for r in rows]}
