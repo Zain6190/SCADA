@@ -1,12 +1,15 @@
 # infrastructure/ingestion/irsa_scraper.py
 # Parse IRSA Daily Water Situation PDFs into structured observations.
 # Handles the two-column PDF layout where pdfplumber merges left/right columns.
+import logging
 import re
 import io
 from dataclasses import dataclass, field
 from datetime import date
 from typing import List, Optional, Dict
 import pdfplumber
+
+logger = logging.getLogger("aquavision.ingest.irsa")
 
 
 @dataclass
@@ -22,6 +25,10 @@ class IRSAObservation:
     downstream_discharge_cusecs: Optional[float] = None
     discharge_cusecs: Optional[float] = None
     provincial_releases: Dict[str, float] = field(default_factory=dict)
+    # Canal offtakes at this structure, in cusecs. Keys are canal names as
+    # printed in the report ("Dera Ghazi Khan Canal", "C-J Link"); the special
+    # key "_total" holds the aggregate "Canal W/dls" figure where given.
+    canal_withdrawals: Dict[str, float] = field(default_factory=dict)
     source_url: str = ""
     raw_text: str = ""
 
@@ -41,15 +48,180 @@ def _find(pattern, text, flags=0):
     return _c(m.group(1)) if m else None
 
 
+# ─── Column-aware block parsing ─────────────────────────────────────────────
+#
+# The IRSA report is laid out in TWO COLUMNS. pdfplumber's page-level
+# extract_text() concatenates them line by line, so a single output line can
+# carry Taunsa's canal on the left and Guddu's withdrawals on the right:
+#
+#   "Muzafarghar Canal = 0 Cs * Canal W/dls = 33875 Cs"
+#
+# Regexes written against that merged text mis-attribute values between the
+# columns, which is why six of eleven assets were parsing to empty rows.
+# Cropping each page at the column boundary first makes every station a clean
+# contiguous block, and makes canal lines attributable to the structure that
+# owns them.
+
+COLUMN_SPLIT_X = 300  # page width is 612pt; the gutter sits at the midpoint
+
+# Header text -> (canonical asset name, asset type). Order matters: longer,
+# more specific headers must be tested before their prefixes.
+STATION_HEADERS = [
+    ("INDUS @ TARBELA", "Tarbela Reservoir", "reservoir"),
+    ("KABUL @ NOWSHERA", "Kabul @ Nowshera", "river_station"),
+    ("JHELUM @ MANGLA", "Mangla Reservoir", "reservoir"),
+    ("CHENAB @ MARALA", "Chenab @ Marala", "river_station"),
+    ("KALABAGH", "Kalabagh (Indus)", "barrage"),
+    ("CHASHMA", "Chashma Barrage", "barrage"),
+    ("TAUNSA", "Taunsa Barrage", "barrage"),
+    ("GUDDU", "Guddu Barrage", "barrage"),
+    ("SUKKUR", "Sukkur Barrage", "barrage"),
+    ("KOTRI", "Kotri Barrage", "barrage"),
+    ("PANJNAD", "Panjnad", "river_station"),
+]
+
+# Lines matching these are readings, not canals.
+_METRIC_PATTERNS = [
+    (r"^DEAD LEVEL\s*=\s*([\d.,]+)", "dead_level_ft"),
+    (r"^LEVEL\s*=\s*([\d.,]+)", "water_level_ft"),
+    (r"^MEAN INFLOW\s*=\s*([\d.,]+)", "inflow_cusecs"),
+    (r"^MEAN OUTFLOW\s*=\s*([\d.,]+)", "outflow_cusecs"),
+    (r"^MEAN DISCHARGE\s*=\s*([\d.,]+)", "discharge_cusecs"),
+    (r"^MEAN U/S DISCHARGE\s*=\s*([\d.,]+)", "upstream_discharge_cusecs"),
+    (r"^MEAN D/S DISCHARGE\s*=\s*([\d.,]+)", "downstream_discharge_cusecs"),
+    (r"^U/S DISCHARGE\s*=\s*([\d.,]+)", "upstream_discharge_cusecs"),
+    (r"^D/S DISCHARGE\s*=\s*([\d.,]+)", "downstream_discharge_cusecs"),
+]
+
+# Labels that look like "<name> = <n> Cs" but are report furniture, not canals.
+_NOT_CANALS = {
+    "TOTAL", "MEAN DISCHARGE", "MEAN INFLOW", "MEAN OUTFLOW", "LEVEL",
+    "DEAD LEVEL", "DISCHARGE", "INFLOW", "OUTFLOW",
+}
+
+# Aggregate canal withdrawal for a whole structure, rather than a named canal.
+_CANAL_TOTAL_RE = re.compile(r"^\*?\s*Canal\s*W/dls\s*=\s*([\d.,]+)", re.IGNORECASE)
+# A named offtake: "Dera Ghazi Khan Canal = 8100 Cs", "C-J Link = 13000 Cs".
+_CANAL_NAMED_RE = re.compile(r"^\*?\s*([A-Za-z][A-Za-z0-9 ()\-/&.']*?)\s*=\s*([\d.,]+)\s*Cs", re.IGNORECASE)
+
+
+def extract_column_text(pdf) -> str:
+    """Text with the two columns separated, left column first then right.
+
+    Returns one string with a form-feed between columns so downstream block
+    splitting never runs a left-column station into a right-column one.
+    """
+    parts = []
+    for page in pdf.pages:
+        for x0, x1 in ((0, COLUMN_SPLIT_X), (COLUMN_SPLIT_X, page.width)):
+            cropped = page.crop((x0, 0, x1, page.height))
+            parts.append(cropped.extract_text() or "")
+    return "\n\f\n".join(parts)
+
+
+def _match_header(line: str):
+    """Return (asset_name, asset_type) if this line starts a station block."""
+    upper = line.strip().upper().rstrip(":").strip()
+    for header, name, atype in STATION_HEADERS:
+        if upper == header or upper.startswith(header + " ") or upper.startswith(header + ":"):
+            return name, atype
+    return None
+
+
+def split_station_blocks(column_text: str) -> dict:
+    """Group column text into {asset_name: (asset_type, [lines])}.
+
+    A block runs from its header to the next header or column break.
+    """
+    blocks: dict = {}
+    current = None
+    for raw in column_text.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line == "\f":
+            current = None
+            continue
+        hit = _match_header(line)
+        if hit:
+            name, atype = hit
+            current = name
+            blocks.setdefault(name, (atype, []))
+            # A header may carry its first reading inline ("PANJNAD U/S = ...").
+            remainder = line.split(":", 1)[1].strip() if ":" in line else ""
+            if remainder:
+                blocks[name][1].append(remainder)
+            continue
+        if current:
+            blocks[current][1].append(line)
+    return blocks
+
+
+def parse_block(lines: list) -> tuple:
+    """Split one station's lines into (readings, canal_withdrawals).
+
+    Anything of the form "<name> = <number> Cs" that is not a known metric is
+    treated as a canal offtake - which is exactly how the report lists them.
+    """
+    readings: dict = {}
+    canals: dict = {}
+
+    for line in lines:
+        text = line.strip()
+
+        total = _CANAL_TOTAL_RE.match(text)
+        if total:
+            canals["_total"] = _c(total.group(1))
+            continue
+
+        matched_metric = False
+        for pattern, field_name in _METRIC_PATTERNS:
+            m = re.match(pattern, text, re.IGNORECASE)
+            if m:
+                if field_name not in readings:  # first occurrence wins
+                    readings[field_name] = _c(m.group(1))
+                matched_metric = True
+                break
+        if matched_metric:
+            continue
+
+        named = _CANAL_NAMED_RE.match(text)
+        if named:
+            label = named.group(1).strip()
+            upper = label.upper()
+            # Guard against prose, report furniture and stray headings. Without
+            # this, "TOTAL = ..." and "MEAN D/S DISCHARGE = ..." are read as canals.
+            if (1 <= len(label.split()) <= 5
+                    and upper not in _NOT_CANALS
+                    and not upper.startswith(("TODAY", "RIM", "NOTE", "MEAN ", "TOTAL"))):
+                canals[label] = _c(named.group(2))
+
+    return readings, canals
+
+
 class IRSAParser:
     def parse(self, pdf_bytes: bytes, source_url: str, target_date: date) -> List[IRSAObservation]:
         full_text = ""
+        column_text = ""
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
                 full_text += (page.extract_text() or "") + "\n"
+            try:
+                column_text = extract_column_text(pdf)
+            except Exception as exc:  # noqa: BLE001 - never lose the legacy path
+                logger.warning("Column extraction failed, using merged text only: %s", exc)
 
         obs: List[IRSAObservation] = []
         t = full_text
+
+        # Column-aware pass. Runs first so its cleanly attributed values can be
+        # merged over the legacy regex results, which mis-assign across columns.
+        block_data = {}
+        if column_text:
+            for name, (atype, lines) in split_station_blocks(column_text).items():
+                readings, canals = parse_block(lines)
+                if readings or canals:
+                    block_data[name] = (atype, readings, canals)
 
         # ================================================================
         # TARBELA
@@ -286,6 +458,29 @@ class IRSAParser:
                 observed_at=target_date, provincial_releases=prov,
                 source_url=source_url, raw_text=t[:4000],
             ))
+
+        # ================================================================
+        # MERGE THE COLUMN-AWARE PASS
+        # Block values fill any field the legacy regexes left empty, and add
+        # canal withdrawals plus any station the regex path missed entirely.
+        # ================================================================
+        by_name = {o.asset_name: o for o in obs}
+        for name, (atype, readings, canals) in block_data.items():
+            existing = by_name.get(name)
+            if existing is None:
+                existing = IRSAObservation(
+                    asset_name=name, asset_type=atype, observed_at=target_date,
+                    source_url=source_url, raw_text=t[:4000],
+                )
+                obs.append(existing)
+                by_name[name] = existing
+            for field_name, value in readings.items():
+                if value is not None and getattr(existing, field_name, None) is None:
+                    setattr(existing, field_name, value)
+            if canals:
+                existing.canal_withdrawals.update(
+                    {k: v for k, v in canals.items() if v is not None}
+                )
 
         # Deduplicate
         seen = set()
