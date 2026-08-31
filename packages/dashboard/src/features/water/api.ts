@@ -290,4 +290,31 @@ export const waterApi = {
     const { data } = await waterClient.post(`/stress-alerts/${id}/resolve`, { performed_by: performedBy })
     return data
   },
+
+  // ─── ML Model Management ──────────────────────────────────────────────
+
+  getModelMetadata: async (): Promise<any> => {
+    const { data } = await waterClient.get('/ml/model-metadata')
+    return data
+  },
+
+  getModelStatus: async (): Promise<any> => {
+    const { data } = await waterClient.get('/ml/model-status')
+    return data
+  },
+
+  trainAllModels: async (): Promise<any> => {
+    const { data } = await waterClient.post('/ml/train-all')
+    return data
+  },
+
+  validateAllModels: async (): Promise<any> => {
+    const { data } = await waterClient.post('/ml/validate-all')
+    return data
+  },
+
+  getValidationReports: async (params: { asset_id?: number; model_type?: string; limit?: number } = {}): Promise<any> => {
+    const { data } = await waterClient.get('/ml/validation-reports', { params })
+    return data
+  },
 }

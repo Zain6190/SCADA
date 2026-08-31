@@ -104,11 +104,53 @@ function FloodPredictionsTab() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ml-predictions'] }),
   })
 
+  const { data: metadata } = useQuery({
+    queryKey: ['ml-model-metadata'],
+    queryFn: () => waterApi.getModelMetadata(),
+    staleTime: 30 * 60_000,
+  })
+
+  const { data: modelStatus } = useQuery({
+    queryKey: ['ml-model-status'],
+    queryFn: () => waterApi.getModelStatus(),
+    staleTime: 5 * 60_000,
+  })
+
   return (
     <>
       {trainMutation.isSuccess && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
           Training complete: {trainMutation.data.models_trained} models trained.
+        </div>
+      )}
+
+      {/* Model Health Summary */}
+      {metadata && (
+        <div className="grid gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
+            <div className="text-[10px] font-semibold uppercase text-slate-500">Model Version</div>
+            <div className="mt-1 font-mono text-sm font-bold text-slate-200">{metadata.model_version}</div>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
+            <div className="text-[10px] font-semibold uppercase text-slate-500">Total Model Files</div>
+            <div className="mt-1 text-sm font-bold text-slate-200">{modelStatus?.total_files ?? '—'}</div>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
+            <div className="text-[10px] font-semibold uppercase text-slate-500">Weather Features</div>
+            <div className="mt-1">
+              <Badge tone={metadata.weather_features ? 'emerald' : 'slate'}>
+                {metadata.weather_features ? 'Enabled' : 'Disabled'}
+              </Badge>
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
+            <div className="text-[10px] font-semibold uppercase text-slate-500">Log Transform</div>
+            <div className="mt-1">
+              <Badge tone={metadata.log_transform ? 'emerald' : 'slate'}>
+                {metadata.log_transform ? 'Active' : 'Off'}
+              </Badge>
+            </div>
+          </div>
         </div>
       )}
 
@@ -134,6 +176,7 @@ function FloodPredictionsTab() {
             assetId={id}
             isExpanded={expanded === id}
             onToggle={() => setExpanded(expanded === id ? null : id)}
+            metadata={metadata}
           />
         ))}
       </div>
@@ -145,10 +188,12 @@ function PredictionCard({
   assetId,
   isExpanded,
   onToggle,
+  metadata,
 }: {
   assetId: number
   isExpanded: boolean
   onToggle: () => void
+  metadata?: any
 }) {
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['ml-predictions', assetId],
@@ -157,6 +202,7 @@ function PredictionCard({
   })
 
   const pred = data?.[0]
+  const assetMeta = metadata?.assets?.[String(assetId)]
 
   return (
     <Card>
@@ -186,7 +232,10 @@ function PredictionCard({
           ) : !pred ? (
             <EmptyState title="No model" message="Train models first." />
           ) : (
-            <PredictionDetails pred={pred} />
+            <>
+              <PredictionDetails pred={pred} />
+              {assetMeta && <ModelHealthBar assetMeta={assetMeta} />}
+            </>
           )}
         </CardBody>
       )}
@@ -250,6 +299,28 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
         )}
       </div>
 
+      {/* Weather Context Indicator */}
+      <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-2">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-sky-400">
+          <TrendingUp className="h-3 w-3" />
+          Weather Context
+        </div>
+        <div className="mt-1 grid grid-cols-3 gap-2 text-[10px]">
+          <div>
+            <div className="text-slate-500">7-Day Precip</div>
+            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_precip_7d ? 'Included' : 'N/A'}</div>
+          </div>
+          <div>
+            <div className="text-slate-500">Max Temp</div>
+            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_temp_max ? 'Included' : 'N/A'}</div>
+          </div>
+          <div>
+            <div className="text-slate-500">Humidity</div>
+            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_humidity_mean ? 'Included' : 'N/A'}</div>
+          </div>
+        </div>
+      </div>
+
       {topFeatures.length > 0 && (
         <div>
           <div className="mb-1 text-slate-500">Top Features</div>
@@ -267,6 +338,30 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
 
       <div className="text-slate-600">
         Model: {pred.model_version} | {pred.model_status} | {pred.prediction_date}
+      </div>
+    </div>
+  )
+}
+
+function ModelHealthBar({ assetMeta }: { assetMeta: any }) {
+  const models = assetMeta.models || {}
+  const entries = Object.entries(models).filter(([, v]: [string, any]) => v.status === 'SUCCESS')
+
+  if (entries.length === 0) return null
+
+  return (
+    <div className="mt-3 border-t border-slate-800/50 pt-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase text-slate-500">Trained Models</div>
+      <div className="space-y-1">
+        {entries.map(([key, m]: [string, any]) => (
+          <div key={key} className="flex items-center justify-between rounded bg-slate-800/30 px-2 py-1 text-[10px]">
+            <span className="text-slate-400">{m.model_type} ({m.horizon}d)</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">R²={m.r2?.toFixed(3) ?? '—'}</span>
+              <span className="text-slate-500">MAE={m.mae?.toFixed(2) ?? '—'}</span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
