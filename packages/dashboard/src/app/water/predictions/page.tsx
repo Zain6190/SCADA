@@ -10,9 +10,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { waterApi } from '@/features/water/api'
-import type { MLPrediction } from '@/features/water/types'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fmtDateTime } from '@/lib/format'
 
 const RISK_COLORS: Record<string, string> = {
   NORMAL: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -36,7 +34,7 @@ const SEVERITY_TONE: Record<string, 'red' | 'amber' | 'sky' | 'emerald' | 'slate
   Normal: 'emerald',
 }
 
-const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
+const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
 interface WAIPrediction {
   id: number
@@ -100,8 +98,13 @@ function FloodPredictionsTab() {
   const [expanded, setExpanded] = useState<number | null>(null)
 
   const trainMutation = useMutation({
-    mutationFn: () => waterApi.triggerMLTrain([7]),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ml-predictions'] }),
+    mutationFn: () => waterApi.trainAllModels(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['prediction-summary'] }),
+  })
+
+  const runPredMutation = useMutation({
+    mutationFn: () => waterApi.runPredictions(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['prediction-summary'] }),
   })
 
   const { data: metadata } = useQuery({
@@ -115,6 +118,19 @@ function FloodPredictionsTab() {
     queryFn: () => waterApi.getModelStatus(),
     staleTime: 5 * 60_000,
   })
+
+  const { data: dbPredictions, isLoading: predsLoading } = useQuery({
+    queryKey: ['prediction-summary'],
+    queryFn: () => waterApi.getPredictionSummary(),
+    staleTime: 5 * 60_000,
+  })
+
+  // Index predictions by asset_id for quick lookup
+  const predsByAsset: Record<number, any[]> = {}
+  for (const p of dbPredictions?.predictions || []) {
+    if (!predsByAsset[p.asset_id]) predsByAsset[p.asset_id] = []
+    predsByAsset[p.asset_id].push(p)
+  }
 
   return (
     <>
@@ -160,6 +176,14 @@ function FloodPredictionsTab() {
           EXPERIMENTAL
         </Badge>
         <button
+          onClick={() => runPredMutation.mutate()}
+          disabled={runPredMutation.isPending}
+          className="flex items-center gap-1.5 rounded-lg bg-sky-500/15 px-3 py-1.5 text-xs font-medium text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${runPredMutation.isPending ? 'animate-spin' : ''}`} />
+          {runPredMutation.isPending ? 'Running...' : 'Run Predictions'}
+        </button>
+        <button
           onClick={() => trainMutation.mutate()}
           disabled={trainMutation.isPending}
           className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition disabled:opacity-50"
@@ -174,6 +198,8 @@ function FloodPredictionsTab() {
           <PredictionCard
             key={id}
             assetId={id}
+            dbPredictions={predsByAsset[id] || []}
+            isLoading={predsLoading}
             isExpanded={expanded === id}
             onToggle={() => setExpanded(expanded === id ? null : id)}
             metadata={metadata}
@@ -186,22 +212,21 @@ function FloodPredictionsTab() {
 
 function PredictionCard({
   assetId,
+  dbPredictions,
+  isLoading,
   isExpanded,
   onToggle,
   metadata,
 }: {
   assetId: number
+  dbPredictions: any[]
+  isLoading: boolean
   isExpanded: boolean
   onToggle: () => void
   metadata?: any
 }) {
-  const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ['ml-predictions', assetId],
-    queryFn: () => waterApi.getMLPredictions(assetId, '7'),
-    staleTime: 5 * 60_000,
-  })
-
-  const pred = data?.[0]
+  // Use 7d prediction as primary, fallback to first available
+  const pred = dbPredictions.find(p => p.horizon === 7) || dbPredictions[0]
   const assetMeta = metadata?.assets?.[String(assetId)]
 
   return (
@@ -210,30 +235,28 @@ function PredictionCard({
         <CardHeader
           title={pred?.asset_name ?? `Asset ${assetId}`}
           subtitle={
-            isPending ? 'Loading...' : isError ? 'Failed to load' : pred ? `${pred.horizon_days}-day forecast` : 'No model trained'
+            isLoading ? 'Loading...' : pred ? `${pred.horizon}-day forecast` : 'No predictions yet'
           }
           icon={
             pred ? (
-              <div className={`h-3 w-3 rounded-full ${RISK_DOT[pred.risk_level] ?? 'bg-slate-500'}`} />
+              <div className={`h-3 w-3 rounded-full ${RISK_DOT[pred.risk_category] ?? 'bg-slate-500'}`} />
             ) : (
               <Cpu className="h-5 w-5 text-slate-500" />
             )
           }
-          accent={pred ? RISK_COLORS[pred.risk_level] ?? 'bg-slate-500/15 text-slate-300' : 'bg-slate-500/15 text-slate-500'}
+          accent={pred ? RISK_COLORS[pred.risk_category] ?? 'bg-slate-500/15 text-slate-300' : 'bg-slate-500/15 text-slate-500'}
         />
       </button>
 
       {isExpanded && (
         <CardBody className="border-t border-slate-800/70 pt-4">
-          {isPending ? (
+          {isLoading ? (
             <Spinner />
-          ) : isError ? (
-            <ErrorState onRetry={() => refetch()} />
           ) : !pred ? (
-            <EmptyState title="No model" message="Train models first." />
+            <EmptyState title="No predictions" message="Run predictions to generate forecasts." />
           ) : (
             <>
-              <PredictionDetails pred={pred} />
+              <DBPredictionDetails pred={pred} />
               {assetMeta && <ModelHealthBar assetMeta={assetMeta} />}
             </>
           )}
@@ -243,8 +266,10 @@ function PredictionCard({
   )
 }
 
-function PredictionDetails({ pred }: { pred: MLPrediction }) {
-  const topFeatures = Object.entries(pred.feature_importance)
+function DBPredictionDetails({ pred }: { pred: any }) {
+  const features = pred.features_used || []
+  const fi = pred.feature_importance || {}
+  const topFeatures = Object.entries(fi)
     .map(([k, v]) => [k, Number(v)] as const)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
@@ -255,32 +280,31 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
         <div>
           <div className="text-slate-500">Predicted Value</div>
           <div className="text-lg font-bold text-slate-100">
-            {pred.predicted_level_ft != null ? pred.predicted_level_ft.toLocaleString() : '—'}
+            {pred.predicted_value != null ? Number(pred.predicted_value).toLocaleString() : '—'}
           </div>
         </div>
         <div>
           <div className="text-slate-500">Prediction Interval</div>
           <div className="font-medium text-slate-300">
-            {pred.lower_bound != null ? pred.lower_bound.toLocaleString() : '—'}
+            {pred.predicted_lower != null ? Number(pred.predicted_lower).toLocaleString() : '—'}
             {' — '}
-            {pred.upper_bound != null ? pred.upper_bound.toLocaleString() : '—'}
+            {pred.predicted_upper != null ? Number(pred.predicted_upper).toLocaleString() : '—'}
           </div>
         </div>
         <div>
           <div className="text-slate-500">Risk Score</div>
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-100">{pred.risk_score}/100</span>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${RISK_COLORS[pred.risk_level] ?? ''}`}>
-              {pred.risk_level}
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${RISK_COLORS[pred.risk_category] ?? ''}`}>
+              {pred.risk_category}
             </span>
           </div>
         </div>
         <div>
-          <div className="text-slate-500">Status</div>
-          <Badge tone="amber">
-            <FlaskConical className="mr-1 inline h-3 w-3" />
-            {pred.model_status}
-          </Badge>
+          <div className="text-slate-500">Confidence</div>
+          <div className="font-medium text-slate-300">
+            {pred.confidence != null ? `${(pred.confidence * 100).toFixed(1)}%` : '—'}
+          </div>
         </div>
       </div>
 
@@ -299,7 +323,7 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
         )}
       </div>
 
-      {/* Weather Context Indicator */}
+      {/* Weather Context — always shown */}
       <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-2">
         <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-sky-400">
           <TrendingUp className="h-3 w-3" />
@@ -308,15 +332,21 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
         <div className="mt-1 grid grid-cols-3 gap-2 text-[10px]">
           <div>
             <div className="text-slate-500">7-Day Precip</div>
-            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_precip_7d ? 'Included' : 'N/A'}</div>
+            <div className="font-mono text-slate-300">
+              {fi.forecast_precip_7d != null ? `${fi.forecast_precip_7d}` : 'Included in model'}
+            </div>
           </div>
           <div>
             <div className="text-slate-500">Max Temp</div>
-            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_temp_max ? 'Included' : 'N/A'}</div>
+            <div className="font-mono text-slate-300">
+              {fi.forecast_temp_max != null ? `${fi.forecast_temp_max}` : 'Included in model'}
+            </div>
           </div>
           <div>
             <div className="text-slate-500">Humidity</div>
-            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_humidity_mean ? 'Included' : 'N/A'}</div>
+            <div className="font-mono text-slate-300">
+              {fi.forecast_humidity_mean != null ? `${fi.forecast_humidity_mean}` : 'Included in model'}
+            </div>
           </div>
         </div>
       </div>
@@ -337,7 +367,7 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
       )}
 
       <div className="text-slate-600">
-        Model: {pred.model_version} | {pred.model_status} | {pred.prediction_date}
+        Model: {pred.model_version} | {pred.horizon}d | Generated: {pred.generated_at}
       </div>
     </div>
   )

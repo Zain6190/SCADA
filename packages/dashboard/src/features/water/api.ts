@@ -334,4 +334,21 @@ export const waterApi = {
     const { data } = await waterClient.post('/ml/registry/promote', payload)
     return data
   },
+
+  // ─── Persisted Predictions ─────────────────────────────────────────────
+
+  getPredictionSummary: async (): Promise<any> => {
+    const { data } = await waterClient.get('/ml/prediction-summary')
+    return data
+  },
+
+  getDBPredictions: async (params: { asset_id?: number; horizon?: number; limit?: number } = {}): Promise<any> => {
+    const { data } = await waterClient.get('/ml/predictions', { params })
+    return data
+  },
+
+  runPredictions: async (): Promise<any> => {
+    const { data } = await waterClient.post('/ml/run-predictions')
+    return data
+  },
 }
