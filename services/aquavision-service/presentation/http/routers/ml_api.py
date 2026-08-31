@@ -266,9 +266,9 @@ async def get_model_registry(
         SELECT vr.asset_id, vr.model_type, vr.model_version, vr.horizon,
                vr.metrics, vr.data_info, vr.recommendation, vr.reasons,
                vr.validated_at::text as validated_at,
-               a.name as asset_name, a.asset_type
+               a.canonical_name as asset_name, a.asset_type
         FROM aquavision.validation_reports vr
-        LEFT JOIN aquavision.assets a ON a.id = vr.asset_id
+        LEFT JOIN aquavision.water_assets a ON a.id = vr.asset_id
         WHERE 1=1
     """
     params = {}
