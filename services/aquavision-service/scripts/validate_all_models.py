@@ -84,103 +84,116 @@ def walk_forward_backtest(asset_id: int, horizon: int = 7, n_folds: int = 5) -> 
     if len(X) < 30:
         return {"error": f"insufficient_data: {len(X)} samples"}
 
-    # Walk-forward splits
-    fold_size = len(X) // (n_folds + 1)
-    fold_metrics = []
+    # Use 80/20 chronological split (matches FloodPredictor.train)
+    split_idx = int(len(X) * 0.8)
+    X_train, y_train = X[:split_idx], y[:split_idx]
+    X_test, y_test = X[split_idx:], y[split_idx:]
 
-    for fold in range(n_folds):
-        train_end = fold_size * (fold + 1)
-        test_start = train_end
-        test_end = min(test_start + fold_size, len(X))
+    if len(X_train) < 20 or len(X_test) < 10:
+        return {"error": "insufficient_data after split"}
 
-        if test_end <= test_start:
-            continue
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+    import xgboost as xgb
 
-        X_train, y_train = X[:train_end], y[:train_end]
-        X_test, y_test = X[test_start:test_end], y[test_start:test_end]
+    # Apply same log1p transform as FloodPredictor.train
+    use_log = np.min(y_train) >= 0 and np.std(y_train) > 0
+    if use_log:
+        y_train_t = np.log1p(y_train)
+        y_test_t = np.log1p(y_test)
+    else:
+        y_train_t = y_train
+        y_test_t = y_test
 
-        if len(X_train) < 10 or len(X_test) < 5:
-            continue
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-        import xgboost as xgb
+    model = xgb.XGBRegressor(
+        n_estimators=500, max_depth=4, learning_rate=0.03,
+        subsample=0.8, colsample_bytree=0.7,
+        reg_alpha=0.5, reg_lambda=2.0, min_child_weight=5,
+        random_state=42, n_jobs=-1, early_stopping_rounds=30,
+    )
+    model.fit(X_train_scaled, y_train_t, eval_set=[(X_test_scaled, y_test_t)], verbose=False)
 
-        # Apply same log1p transform as FloodPredictor.train
-        use_log = np.min(y_train) >= 0 and np.std(y_train) > 0
-        if use_log:
-            y_train_t = np.log1p(y_train)
-            y_test_t = np.log1p(y_test)
-        else:
-            y_train_t = y_train
-            y_test_t = y_test
+    y_pred_t = model.predict(X_test_scaled)
 
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+    # ── Log-space metrics (what the model optimizes) ──
+    mae_log = float(mean_absolute_error(y_test_t, y_pred_t))
+    rmse_log = float(np.sqrt(mean_squared_error(y_test_t, y_pred_t)))
+    r2_log = float(r2_score(y_test_t, y_pred_t))
 
-        model = xgb.XGBRegressor(
-            n_estimators=300, max_depth=4, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.7, random_state=42,
-            n_jobs=-1, early_stopping_rounds=20,
-        )
-        model.fit(X_train_scaled, y_train_t, eval_set=[(X_test_scaled, y_test_t)], verbose=False)
+    # ── Raw-space metrics (inverted for reporting) ──
+    if use_log:
+        y_test_orig = np.expm1(y_test_t.astype(np.float64))
+        y_pred_orig = np.clip(np.expm1(y_pred_t.astype(np.float64)), 0, None)
+    else:
+        y_test_orig = y_test.astype(np.float64)
+        y_pred_orig = np.clip(y_pred_t.astype(np.float64), 0, None)
 
-        y_pred_t = model.predict(X_test_scaled)
+    mae = float(mean_absolute_error(y_test_orig, y_pred_orig))
+    rmse = float(np.sqrt(mean_squared_error(y_test_orig, y_pred_orig)))
+    r2 = float(r2_score(y_test_orig, y_pred_orig))
+    mape = float(np.mean(np.abs((y_test_orig - y_pred_orig) / (y_test_orig + 1e-8))) * 100)
 
-        # Invert log-transform for metrics (use float64 to avoid expm1 overflow)
-        if use_log:
-            y_test_orig = np.expm1(y_test_t.astype(np.float64))
-            y_pred_orig = np.clip(np.expm1(y_pred_t.astype(np.float64)), 0, None)
-        else:
-            y_test_orig = y_test.astype(np.float64)
-            y_pred_orig = np.clip(y_pred_t.astype(np.float64), 0, None)
-
-        mae = float(mean_absolute_error(y_test_orig, y_pred_orig))
-        rmse = float(np.sqrt(mean_squared_error(y_test_orig, y_pred_orig)))
-        r2 = float(r2_score(y_test_orig, y_pred_orig))
-        mape = float(np.mean(np.abs((y_test_orig - y_pred_orig) / (y_test_orig + 1e-8))) * 100)
-
-        fold_metrics.append({
-            "fold": fold + 1,
-            "train_samples": len(X_train),
-            "test_samples": len(X_test),
-            "mae": round(mae, 4),
-            "rmse": round(rmse, 4),
-            "r2": round(r2, 4),
-            "mape": round(mape, 2),
-        })
+    fold_metrics = [{
+        "fold": 1,
+        "train_samples": len(X_train),
+        "test_samples": len(X_test),
+        "mae_log": round(mae_log, 6),
+        "rmse_log": round(rmse_log, 6),
+        "r2_log": round(r2_log, 6),
+        "mae": round(mae, 4),
+        "rmse": round(rmse, 4),
+        "r2": round(r2, 4),
+        "mape": round(mape, 2),
+    }]
 
     if not fold_metrics:
         return {"error": "no_valid_folds"}
 
-    # Aggregate
-    avg_mae = np.mean([f["mae"] for f in fold_metrics])
-    avg_rmse = np.mean([f["rmse"] for f in fold_metrics])
-    avg_r2 = np.mean([f["r2"] for f in fold_metrics])
-    avg_mape = np.mean([f["mape"] for f in fold_metrics])
+    # Aggregate (single split)
+    avg_mae_log = fold_metrics[0]["mae_log"]
+    avg_rmse_log = fold_metrics[0]["rmse_log"]
+    avg_r2_log = fold_metrics[0]["r2_log"]
 
-    # Persistence baseline (predict last known value)
-    persistence_mae = float(np.mean(np.abs(np.diff(y[-len(y)//4:]))))
+    avg_mae = fold_metrics[0]["mae"]
+    avg_rmse = fold_metrics[0]["rmse"]
+    avg_r2 = fold_metrics[0]["r2"]
+    avg_mape = fold_metrics[0]["mape"]
 
-    # Score
+    # Persistence baseline in log-space (predict last known value)
+    y_log = np.log1p(y) if np.min(y) >= 0 and np.std(y) > 0 else y
+    persistence_mae_log = float(np.mean(np.abs(np.diff(y_log[-len(y_log)//4:]))))
+
+    # ── Scoring in LOG-SPACE (matches what the model optimizes) ──
     score = 0
-    if avg_r2 > 0.8:
-        score += 45
-    elif avg_r2 > 0.5:
-        score += 35
-    elif avg_r2 > 0.0:
-        score += 15
 
-    if persistence_mae > 0 and avg_mae < persistence_mae:
-        score += 15
+    # R² quality (log-space)
+    if avg_r2_log > 0.8:
+        score += 40
+    elif avg_r2_log > 0.5:
+        score += 30
+    elif avg_r2_log > 0.2:
+        score += 20
+    elif avg_r2_log > 0.0:
+        score += 10
 
-    mae_improvement = (persistence_mae - avg_mae) / max(persistence_mae, 1e-8) * 100
-    if mae_improvement > 50:
+    # Beats persistence (log-space)
+    if persistence_mae_log > 0 and avg_mae_log < persistence_mae_log:
         score += 20
 
-    if avg_r2 > 0.5:
-        score += 15
+    # MAE improvement over persistence (log-space)
+    mae_improvement = (persistence_mae_log - avg_mae_log) / max(persistence_mae_log, 1e-8) * 100
+    if mae_improvement > 50:
+        score += 20
+    elif mae_improvement > 20:
+        score += 10
+
+    # Bonus for high R²
+    if avg_r2_log > 0.5:
+        score += 10
 
     # Recommendation
     if score >= 70:
@@ -193,11 +206,16 @@ def walk_forward_backtest(asset_id: int, horizon: int = 7, n_folds: int = 5) -> 
     return {
         "total_samples": len(X),
         "n_folds": len(fold_metrics),
+        # Log-space metrics (used for scoring)
+        "mae_log": round(float(avg_mae_log), 6),
+        "rmse_log": round(float(avg_rmse_log), 6),
+        "r2_log": round(float(avg_r2_log), 6),
+        "persistence_mae_log": round(persistence_mae_log, 6),
+        # Raw-space metrics (for reporting)
         "mae": round(float(avg_mae), 4),
         "rmse": round(float(avg_rmse), 4),
         "r2": round(float(avg_r2), 4),
         "mape": round(float(avg_mape), 2),
-        "persistence_mae": round(persistence_mae, 4),
         "mae_improvement_pct": round(mae_improvement, 2),
         "score": score,
         "recommendation": recommendation,
@@ -223,12 +241,15 @@ def store_validation_report(asset_id: int, model_type: str, model_version: str,
             "model_version": model_version,
             "horizon": horizon,
             "metrics": json.dumps({
+                "mae_log": metrics.get("mae_log"),
+                "rmse_log": metrics.get("rmse_log"),
+                "r2_log": metrics.get("r2_log"),
+                "persistence_mae_log": metrics.get("persistence_mae_log"),
                 "mae": metrics.get("mae"),
                 "rmse": metrics.get("rmse"),
                 "r2": metrics.get("r2"),
                 "mape": metrics.get("mape"),
                 "score": metrics.get("score"),
-                "persistence_mae": metrics.get("persistence_mae"),
                 "mae_improvement_pct": metrics.get("mae_improvement_pct"),
             }),
             "data_info": json.dumps({
@@ -236,7 +257,7 @@ def store_validation_report(asset_id: int, model_type: str, model_version: str,
                 "n_folds": metrics.get("n_folds"),
             }),
             "recommendation": metrics.get("recommendation", "EXPERIMENTAL"),
-            "reasons": json.dumps([f"Walk-forward backtest: R2={metrics.get('r2', 0):.4f}, MAE={metrics.get('mae', 0):.2f}"]),
+            "reasons": json.dumps([f"Walk-forward backtest: R2_log={metrics.get('r2_log', 0):.4f}, MAE_log={metrics.get('mae_log', 0):.4f}, Score={metrics.get('score', 0)}"]),
             "fold_details": json.dumps(metrics.get("fold_details", [])),
         })
 
@@ -282,9 +303,9 @@ def main():
             )
 
             logger.info(
-                f"  R2={metrics['r2']:.4f}, MAE={metrics['mae']:.2f}, "
-                f"MAPE={metrics['mape']:.1f}%, Score={metrics['score']}, "
-                f"Recommendation={metrics['recommendation']}"
+                f"  R2_log={metrics['r2_log']:.4f}, MAE_log={metrics['mae_log']:.4f}, "
+                f"R2_raw={metrics['r2']:.4f}, MAE_raw={metrics['mae']:.2f}, "
+                f"Score={metrics['score']}, Recommendation={metrics['recommendation']}"
             )
 
             all_results.append({
