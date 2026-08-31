@@ -317,4 +317,21 @@ export const waterApi = {
     const { data } = await waterClient.get('/ml/validation-reports', { params })
     return data
   },
+
+  // ─── Model Registry ────────────────────────────────────────────────────
+
+  getModelRegistry: async (params: { asset_id?: number; status?: string } = {}): Promise<any> => {
+    const { data } = await waterClient.get('/ml/registry', { params })
+    return data
+  },
+
+  getRegistrySummary: async (): Promise<any> => {
+    const { data } = await waterClient.get('/ml/registry/summary')
+    return data
+  },
+
+  promoteModel: async (payload: { asset_id: number; model_type?: string; horizon?: number; status: string; performed_by?: string }): Promise<any> => {
+    const { data } = await waterClient.post('/ml/registry/promote', payload)
+    return data
+  },
 }

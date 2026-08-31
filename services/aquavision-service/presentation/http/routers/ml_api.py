@@ -241,3 +241,127 @@ async def get_model_status():
         "classifiers": classifiers,
         "total_files": len(list(model_dir.glob("*.joblib"))) + len(list(classifier_dir.glob("*.pkl"))),
     }
+
+
+# ── Model Registry ──────────────────────────────────────────────────────────
+
+class PromoteRequest(BaseModel):
+    asset_id: int
+    model_type: str = "flood_predictor"
+    horizon: int = 7
+    status: str  # SHADOW, EXPERIMENTAL, REJECTED
+    performed_by: str = "operator"
+
+
+@router.get("/registry")
+async def get_model_registry(
+    asset_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+):
+    """Get model registry with validation scores and status."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    query = """
+        SELECT vr.asset_id, vr.model_type, vr.model_version, vr.horizon,
+               vr.metrics, vr.data_info, vr.recommendation, vr.reasons,
+               vr.validated_at::text as validated_at,
+               a.name as asset_name, a.asset_type
+        FROM aquavision.validation_reports vr
+        LEFT JOIN aquavision.assets a ON a.id = vr.asset_id
+        WHERE 1=1
+    """
+    params = {}
+
+    if asset_id is not None:
+        query += " AND vr.asset_id = :asset_id"
+        params["asset_id"] = asset_id
+    if status:
+        query += " AND vr.recommendation = :status"
+        params["status"] = status
+
+    query += " ORDER BY vr.asset_id, vr.horizon"
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).mappings().all()
+
+    results = []
+    for row in rows:
+        r = dict(row)
+        if isinstance(r.get("metrics"), str):
+            r["metrics"] = json.loads(r["metrics"])
+        if isinstance(r.get("data_info"), str):
+            r["data_info"] = json.loads(r["data_info"])
+        if isinstance(r.get("reasons"), str):
+            r["reasons"] = json.loads(r["reasons"])
+        results.append(r)
+
+    return {"count": len(results), "models": results}
+
+
+@router.post("/registry/promote")
+async def promote_model(req: PromoteRequest):
+    """Promote/demote a model's status in the validation registry."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    valid_statuses = {"SHADOW", "EXPERIMENTAL", "REJECTED"}
+    if req.status not in valid_statuses:
+        raise HTTPException(400, f"Invalid status: {req.status}. Must be one of {valid_statuses}")
+
+    with engine.begin() as conn:
+        result = conn.execute(text("""
+            UPDATE aquavision.validation_reports
+            SET recommendation = :status,
+                reasons = reasons || jsonb_build_array(
+                    jsonb_build_object('action', 'manual_override', 'by', :by, 'at', now()::text)
+                )
+            WHERE asset_id = :asset_id AND model_type = :model_type AND horizon = :horizon
+        """), {
+            "status": req.status,
+            "by": req.performed_by,
+            "asset_id": req.asset_id,
+            "model_type": req.model_type,
+            "horizon": req.horizon,
+        })
+
+        if result.rowcount == 0:
+            raise HTTPException(404, f"No validation report found for asset={req.asset_id} type={req.model_type} horizon={req.horizon}d")
+
+    return {"status": "ok", "message": f"Model promoted to {req.status}"}
+
+
+@router.get("/registry/summary")
+async def get_registry_summary():
+    """Get aggregated registry stats."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT recommendation, COUNT(*) as cnt,
+                   AVG((metrics->>'r2_log')::float) as avg_r2_log,
+                   AVG((metrics->>'mae_log')::float) as avg_mae_log,
+                   AVG((metrics->>'score')::float) as avg_score
+            FROM aquavision.validation_reports
+            GROUP BY recommendation
+        """)).mappings().all()
+
+    summary = {}
+    for row in rows:
+        summary[row["recommendation"]] = {
+            "count": row["cnt"],
+            "avg_r2_log": round(row["avg_r2_log"], 4) if row["avg_r2_log"] else None,
+            "avg_mae_log": round(row["avg_mae_log"], 4) if row["avg_mae_log"] else None,
+            "avg_score": round(row["avg_score"], 1) if row["avg_score"] else None,
+        }
+
+    # Total models on disk
+    model_dir = _BASE_DIR / "models" / "flood_xgb"
+    total_on_disk = len(list(model_dir.glob("*.joblib"))) if model_dir.exists() else 0
+
+    return {
+        "summary": summary,
+        "total_on_disk": total_on_disk,
+        "total_validated": sum(v["count"] for v in summary.values()),
+    }
