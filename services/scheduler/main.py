@@ -238,6 +238,30 @@ def job_run_wai_pipeline():
             release_pipeline_lock(conn, pipeline_type)
 
 
+def job_refresh_weather():
+    """Refresh weather forecasts for all active assets (every 6 hours)."""
+    pipeline_type = "WEATHER_REFRESH"
+
+    with get_db_session() as session:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(session, pipeline_type)
+
+        try:
+            from ml.features.weather_service import WeatherService
+            ws = WeatherService(session)
+            count = ws.refresh_all_assets()
+            complete_pipeline_run(session, run_id, "SUCCESS")
+            logger.info(f"Weather refresh complete: {count} forecast rows")
+        except Exception as e:
+            complete_pipeline_run(session, run_id, "FAILED", str(e))
+            logger.exception(f"Weather refresh error: {e}")
+        finally:
+            release_pipeline_lock(session, pipeline_type)
+
+
 if __name__ == "__main__":
     # Schedule: daily at 06:30 PKT (01:30 UTC)
     schedule.every().day.at("01:30").do(job_ingest_irsa)
@@ -250,6 +274,9 @@ if __name__ == "__main__":
 
     # WAI pipeline: weekly on Sunday at 04:00 UTC (09:00 PKT) — after ML retrain
     schedule.every().sunday.at("04:00").do(job_run_wai_pipeline)
+
+    # Weather forecasts: every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
+    schedule.every(6).hours.do(job_refresh_weather)
 
     # Heartbeat: every 5 minutes
     schedule.every(5).minutes.do(update_heartbeat)

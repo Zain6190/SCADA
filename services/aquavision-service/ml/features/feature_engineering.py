@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from infrastructure.db.models import (
     WaterAsset, WaterObservation, WaterFFDObservation,
-    WaterAssetThreshold,
+    WaterAssetThreshold, WaterWeatherForecast,
 )
 
 logger = logging.getLogger("aquavision.ml.features")
@@ -351,7 +351,18 @@ class FloodFeatureBuilder:
         features["ffd_low"] = 1.0 if ffd_status == "LOW" else 0.0
         features["ffd_medium"] = 1.0 if ffd_status == "MEDIUM" else 0.0
         features["ffd_high"] = 1.0 if ffd_status in ("HIGH", "VERY_HIGH", "EXCEPTIONALLY_HIGH") else 0.0
-        
+
+        # Weather forecast features (Open-Meteo)
+        weather = self._get_weather_forecast(asset_id, current["date"])
+        if weather:
+            features["forecast_precip_7d"] = weather.get("precip_sum_mm") or 0.0
+            features["forecast_temp_max"] = weather.get("temp_max_c") or 0.0
+            features["forecast_humidity_mean"] = weather.get("humidity_mean_pct") or 0.0
+        else:
+            features["forecast_precip_7d"] = 0.0
+            features["forecast_temp_max"] = 0.0
+            features["forecast_humidity_mean"] = 0.0
+
         return features
     
     def _get_threshold(self, asset_id: int):
@@ -375,6 +386,25 @@ class FloodFeatureBuilder:
             ).limit(1)
         ).scalar_one_or_none()
         return obs
+
+    def _get_weather_forecast(self, asset_id: int, dt) -> Optional[Dict]:
+        """Get weather forecast for asset on date (7-day horizon)."""
+        if dt is None:
+            return None
+        d = dt.date() if hasattr(dt, 'date') else dt
+        row = self.session.execute(
+            text("""
+                SELECT precip_sum_mm, temp_max_c, humidity_mean_pct
+                FROM aquavision.weather_forecasts
+                WHERE asset_id = :asset_id
+                AND forecast_date <= :dt
+                AND forecast_date + (horizon_days || ' days')::interval >= :dt
+                ORDER BY fetched_at DESC
+                LIMIT 1
+            """),
+            {"asset_id": asset_id, "dt": d},
+        ).mappings().first()
+        return dict(row) if row else None
     
     def _get_target_value(self, obs: Dict, target_field: str = "auto") -> Optional[float]:
         """Get target value for prediction.

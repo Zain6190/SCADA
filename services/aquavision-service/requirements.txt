@@ -17,5 +17,6 @@ pandas
 scikit-learn
 xgboost
 joblib
+imbalanced-learn
 beautifulsoup4
 requests

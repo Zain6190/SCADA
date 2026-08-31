@@ -146,10 +146,21 @@ class FloodClassifier:
         X_train, X_test = features.iloc[:split_idx], features.iloc[split_idx:]
         y_train, y_test = labels.iloc[:split_idx], labels.iloc[split_idx:]
 
-        # Handle class imbalance
+        # Handle class imbalance with SMOTE
         n_flood = y_train.sum()
         n_total = len(y_train)
-        scale_pos_weight = (n_total - n_flood) / max(n_flood, 1)
+        flood_ratio = n_flood / max(n_total, 1)
+
+        if flood_ratio < 0.3 and n_flood >= 5:
+            try:
+                from imblearn.over_sampling import SMOTE
+                smote = SMOTE(random_state=42, k_neighbors=min(5, int(n_flood) - 1))
+                X_train, y_train = smote.fit_resample(X_train, y_train)
+                logger.info(f"SMOTE applied: {n_flood} flood samples -> {int(y_train.sum())} (ratio: {float(y_train.mean()):.3f})")
+            except ImportError:
+                logger.warning("imbalanced-learn not installed, falling back to class weights")
+            except Exception as e:
+                logger.warning(f"SMOTE failed: {e}, falling back to class weights")
 
         # Train model
         self.model = GradientBoostingClassifier(

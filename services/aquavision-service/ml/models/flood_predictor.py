@@ -71,7 +71,8 @@ class FloodPredictor:
         self.feature_names = {}
         self.training_mae = {}  # key -> MAE from training (for prediction interval)
         self.training_metrics = {}  # key -> full metrics dict
-        self.model_version = "xgb-flood-v1.1"
+        self.log_transform = {}  # key -> bool (whether log1p was applied)
+        self.model_version = "xgb-flood-v1.2"
         os.makedirs(MODEL_DIR, exist_ok=True)
 
     def train(
@@ -92,6 +93,14 @@ class FloodPredictor:
         if len(X) < 5:
             logger.warning(f"Insufficient data for training: {len(X)} samples")
             return {"error": "insufficient_data"}
+
+        # Log-transform targets to reduce MAPE explosion near zero
+        y_min = float(np.min(y))
+        use_log_transform = y_min >= 0 and np.std(y) > 0
+        if use_log_transform:
+            y_train_raw = y.copy()
+            y = np.log1p(y)
+            logger.info(f"Log-transform applied: range [{y_min:.2f}, {np.max(y):.2f}] -> [{np.min(y):.4f}, {np.max(y):.4f}]")
 
         # Split data (chronological — no shuffle)
         if sample_weights is not None:
@@ -140,7 +149,14 @@ class FloodPredictor:
         mae = mean_absolute_error(y_test, y_pred)
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
         r2 = r2_score(y_test, y_pred)
-        mape = np.mean(np.abs((y_test - y_pred) / (y_test + 1e-8))) * 100
+
+        # Invert log-transform for MAPE calculation
+        if use_log_transform:
+            y_test_orig = np.expm1(y_test)
+            y_pred_orig = np.expm1(y_pred)
+            mape = np.mean(np.abs((y_test_orig - y_pred_orig) / (y_test_orig + 1e-8))) * 100
+        else:
+            mape = np.mean(np.abs((y_test - y_pred) / (y_test + 1e-8))) * 100
 
         residual_std = float(np.std(residuals))
         residual_p90 = float(np.percentile(np.abs(residuals), 90))
@@ -154,6 +170,7 @@ class FloodPredictor:
         self.scalers[key] = scaler
         self.feature_names[key] = feature_names
         self.training_mae[key] = mae
+        self.log_transform[key] = use_log_transform
         self.training_metrics[key] = {
             "asset_id": asset_id,
             "horizon": horizon,
@@ -206,6 +223,11 @@ class FloodPredictor:
 
         X_scaled = scaler.transform(X)
         prediction = model.predict(X_scaled)[0]
+
+        # Invert log-transform if model was trained with it
+        use_log = self.log_transform.get(key, False)
+        if use_log:
+            prediction = float(np.expm1(prediction))
 
         margin = mae if mae > 0 else prediction * 0.05
         lower_bound = prediction - margin
@@ -274,6 +296,7 @@ class FloodPredictor:
             "training_mae": mae,
             "residual_std": residual_std,
             "metrics": metrics,
+            "log_transform": self.log_transform.get(key, False),
             "saved_at": datetime.utcnow().isoformat(),
         }, path)
         logger.info(f"Saved model: {path}")
@@ -287,6 +310,7 @@ class FloodPredictor:
             self.feature_names[key] = data["feature_names"]
             self.training_mae[key] = data.get("training_mae", 0)
             self.training_metrics[key] = data.get("metrics", {})
+            self.log_transform[key] = data.get("log_transform", False)
             return (
                 data["model"],
                 data["scaler"],

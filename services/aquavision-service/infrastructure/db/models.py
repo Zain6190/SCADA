@@ -574,6 +574,35 @@ class WaterFFDObservation(Base):
     source: Mapped[Optional[WaterSource]] = relationship("WaterSource")
 
 
+# ---------------------------------------------------------------------------
+# WEATHER FORECAST LAYER (Open-Meteo integration)
+# ---------------------------------------------------------------------------
+class WaterWeatherForecast(Base):
+    """Weather forecasts from Open-Meteo (free, no API key).
+    Stores 7/14/16-day forecasts per water asset for ML feature enrichment."""
+    __tablename__ = "weather_forecasts"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "forecast_date", "horizon_days",
+                         name="uq_weather_forecast_asset_date_horizon"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    forecast_date: Mapped[date] = mapped_column(Date, nullable=False)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)  # 7, 14, 16
+
+    precip_sum_mm: Mapped[Optional[float]] = mapped_column(Numeric)
+    temp_max_c: Mapped[Optional[float]] = mapped_column(Numeric)
+    temp_min_c: Mapped[Optional[float]] = mapped_column(Numeric)
+    humidity_mean_pct: Mapped[Optional[float]] = mapped_column(Numeric)
+    wind_speed_kmh: Mapped[Optional[float]] = mapped_column(Numeric)
+
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped[WaterAsset] = relationship("WaterAsset")
+
+
 # ─── Pipeline Run Tracking ────────────────────────────────────────────────
 
 
