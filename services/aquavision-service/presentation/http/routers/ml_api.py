@@ -365,3 +365,84 @@ async def get_registry_summary():
         "total_on_disk": total_on_disk,
         "total_validated": sum(v["count"] for v in summary.values()),
     }
+
+
+# ── Drift Detection ─────────────────────────────────────────────────────────
+
+@router.get("/drift-alerts")
+async def get_drift_alerts(
+    asset_id: Optional[int] = Query(None),
+    drift_level: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Get recent drift detection alerts."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    query = """
+        SELECT id, asset_id, horizon, drift_level, mae, rmse, mape,
+               bias_ratio, mean_error, n_samples, reasons,
+               detected_at::text as detected_at,
+               acknowledged, acknowledged_by, acknowledged_at::text as acknowledged_at
+        FROM aquavision.drift_alerts
+        WHERE 1=1
+    """
+    params = {}
+
+    if asset_id is not None:
+        query += " AND asset_id = :asset_id"
+        params["asset_id"] = asset_id
+    if drift_level:
+        query += " AND drift_level = :drift_level"
+        params["drift_level"] = drift_level
+
+    query += " ORDER BY detected_at DESC LIMIT :limit"
+    params["limit"] = limit
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).mappings().all()
+
+    results = []
+    for row in rows:
+        r = dict(row)
+        if isinstance(r.get("reasons"), str):
+            r["reasons"] = json.loads(r["reasons"])
+        results.append(r)
+
+    return {"count": len(results), "alerts": results}
+
+
+@router.post("/drift-detect")
+async def trigger_drift_detection(background_tasks: BackgroundTasks):
+    """Trigger drift detection job."""
+    def _run():
+        try:
+            subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; sys.path.insert(0,'/app'); from scripts.detect_drift import main; main()"],
+                capture_output=True, text=True, timeout=300, cwd="/app"
+            )
+        except Exception as e:
+            logger.error(f"Drift detection failed: {e}")
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "Drift detection started in background"}
+
+
+@router.post("/drift-alerts/{alert_id}/ack")
+async def acknowledge_drift_alert(alert_id: int, performed_by: str = "operator"):
+    """Acknowledge a drift alert."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        result = conn.execute(text("""
+            UPDATE aquavision.drift_alerts
+            SET acknowledged = true, acknowledged_by = :by, acknowledged_at = now()
+            WHERE id = :id
+        """), {"by": performed_by, "id": alert_id})
+
+        if result.rowcount == 0:
+            raise HTTPException(404, "Drift alert not found")
+
+    return {"status": "ok", "message": f"Alert {alert_id} acknowledged"}
