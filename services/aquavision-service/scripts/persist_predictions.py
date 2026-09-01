@@ -1,6 +1,6 @@
 """
 Prediction Persistence Service — Loads models, runs predictions, writes to DB.
-This is the core of the production forecasting system.
+Fixes: hybrid feature gathering, inflow fallback, missingness flags.
 """
 import json
 import logging
@@ -39,18 +39,150 @@ def load_model(asset_id: int, horizon: int):
         return None
 
 
-def get_latest_features(asset_id: int, conn):
-    """Fetch the latest observation for an asset to build prediction features."""
+def get_latest_with_inflow(asset_id: int, conn):
+    """Get most recent observation that has inflow data (IRSA or Kaggle)."""
     from sqlalchemy import text
     row = conn.execute(text("""
         SELECT wo.observed_at, wo.inflow_cusecs, wo.outflow_cusecs,
-               wo.discharge_cusecs, wo.water_level_ft
+               wo.discharge_cusecs, wo.water_level_ft, ds.authority as source
         FROM aquavision.water_observations wo
+        JOIN aquavision.water_sources ds ON ds.id = wo.source_id
         WHERE wo.asset_id = :aid
+          AND wo.inflow_cusecs IS NOT NULL
         ORDER BY wo.observed_at DESC
         LIMIT 1
     """), {"aid": asset_id}).mappings().first()
     return dict(row) if row else None
+
+
+def get_latest_discharge(asset_id: int, conn):
+    """Get most recent observation with discharge (FFD)."""
+    from sqlalchemy import text
+    row = conn.execute(text("""
+        SELECT wo.observed_at, wo.discharge_cusecs, wo.water_level_ft,
+               ds.authority as source
+        FROM aquavision.water_observations wo
+        JOIN aquavision.water_sources ds ON ds.id = wo.source_id
+        WHERE wo.asset_id = :aid
+          AND wo.discharge_cusecs IS NOT NULL
+        ORDER BY wo.observed_at DESC
+        LIMIT 1
+    """), {"aid": asset_id}).mappings().first()
+    return dict(row) if row else None
+
+
+def get_rolling_median_inflow(asset_id: int, conn, days=30):
+    """Get rolling median inflow for fallback (last N days)."""
+    from sqlalchemy import text
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    row = conn.execute(text("""
+        SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY inflow_cusecs) as median_inflow
+        FROM aquavision.water_observations
+        WHERE asset_id = :aid
+          AND inflow_cusecs IS NOT NULL
+          AND observed_at >= :cutoff
+    """), {"aid": asset_id, "cutoff": cutoff}).mappings().first()
+    if row and row["median_inflow"]:
+        return float(row["median_inflow"])
+    return None
+
+
+def get_rolling_median_outflow(asset_id: int, conn, days=30):
+    """Get rolling median outflow for fallback."""
+    from sqlalchemy import text
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    row = conn.execute(text("""
+        SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY outflow_cusecs) as median_outflow
+        FROM aquavision.water_observations
+        WHERE asset_id = :aid
+          AND outflow_cusecs IS NOT NULL
+          AND observed_at >= :cutoff
+    """), {"aid": asset_id, "cutoff": cutoff}).mappings().first()
+    if row and row["median_outflow"]:
+        return float(row["median_outflow"])
+    return None
+
+
+def get_hybrid_features(asset_id: int, conn):
+    """Build hybrid feature set using the best available data.
+    
+    Strategy:
+    1. Get latest observation WITH inflow (IRSA/Kaggle) — for inflow features
+    2. Get latest observation WITH discharge (FFD) — for level/discharge if newer
+    3. Merge: inflow from #1, level/discharge from #2 if newer
+    4. If no inflow at all: use rolling median + inflow_missing=1
+    """
+    from sqlalchemy import text
+
+    inflow_obs = get_latest_with_inflow(asset_id, conn)
+    discharge_obs = get_latest_discharge(asset_id, conn)
+
+    features = {
+        "inflow": None,
+        "outflow": None,
+        "discharge": None,
+        "level": None,
+        "inflow_missing": 0,
+        "source_inflow": None,
+        "source_level": None,
+    }
+
+    # --- Inflow: prefer IRSA/Kaggle (has inflow) ---
+    if inflow_obs and inflow_obs.get("inflow_cusecs"):
+        features["inflow"] = float(inflow_obs["inflow_cusecs"])
+        features["outflow"] = float(inflow_obs["outflow_cusecs"]) if inflow_obs.get("outflow_cusecs") else None
+        features["source_inflow"] = inflow_obs.get("source", "UNKNOWN")
+        # Use level from inflow obs as baseline
+        if inflow_obs.get("water_level_ft"):
+            features["level"] = float(inflow_obs["water_level_ft"])
+
+    # --- Discharge: use FFD if it has newer level/discharge ---
+    if discharge_obs and discharge_obs.get("discharge_cusecs"):
+        features["discharge"] = float(discharge_obs["discharge_cusecs"])
+        features["source_level"] = discharge_obs.get("source", "UNKNOWN")
+        # Update level from FFD if it's newer than inflow obs
+        if discharge_obs.get("water_level_ft"):
+            ffd_date = discharge_obs["observed_at"]
+            inf_date = inflow_obs["observed_at"] if inflow_obs else None
+            if inf_date is None or (ffd_date and ffd_date > inf_date):
+                features["level"] = float(discharge_obs["water_level_ft"])
+
+    # --- Fallback: if inflow still missing, use rolling median ---
+    if features["inflow"] is None:
+        median_inflow = get_rolling_median_inflow(asset_id, conn)
+        if median_inflow:
+            features["inflow"] = median_inflow
+            features["inflow_missing"] = 1
+            logger.warning(f"Asset {asset_id}: inflow missing, using rolling median {median_inflow:.0f}")
+        else:
+            features["inflow"] = 0.0
+            features["inflow_missing"] = 1
+            logger.error(f"Asset {asset_id}: no inflow data and no median available")
+
+    # --- Fallback: outflow missing ---
+    if features["outflow"] is None:
+        median_outflow = get_rolling_median_outflow(asset_id, conn)
+        if median_outflow:
+            features["outflow"] = median_outflow
+        else:
+            features["outflow"] = features["inflow"] * 0.95  # approximate
+
+    # --- Fallback: level missing ---
+    if features["level"] is None:
+        # Use discharge as rough proxy for level (not ideal but better than 0)
+        if features["discharge"]:
+            features["level"] = features["discharge"] / 1000.0  # rough approximation
+        else:
+            features["level"] = 0.0
+
+    # --- Fallback: discharge missing ---
+    if features["discharge"] is None:
+        if features["inflow"]:
+            features["discharge"] = features["inflow"] * 0.98  # approximate steady state
+        else:
+            features["discharge"] = 0.0
+
+    return features
 
 
 def get_asset_thresholds(asset_id: int, conn):
@@ -77,37 +209,35 @@ def predict_and_persist(asset_id: int, horizon: int, model_data: dict, conn):
     if not model or not scaler:
         return None
 
-    # Get latest observation as feature baseline
-    latest = get_latest_features(asset_id, conn)
-    if not latest:
-        logger.warning(f"No observations for asset {asset_id}")
+    # Get hybrid features (inflow-aware, with fallbacks)
+    features = get_hybrid_features(asset_id, conn)
+    if not features:
+        logger.warning(f"No features for asset {asset_id}")
         return None
 
     thresholds = get_asset_thresholds(asset_id, conn) or {}
-    # Convert Decimal to float
     if thresholds.get("warning_level_ft"):
         thresholds["warning_level_ft"] = float(thresholds["warning_level_ft"])
     if thresholds.get("critical_level_ft"):
         thresholds["critical_level_ft"] = float(thresholds["critical_level_ft"])
 
-    # Build a minimal feature vector from latest obs
-    # Use the feature names from the model to create a zero-filled vector
-    # then fill in what we know
-    features = {}
-    if latest.get("inflow_cusecs"):
-        features["inflow"] = latest["inflow_cusecs"]
-    if latest.get("outflow_cusecs"):
-        features["outflow"] = latest["outflow_cusecs"]
-    if latest.get("discharge_cusecs"):
-        features["discharge"] = latest["discharge_cusecs"]
-    if latest.get("water_level_ft"):
-        features["level"] = latest["water_level_ft"]
-
-    # Create feature vector (fill unknowns with 0)
+    # Build feature vector — fill model features from our hybrid features
     X = np.zeros((1, len(feature_names)))
+    filled = []
+    missing = []
+
     for i, fname in enumerate(feature_names):
-        if fname in features:
+        if fname in features and features[fname] is not None:
             X[0, i] = features[fname]
+            filled.append(fname)
+        elif fname == "inflow_missing":
+            X[0, i] = features.get("inflow_missing", 0)
+            filled.append(fname)
+        else:
+            missing.append(fname)
+
+    if missing:
+        logger.info(f"Asset {asset_id} horizon {horizon}d: missing features: {missing}")
 
     # Predict
     try:
@@ -189,7 +319,7 @@ def predict_and_persist(asset_id: int, horizon: int, model_data: dict, conn):
         "risk_cat": risk_category,
         "exceeds_warn": exceeds_warning,
         "exceeds_danger": exceeds_danger,
-        "model_ver": f"xgb-flood-v1.2",
+        "model_ver": "xgb-flood-v1.2",
         "model_type": "flood_predictor",
         "features": json.dumps(list(fi.keys())),
         "fi": json.dumps(fi),
@@ -204,6 +334,8 @@ def predict_and_persist(asset_id: int, horizon: int, model_data: dict, conn):
         "predicted_value": round(pred_value, 2),
         "risk_category": risk_category,
         "risk_score": risk_score,
+        "inflow_source": features.get("source_inflow", "UNKNOWN"),
+        "inflow_missing": features.get("inflow_missing", 0),
     }
 
 
