@@ -462,3 +462,17 @@ export interface PipelineHealth {
     ffd_hours: number | null
   }
 }
+
+// ─── Accuracy Timeline ─────────────────────────────────────────────────
+
+export interface AccuracyTimelinePoint {
+  date: string
+  predicted_value: number | null
+  actual_value: number | null
+  error: number | null
+  abs_error: number | null
+  pct_error: number | null
+  within_interval: boolean | null
+  direction_correct: boolean | null
+  model_version: string | null
+}

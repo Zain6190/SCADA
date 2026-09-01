@@ -3,7 +3,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Cpu, RefreshCw, AlertTriangle, FlaskConical, TrendingUp } from 'lucide-react'
+import Link from 'next/link'
+import { Cpu, RefreshCw, AlertTriangle, FlaskConical, TrendingUp, BarChart3 } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -191,6 +192,13 @@ function FloodPredictionsTab() {
           <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
           {trainMutation.isPending ? 'Training...' : 'Retrain Models'}
         </button>
+        <Link
+          href="/water/predictions/history"
+          className="flex items-center gap-1.5 rounded-lg bg-slate-700/50 px-3 py-1.5 text-xs font-medium text-slate-300 border border-slate-600/50 hover:bg-slate-600/50 transition"
+        >
+          <BarChart3 className="h-3.5 w-3.5" />
+          View History
+        </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

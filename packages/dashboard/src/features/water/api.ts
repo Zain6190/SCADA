@@ -351,4 +351,21 @@ export const waterApi = {
     const { data } = await waterClient.post('/ml/run-predictions')
     return data
   },
+
+  // ─── Accuracy Timeline ───────────────────────────────────────────────
+
+  getAccuracyTimeline: async (
+    assetId: number,
+    params: { horizon?: number; days?: number } = {}
+  ): Promise<any[]> => {
+    const { data } = await waterClient.get(`/accuracy/timeline/${assetId}`, {
+      params: { horizon: params.horizon ?? 7, days: params.days ?? 90 },
+    })
+    return data
+  },
+
+  getAccuracySummary: async (params: { asset_id?: number; horizon?: number } = {}): Promise<any[]> => {
+    const { data } = await waterClient.get('/accuracy/summary', { params })
+    return data
+  },
 }
