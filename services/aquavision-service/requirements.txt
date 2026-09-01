@@ -20,3 +20,4 @@ joblib
 imbalanced-learn
 beautifulsoup4
 requests
+pdfplumber

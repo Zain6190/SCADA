@@ -1,0 +1,78 @@
+{
+  "source": "HAI 23.05 (icsdataset/hai)",
+  "data_origin": "REAL",
+  "normal_profile_source": "hai-test1.csv (rows labelled normal)",
+  "clean_train_file": null,
+  "test_file": "hai-test1.csv",
+  "signal_classes": {
+    "discrete_DI_DO": 30,
+    "continuous_AI_AO": 56
+  },
+  "command_feedback_pairs": [
+    "P1_FCV01D->P1_FCV01Z",
+    "P1_FCV02D->P1_FCV02Z",
+    "P1_FCV03D->P1_FCV03Z",
+    "P1_LCV01D->P1_LCV01Z",
+    "P1_PCV01D->P1_PCV01Z",
+    "P1_PCV02D->P1_PCV02Z",
+    "P1_PP01AD->P1_PP01AR",
+    "P1_PP01BD->P1_PP01BR",
+    "P1_PP02D->P1_PP02R"
+  ],
+  "divergence_model": {
+    "pairs": 9,
+    "tags": [
+      "P1_FCV01D",
+      "P1_FCV02D",
+      "P1_FCV03D",
+      "P1_LCV01D",
+      "P1_PCV01D",
+      "P1_PCV02D",
+      "P1_PP01AD",
+      "P1_PP01BD",
+      "P1_PP02D"
+    ]
+  },
+  "state_model": {
+    "discrete_tags": 30,
+    "distinct_states": 6,
+    "transitions": 14
+  },
+  "unsupervised_vs_labels": {
+    "divergence": {
+      "flagged": 148,
+      "precision": 0.8041,
+      "recall": 0.0399,
+      "f1": 0.0761
+    },
+    "state_machine": {
+      "flagged": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    }
+  },
+  "attack_detector": {
+    "n_train": 32400,
+    "n_test": 21600,
+    "attack_seconds_train": 1952,
+    "attack_seconds_test": 1029,
+    "attack_rate_test": 0.04764,
+    "precision": 0.2964,
+    "recall": 0.0807,
+    "f1": 0.1268,
+    "roc_auc": 0.7568,
+    "threshold": 0.3439,
+    "avg_precision": 0.234,
+    "confusion_matrix": [
+      [
+        20374,
+        197
+      ],
+      [
+        946,
+        83
+      ]
+    ]
+  }
+}

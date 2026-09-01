@@ -18,6 +18,10 @@ set "BACKEND_PORT=8100"
 set "FRONTEND_PORT=3000"
 set "BACKEND_HOST=127.0.0.1"
 set "PYTHON_CMD=python"
+REM Prefer the project virtualenv if it exists (created by: python -m venv .venv)
+if exist "%BACKEND_DIR%\.venv\Scripts\python.exe" set "PYTHON_CMD=%BACKEND_DIR%\.venv\Scripts\python.exe"
+REM The app reads DATABASE_URL from the process environment (nothing loads .env)
+set "DATABASE_URL=postgresql://postgres:1234@localhost:5433/ibcp_scada"
 
 echo.
 echo ============================================================
@@ -54,13 +58,13 @@ if not exist "%BACKEND_DIR%\main.py" (
     echo
     goto :frontend
 )
-start "IBCP-SCADA-Backend" cmd /c "cd /d \"%BACKEND_DIR%\" && %PYTHON_CMD% -m uvicorn main:app --host %BACKEND_HOST% --port %BACKEND_PORT%" >nul 2>&1
+start "IBCP-SCADA-Backend" cmd /c "cd /d \"%BACKEND_DIR%\" && set DATABASE_URL=%DATABASE_URL% && \"%PYTHON_CMD%\" -m uvicorn main:app --host %BACKEND_HOST% --port %BACKEND_PORT%" >nul 2>&1
 
-echo   Waiting for backend at http://%BACKEND_HOST%:%BACKEND_PORT%/health ...
+echo   Waiting for backend at http://%BACKEND_HOST%:%BACKEND_PORT%/health/live ...
 set /a TIMEOUTS=0
 :backend-wait
 set /a TIMEOUTS+=1
-curl -s -o nul -w "%%{http_code}" "http://%BACKEND_HOST%:%BACKEND_PORT%/health" 2>nul | findstr "200" >nul 2>&1
+curl -s -o nul -w "%%{http_code}" "http://%BACKEND_HOST%:%BACKEND_PORT%/health/live" 2>nul | findstr "200" >nul 2>&1
 if not errorlevel 1 goto :backend-up
 if %TIMEOUTS% GTR 40 (
     echo   [x] Backend not ready after 40s. Check the backend window for errors.

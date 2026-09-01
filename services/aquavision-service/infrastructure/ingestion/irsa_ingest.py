@@ -78,6 +78,51 @@ def _obs_to_row(obs: IRSAObservation, asset_id: int, source_id: int, raw_record_
     }
 
 
+def _store_canal_withdrawals(db, obs, asset_id: int, source_id: int,
+                             raw_record_id: int) -> int:
+    """Persist canal offtakes parsed from one station block. Returns rows written.
+
+    Idempotent: the unique constraint on
+    (asset_id, canal_label, observed_at, source_id) makes a re-ingest a no-op
+    rather than a duplicate.
+    """
+    from sqlalchemy import text as _sql
+
+    if not getattr(obs, "canal_withdrawals", None):
+        return 0
+
+    observed_at = datetime.combine(obs.observed_at, datetime.min.time())
+    written = 0
+
+    for label, value in obs.canal_withdrawals.items():
+        if value is None:
+            continue
+        try:
+            result = db.execute(_sql("""
+                INSERT INTO aquavision.water_canal_observations
+                    (asset_id, source_id, canal_label, is_aggregate,
+                     observed_at, discharge_cusecs, raw_record_id)
+                VALUES
+                    (:asset_id, :source_id, :label, :is_aggregate,
+                     :observed_at, :discharge, :raw_record_id)
+                ON CONFLICT (asset_id, canal_label, observed_at, source_id)
+                DO NOTHING
+            """), {
+                "asset_id": asset_id,
+                "source_id": source_id,
+                "label": label,
+                "is_aggregate": label == "_total",
+                "observed_at": observed_at,
+                "discharge": value,
+                "raw_record_id": raw_record_id,
+            })
+            written += result.rowcount or 0
+        except Exception as exc:  # noqa: BLE001 - a canal must not abort the ingest
+            logger.warning("Canal %s at asset %s not stored: %s", label, asset_id, exc)
+
+    return written
+
+
 def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> dict:
     """Full pipeline: parse PDF → archive raw → store observations.
 
@@ -112,6 +157,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 "date": str(target_date),
                 "parsed": len(observations),
                 "stored": 0,
+                "canals_stored": 0,
                 "skipped": len(observations),
                 "invalid": 0,
                 "raw_record_id": existing_raw.id,
@@ -126,7 +172,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 file_name=f"IRSA_Daily_{target_date.strftime('%d-%m-%Y')}.pdf",
                 content_hash=content_hash,
                 raw_content=raw_bytes,
-                parser_version="irsa_scraper_v1.0",
+                parser_version="irsa_scraper_v1.1_columns",
                 record_count=len(observations),
             )
             db.add(raw_record)
@@ -135,6 +181,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
 
         # 5. Store observations with validation
         stored = 0
+        canals_stored = 0
         skipped = 0
         invalid = 0
         for obs in observations:
@@ -178,7 +225,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 quarantine = build_quarantine_record(
                     row, asset_id, validation,
                     source_record_id=raw_record_id,
-                    parser_version="irsa_scraper_v1.0",
+                    parser_version="irsa_scraper_v1.1_columns",
                 )
                 if quarantine:
                     db.add(WaterObservationQuarantine(
@@ -211,6 +258,14 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 db.add(WaterObservation(**row))
                 stored += 1
 
+            # Module 6.4: persist canal offtakes measured at this structure.
+            # Written regardless of the parent observation's validity - a canal
+            # reading stands on its own, and a zero-flow canal is exactly the
+            # signal the condition layer exists to surface.
+            canals_stored += _store_canal_withdrawals(
+                db, obs, asset_id, source.id, raw_record_id
+            )
+
         db.commit()
 
     # 6. Run threshold engine (outside main transaction)
@@ -226,6 +281,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
         "date": str(target_date),
         "parsed": len(observations),
         "stored": stored,
+        "canals_stored": canals_stored,
         "skipped": skipped,
         "invalid": invalid,
         "raw_record_id": raw_record_id,

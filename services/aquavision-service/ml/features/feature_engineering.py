@@ -218,7 +218,14 @@ class FloodFeatureBuilder:
             WaterObservation.observed_at <= end_date,
         )
         if real_only:
-            q = q.where(WaterObservation.data_status != "SYNTHETIC_HISTORICAL")
+            # data_origin is the canonical REAL/SYNTHETIC marker; filtering on a
+            # single data_status value let other synthetic sources through -
+            # historical_backfill writes SYNTHETIC_HISTORICAL, but the sensor
+            # replay adapters write SIMULATED, and both must be excluded.
+            q = q.where(
+                WaterObservation.data_origin == "REAL",
+                WaterObservation.data_status != "SYNTHETIC_HISTORICAL",
+            )
         
         rows = self.session.execute(q.order_by(WaterObservation.observed_at)).scalars().all()
         

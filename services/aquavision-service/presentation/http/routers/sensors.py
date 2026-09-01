@@ -31,12 +31,19 @@ class SensorReading(BaseModel):
     discharge_cusecs: Optional[float] = Field(None, description="Discharge in cusecs")
     sensor_id: Optional[str] = Field(None, description="Unique sensor identifier")
     quality: Optional[str] = Field("VALID", description="Data quality: VALID, SUSPECT, STALE")
+    origin: Optional[str] = Field(
+        "REAL", description="Provenance: REAL (measured on this asset) | SYNTHETIC (replayed/proxied)"
+    )
+    status: Optional[str] = Field(
+        "OBSERVED_TELEMETRY",
+        description="data_status: OBSERVED_TELEMETRY | SIMULATED | SYNTHETIC_HISTORICAL",
+    )
 
 
 class SensorBatchRequest(BaseModel):
     """Batch of sensor readings."""
     readings: List[SensorReading] = Field(..., min_length=1, max_length=100)
-    source: str = Field("SENSOR_API", description="Source identifier")
+    source: str = Field("SENSOR_API", description="Source identifier (must be a registered authority)")
     api_key: Optional[str] = Field(None, description="API key for authentication")
 
 
@@ -46,6 +53,60 @@ class SensorBatchResponse(BaseModel):
     rejected: int
     errors: List[str]
     observation_ids: List[int]
+
+
+# ─── Provenance ────────────────────────────────────────────────────────────
+
+# Sensor-class observations rank BEHIND the official record. The ordering is
+# defined in alembic/versions/014_create_source_aware_views.sql:
+#     IRSA=1 > FFD/PMD=2 > KAGGLE=3 > SENSOR_API=4 > GEE=5
+# v_best_observations resolves ties with `observed_at DESC`, so anything sharing
+# IRSA's priority 1 silently displaces the official value for that asset/day.
+SENSOR_SOURCE_PRIORITY = 4
+
+VALID_ORIGINS = {"REAL", "SYNTHETIC"}
+VALID_STATUSES = {"OBSERVED_TELEMETRY", "SIMULATED", "SYNTHETIC_HISTORICAL"}
+
+# Authorities this endpoint may write under, with the metadata used if the row
+# does not exist yet. Keeping replay feeds on their own authority means
+# v_source_coverage reports each one independently.
+SENSOR_AUTHORITIES = {
+    "SENSOR_API": {
+        "source_url": "sensor-api",
+        "source_type": "REALTIME_SENSOR",
+        "update_frequency": "REALTIME",
+        "description": "Real-time sensor data ingestion API",
+    },
+    "SENSOR_REPLAY": {
+        "source_url": "https://www.batadal.net/data.html",
+        "source_type": "CSV_REPLAY",
+        "update_frequency": "HOURLY",
+        "description": "Replayed SCADA telemetry (BATADAL C-Town) - simulated signals",
+    },
+    "USGS_NWIS": {
+        "source_url": "https://waterservices.usgs.gov/nwis/iv/",
+        "source_type": "API",
+        "update_frequency": "REALTIME",
+        "description": "USGS NWIS instantaneous values - proxy gauge telemetry",
+    },
+}
+
+
+def _resolve_source(db: Session, authority: str) -> WaterSource:
+    """Look up the requested authority, creating it from the registry if absent."""
+    if authority not in SENSOR_AUTHORITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown source '{authority}'. Expected one of: {sorted(SENSOR_AUTHORITIES)}",
+        )
+    source = db.execute(
+        select(WaterSource).where(WaterSource.authority == authority)
+    ).scalar_one_or_none()
+    if not source:
+        source = WaterSource(authority=authority, **SENSOR_AUTHORITIES[authority])
+        db.add(source)
+        db.flush()
+    return source
 
 
 # ─── API Key Validation ────────────────────────────────────────────────────
@@ -82,20 +143,8 @@ async def ingest_sensor_readings(
     if not _validate_api_key(request.api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    # Get or create SENSOR_API source
-    source = db.execute(
-        select(WaterSource).where(WaterSource.authority == "SENSOR_API")
-    ).scalar_one_or_none()
-    if not source:
-        source = WaterSource(
-            authority="SENSOR_API",
-            source_url="sensor-api",
-            source_type="REALTIME_SENSOR",
-            update_frequency="REALTIME",
-            description="Real-time sensor data ingestion API",
-        )
-        db.add(source)
-        db.flush()
+    # Resolve the declared authority (SENSOR_API, SENSOR_REPLAY, USGS_NWIS)
+    source = _resolve_source(db, request.source)
 
     accepted = 0
     rejected = 0
@@ -134,6 +183,20 @@ async def ingest_sensor_readings(
                 rejected += 1
                 continue
 
+            # Validate provenance markers - an unrecognised value must not be
+            # written through, or replayed rows become indistinguishable from real ones.
+            origin = reading.origin or "REAL"
+            if origin not in VALID_ORIGINS:
+                errors.append(f"Invalid origin '{origin}' for asset {reading.asset_id}")
+                rejected += 1
+                continue
+
+            status = reading.status or "OBSERVED_TELEMETRY"
+            if status not in VALID_STATUSES:
+                errors.append(f"Invalid status '{status}' for asset {reading.asset_id}")
+                rejected += 1
+                continue
+
             # Check for duplicate (same asset + timestamp + source)
             existing = db.execute(
                 select(WaterObservation).where(
@@ -157,14 +220,14 @@ async def ingest_sensor_readings(
                 inflow_cusecs=reading.inflow_cusecs,
                 outflow_cusecs=reading.outflow_cusecs,
                 discharge_cusecs=reading.discharge_cusecs,
-                data_status="OBSERVED_TELEMETRY",
-                data_origin="REAL",
+                data_status=status,
+                data_origin=origin,
                 quality_status=reading.quality or "VALID",
-                quality_flag=f"SENSOR_{reading.sensor_id}" if reading.sensor_id else "SENSOR_API",
-                source_authority="SENSOR_API",
+                quality_flag=f"SENSOR_{reading.sensor_id}" if reading.sensor_id else source.authority,
+                source_authority=source.authority,
                 source_publication_time=datetime.now(timezone.utc),
-                source_parser_version="sensor_api_v1.0",
-                source_priority=1,
+                source_parser_version="sensor_api_v1.1",
+                source_priority=SENSOR_SOURCE_PRIORITY,
                 notes=f"sensor_id={reading.sensor_id}" if reading.sensor_id else None,
             )
             db.add(obs)
@@ -219,35 +282,55 @@ async def list_sensor_assets(db: Session = Depends(get_session)):
 
 @router.get("/status")
 async def sensor_api_status(db: Session = Depends(get_session)):
-    """Get sensor API status and statistics."""
+    """Get sensor ingestion status and per-authority statistics.
+
+    Reports each sensor-class authority separately so a replay feed can never be
+    mistaken for live telemetry in the totals.
+    """
     from sqlalchemy import func
 
-    # Count observations from SENSOR_API source
-    source = db.execute(
-        select(WaterSource).where(WaterSource.authority == "SENSOR_API")
-    ).scalar_one_or_none()
+    sources = db.execute(
+        select(WaterSource).where(WaterSource.authority.in_(SENSOR_AUTHORITIES.keys()))
+    ).scalars().all()
 
-    if not source:
+    if not sources:
         return {
             "status": "NO_SOURCE",
             "total_readings": 0,
             "latest_reading": None,
+            "feeds": [],
         }
 
-    total = db.execute(
-        select(func.count(WaterObservation.id)).where(
-            WaterObservation.source_id == source.id
-        )
-    ).scalar()
+    feeds = []
+    total_readings = 0
+    latest_overall = None
 
-    latest = db.execute(
-        select(WaterObservation.observed_at).where(
-            WaterObservation.source_id == source.id
-        ).order_by(WaterObservation.observed_at.desc()).limit(1)
-    ).scalar_one_or_none()
+    for source in sources:
+        rows = db.execute(
+            select(
+                func.count(WaterObservation.id),
+                func.max(WaterObservation.observed_at),
+                WaterObservation.data_origin,
+            )
+            .where(WaterObservation.source_id == source.id)
+            .group_by(WaterObservation.data_origin)
+        ).all()
+
+        for count, latest, origin in rows:
+            total_readings += count
+            if latest and (latest_overall is None or latest > latest_overall):
+                latest_overall = latest
+            feeds.append({
+                "source": source.authority,
+                "origin": origin,
+                "readings": count,
+                "latest_reading": str(latest) if latest else None,
+            })
 
     return {
         "status": "OPERATIONAL",
-        "total_readings": total,
-        "latest_reading": str(latest) if latest else None,
+        "total_readings": total_readings,
+        "latest_reading": str(latest_overall) if latest_overall else None,
+        "source_priority": SENSOR_SOURCE_PRIORITY,
+        "feeds": feeds,
     }

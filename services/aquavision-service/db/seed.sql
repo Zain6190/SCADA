@@ -2,6 +2,26 @@
 -- Run after Alembic migrations: docker compose exec db psql -U postgres -d ibcp_scada -f /docker-entrypoint-initdb.d/seed.sql
 
 -- =====================================================
+-- WATER SOURCES (data authorities)
+-- Priority ordering is enforced in water_observations.source_priority:
+--   IRSA=1 > FFD/PMD=2 > KAGGLE=3 > SENSOR_API/SENSOR_REPLAY/USGS_NWIS=4 > GEE=5
+-- See alembic/versions/014_create_source_aware_views.sql
+-- =====================================================
+INSERT INTO aquavision.water_sources (authority, source_url, source_type, update_frequency, description)
+VALUES
+('SENSOR_API', 'sensor-api', 'REALTIME_SENSOR', 'REALTIME',
+ 'Real-time sensor data ingestion API'),
+('SENSOR_REPLAY', 'https://www.batadal.net/data.html', 'CSV_REPLAY', 'HOURLY',
+ 'Replayed SCADA telemetry (BATADAL C-Town) - simulated signals, data_origin=SYNTHETIC'),
+('USGS_NWIS', 'https://waterservices.usgs.gov/nwis/iv/', 'API', 'REALTIME',
+ 'USGS NWIS instantaneous values - proxy gauge telemetry, data_origin=SYNTHETIC')
+ON CONFLICT (authority) DO UPDATE SET
+  source_url = EXCLUDED.source_url,
+  source_type = EXCLUDED.source_type,
+  update_frequency = EXCLUDED.update_frequency,
+  description = EXCLUDED.description;
+
+-- =====================================================
 -- WATER ASSETS (11 monitoring stations)
 -- =====================================================
 INSERT INTO aquavision.water_assets (id, canonical_name, asset_type, river, province, district, latitude, longitude, capacity_maf, normal_level_ft, dead_level_ft, warning_level_ft, critical_level_ft, source_authority, source_identifier, is_active)

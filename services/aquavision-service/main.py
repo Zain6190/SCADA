@@ -158,6 +158,7 @@ async def log_requests(request: Request, call_next):
 # ─── Routers ───────────────────────────────────────────────────────────────
 from presentation.http.routers import (  # noqa: E402
     auth,
+    channels,
     health,
     impact,
     indicators,
@@ -192,6 +193,7 @@ app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(stress_alerts_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(channels.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(prediction_pipeline_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_api_router, prefix=WATER_PREFIX, tags=TAG)
 

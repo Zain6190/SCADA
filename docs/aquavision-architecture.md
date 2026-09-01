@@ -22,6 +22,61 @@
 - PLCs, RTUs, Gate Controllers, Pump Controllers, Actuators
 - **All out of scope** — external systems
 
+### RTU vs PLC
+
+| | PLC | RTU |
+|---|---|---|
+| Purpose | Local **control** | Remote **telemetry** |
+| Location | Manned facility, panel | Unmanned field site |
+| Scan rate | 10–100 ms | 1–60 min |
+| Power | Mains | Solar / battery |
+| Comms | Wired, reliable | Radio / cellular, intermittent |
+| Buffering | Minimal | **Store-and-forward** (essential) |
+| Protocol | Modbus TCP, EtherNet/IP | DNP3, IEC 60870-5-104 |
+| In this system | Barrage gate control (Sukkur, Guddu, Taunsa) | River gauges (Kabul @ Nowshera, Chenab @ Marala) |
+
+### Signal classes and where they land
+
+Every field tag belongs to one of four classes. **AquaVision consumes AI and DI only** —
+AO and DO are commands, and they stay in the utility's SCADA. This is an architectural
+choice, not an omission.
+
+| Class | Meaning | Signal | Column | Cadence |
+|---|---|---|---|---|
+| **AI** | Analog input — continuous measurement (4–20 mA) | Reservoir / gauge level | `water_level_ft` | 15 min |
+| **AI** | | Inflow (rating curve) | `inflow_cusecs` | 1 h |
+| **AI** | | Outflow (gate position + rating) | `outflow_cusecs` | 1 h |
+| **AI** | | River discharge | `discharge_cusecs` | 15 min |
+| **DI** | Discrete input — on/off status (dry contact) | Gate limit switch, pump running, power fail | *not modelled* | On change |
+| **AO** | Analog output — continuous command | Gate opening setpoint, VFD speed | **out of scope** | — |
+| **DO** | Discrete output — on/off command | Start pump, open gate, siren | **out of scope** | — |
+
+A real SCADA tag is never a bare number — it is a triple of **value, timestamp, quality**.
+AquaVision models all three: the value columns above, `observed_at`, and
+`quality_status` (`VALID | PARTIAL | SUSPECT | STALE | INVALID | MISSING`).
+
+### Telemetry-class ingestion
+
+`POST /water/sensors/ingest` accepts AI readings from three registered authorities.
+All three write at `source_priority=4`, behind IRSA (1) and FFD/PMD (2), so telemetry
+can never displace the official record in `v_best_observations`.
+
+| Authority | Feed | `data_origin` | Adapter |
+|---|---|---|---|
+| `SENSOR_API` | Live devices (future OT) | `REAL` | — direct POST |
+| `SENSOR_REPLAY` | BATADAL C-Town SCADA | `SYNTHETIC` | `infrastructure/ingestion/sensor_replay.py` |
+| `USGS_NWIS` | USGS instantaneous values | `SYNTHETIC` | `infrastructure/ingestion/usgs_nwis.py` |
+
+Both replay adapters exist because IRSA and FFD/PMD publish **daily**, while several
+threshold rules are written for sub-daily data. `_eval_rate_of_change` looks back 6
+hours; with daily-only data that lookback resolves to the previous day's reading, so a
+~24 h change is compared against a 6 h threshold and reported as "in 6h". Hourly or
+15-minute telemetry is what makes `RAPID_RISE` behave as designed.
+
+Replayed rows are **simulated signals, not Pakistani hydrology**. They validate the
+ingestion path, threshold engine and alerting chain end to end at realistic cadence.
+They do not validate any model against real basin behaviour.
+
 ## Level 2 — SCADA Operations
 - SCADA Servers, HMI Workstations, SCADA Alarm Server, Engineering Workstation
 - **All external** — AquaVision receives data, does not control
