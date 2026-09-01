@@ -549,3 +549,84 @@ async def get_prediction_logs(limit: int = Query(20, ge=1, le=100)):
         """), {"limit": limit}).mappings().all()
 
     return {"count": len(rows), "logs": [dict(r) for r in rows]}
+
+
+# ── PSI Feature Drift ──────────────────────────────────────────────────────
+
+@router.get("/feature-drift")
+async def get_feature_drift(
+    asset_id: Optional[int] = Query(None),
+    drift_status: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Get PSI feature drift results."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    query = """
+        SELECT fd.id, fd.asset_id, fd.feature_name, fd.psi, fd.ks_statistic,
+               fd.mean_current, fd.mean_baseline, fd.std_current, fd.std_baseline,
+               fd.drift_status, fd.evaluation_window,
+               fd.computed_at::text as computed_at,
+               wa.canonical_name as asset_name
+        FROM aquavision.feature_drift fd
+        LEFT JOIN aquavision.water_assets wa ON wa.id = fd.asset_id
+        WHERE 1=1
+    """
+    params = {}
+
+    if asset_id is not None:
+        query += " AND fd.asset_id = :asset_id"
+        params["asset_id"] = asset_id
+    if drift_status:
+        query += " AND fd.drift_status = :drift_status"
+        params["drift_status"] = drift_status
+
+    query += " ORDER BY fd.computed_at DESC, fd.psi DESC LIMIT :limit"
+    params["limit"] = limit
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).mappings().all()
+
+    return {"count": len(rows), "features": [dict(r) for r in rows]}
+
+
+@router.get("/feature-drift/summary")
+async def get_feature_drift_summary():
+    """Get PSI drift summary: how many features are STABLE/MODERATE/SIGNIFICANT per asset."""
+    from infrastructure.db.engine import engine
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT fd.asset_id, wa.canonical_name,
+                   COUNT(*) as total_features,
+                   COUNT(*) FILTER (WHERE fd.drift_status = 'STABLE') as stable,
+                   COUNT(*) FILTER (WHERE fd.drift_status = 'MODERATE') as moderate,
+                   COUNT(*) FILTER (WHERE fd.drift_status = 'SIGNIFICANT') as significant,
+                   AVG(fd.psi) as avg_psi,
+                   MAX(fd.computed_at)::text as last_computed
+            FROM aquavision.feature_drift fd
+            LEFT JOIN aquavision.water_assets wa ON wa.id = fd.asset_id
+            GROUP BY fd.asset_id, wa.canonical_name
+            ORDER BY significant DESC, moderate DESC
+        """)).mappings().all()
+
+    return {"assets": [dict(r) for r in rows]}
+
+
+@router.post("/feature-drift/detect")
+async def trigger_psi_drift_detection(background_tasks: BackgroundTasks):
+    """Trigger PSI drift detection for all assets."""
+    def _run():
+        try:
+            subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; sys.path.insert(0,'/app'); from scripts.detect_drift_psi import main; main()"],
+                capture_output=True, text=True, timeout=600, cwd="/app"
+            )
+        except Exception as e:
+            logger.error(f"PSI drift detection failed: {e}")
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "PSI drift detection started in background"}
