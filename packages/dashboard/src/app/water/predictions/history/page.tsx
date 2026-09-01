@@ -36,7 +36,7 @@ export default function PredictionHistoryPage() {
       <PageHeader
         title="Prediction History"
         subtitle="How past predictions compared to actual outcomes"
-        icon={LineChart}
+        icon={<LineChart className="h-6 w-6" />}
       />
 
       <div className="space-y-4">
