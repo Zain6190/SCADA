@@ -174,6 +174,7 @@ from ml.prediction_api import router as ml_router
 from presentation.http.routers.prediction_pipeline import router as prediction_pipeline_router
 from presentation.http.routers.stress_alerts import router as stress_alerts_router
 from presentation.http.routers.ml_api import router as ml_api_router
+from presentation.http.routers.accuracy import router as accuracy_router
 
 WATER_PREFIX = "/water"
 TAG = ["AquaVision"]
@@ -194,6 +195,7 @@ app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(prediction_pipeline_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_api_router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(accuracy_router, prefix=WATER_PREFIX, tags=TAG)
 
 
 @app.get("/")

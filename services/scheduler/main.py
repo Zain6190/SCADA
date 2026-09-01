@@ -386,6 +386,37 @@ def job_persist_predictions():
             release_pipeline_lock(session, pipeline_type)
 
 
+def job_compute_accuracy():
+    """Match expired predictions to observations, compute accuracy metrics (daily 03:00 UTC)."""
+    pipeline_type = "COMPUTE_ACCURACY"
+
+    with get_db_session() as session:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(session, pipeline_type)
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; sys.path.insert(0,'/app'); from scripts.compute_accuracy import compute_accuracy; compute_accuracy()"],
+                capture_output=True, text=True, timeout=300, cwd="/app"
+            )
+            if result.returncode == 0:
+                complete_pipeline_run(session, run_id, "SUCCESS")
+                logger.info("Accuracy computation completed successfully")
+            else:
+                complete_pipeline_run(session, run_id, "FAILED", result.stderr[-500:] if result.stderr else "unknown error")
+                logger.error(f"Accuracy computation failed: {result.stderr[-500:]}")
+        except Exception as e:
+            complete_pipeline_run(session, run_id, "FAILED", str(e))
+            logger.exception(f"Accuracy computation error: {e}")
+        finally:
+            release_pipeline_lock(session, pipeline_type)
+
+
 if __name__ == "__main__":
     # Schedule: daily at 06:30 PKT (01:30 UTC)
     schedule.every().day.at("01:30").do(job_ingest_irsa)
@@ -407,6 +438,9 @@ if __name__ == "__main__":
 
     # Persist predictions: daily at 02:30 UTC (07:30 PKT) — after drift detection
     schedule.every().day.at("02:30").do(job_persist_predictions)
+
+    # Compute accuracy: daily at 03:00 UTC (08:00 PKT) — after predictions are written
+    schedule.every().day.at("03:00").do(job_compute_accuracy)
 
     # WAI pipeline: weekly on Sunday at 04:00 UTC (09:00 PKT) — after ML retrain
     schedule.every().sunday.at("04:00").do(job_run_wai_pipeline)
