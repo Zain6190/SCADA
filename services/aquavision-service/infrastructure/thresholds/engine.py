@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
-from sqlalchemy import select, and_, desc, func
+from sqlalchemy import select, and_, desc, func, text
 from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import SessionLocal
@@ -1060,6 +1060,26 @@ def check_prediction_alerts(db: Session, asset_id: int) -> List[WaterOperational
         if not result:
             return []
         
+        # Only check level thresholds if model predicts level (not inflow/discharge)
+        has_inflow_count = db.execute(
+            text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
+            {"aid": asset_id},
+        ).scalar()
+        total_count = db.execute(
+            text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
+            {"aid": asset_id},
+        ).scalar()
+        has_discharge_count = db.execute(
+            text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND discharge_cusecs IS NOT NULL"),
+            {"aid": asset_id},
+        ).scalar()
+        
+        # If model predicts inflow or discharge (not level), skip level threshold check
+        if has_inflow_count > total_count * 0.3:
+            return []  # Inflow model — no level thresholds to check
+        if has_discharge_count > total_count * 0.3 and has_inflow_count <= total_count * 0.3:
+            return []  # Discharge model — no level thresholds to check
+        
         predicted_level = result.predicted_level_ft
         if predicted_level is None:
             return []
@@ -1185,6 +1205,28 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                 if len(X) == 0:
                     continue
                 
+                # Detect target field for this asset (same logic as retrain)
+                has_inflow_count = db.execute(
+                    text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
+                    {"aid": asset.id},
+                ).scalar()
+                total_count = db.execute(
+                    text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
+                    {"aid": asset.id},
+                ).scalar()
+                # "inflow" if asset has inflow data (Tarbela, Mangla)
+                # "discharge" if no inflow but has discharge (Kabul, Chenab)
+                # "level" as fallback
+                if has_inflow_count > total_count * 0.3:
+                    target_field = "inflow"
+                elif db.execute(
+                    text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND discharge_cusecs IS NOT NULL"),
+                    {"aid": asset.id},
+                ).scalar() > total_count * 0.3:
+                    target_field = "discharge"
+                else:
+                    target_field = "level"
+
                 for horizon in [7, 14, 30]:
                     key = f"{asset.id}_{horizon}"
                     model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{key}.joblib"
@@ -1209,12 +1251,14 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                     if not result:
                         continue
                     
-                    # Store prediction
+                    # Store prediction in correct column based on what model predicts
+                    predicted_value = result.predicted_level_ft
                     store_prediction(
                         db=db,
                         asset_id=asset.id,
-                        predicted_level_ft=result.predicted_level_ft,
-                        predicted_inflow=result.predicted_inflow,
+                        predicted_level_ft=predicted_value if target_field == "level" else None,
+                        predicted_inflow=predicted_value if target_field == "inflow" else None,
+                        predicted_discharge=predicted_value if target_field == "discharge" else None,
                         predicted_outflow=result.predicted_outflow,
                         confidence=100.0 - result.risk_score,
                         model_version=f"xgb_{asset.id}_{horizon}d",

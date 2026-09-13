@@ -119,29 +119,18 @@ class FloodFeatureBuilder:
                 median = np.nanmedian(col_vals)
                 X[nan_mask, col] = median if not np.isnan(median) else 0.0
         
-        # Add inflow_missing flag (1.0 when inflow features are zero)
-        inflow_cols = [i for i, name in enumerate(feature_names) if "inflow" in name]
-        if inflow_cols:
-            inflow_missing = np.zeros(len(X), dtype=np.float32)
-            for row_idx in range(len(X)):
-                if any(X[row_idx, c] == 0.0 for c in inflow_cols):
-                    inflow_missing[row_idx] = 1.0
-            X = np.column_stack([X, inflow_missing])
-            feature_names = feature_names + ["inflow_missing"]
-        
         # Randomly mask inflow for 15% of training samples (so model learns to handle missing inflow)
+        inflow_cols = [i for i, name in enumerate(feature_names) if "inflow" in name]
         if inflow_cols:
             n_mask = int(len(X) * 0.15)
             mask_idx = np.random.choice(len(X), size=n_mask, replace=False)
             for row_idx in mask_idx:
                 for c in inflow_cols:
                     X[row_idx, c] = 0.0
-                # Also mask inflow lag features
+                # Also mask inflow lag/roll/roc features
                 for fi, fname in enumerate(feature_names):
                     if "inflow_lag" in fname or "inflow_roll" in fname or "inflow_roc" in fname:
                         X[row_idx, fi] = 0.0
-                # Set inflow_missing flag
-                X[row_idx, -1] = 1.0
         
         real_count = int(np.sum(w == 1.0))
         synth_count = int(np.sum(w < 1.0))
@@ -175,13 +164,6 @@ class FloodFeatureBuilder:
         feature_names = list(features.keys())
         X = np.array([[features[k] for k in feature_names]], dtype=np.float32)
         X = np.nan_to_num(X, nan=0.0)
-        
-        # Add inflow_missing flag (matching training)
-        inflow_cols = [i for i, name in enumerate(feature_names) if "inflow" in name]
-        if inflow_cols:
-            inflow_missing = 1.0 if any(X[0, c] == 0.0 for c in inflow_cols) else 0.0
-            X = np.column_stack([X, [[inflow_missing]]])
-            feature_names = feature_names + ["inflow_missing"]
         
         return X, feature_names
     
