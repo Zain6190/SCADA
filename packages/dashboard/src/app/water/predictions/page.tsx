@@ -3,7 +3,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Cpu, RefreshCw, AlertTriangle, FlaskConical, TrendingUp } from 'lucide-react'
+import { Cpu, RefreshCw, AlertTriangle, FlaskConical, TrendingUp, Activity } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -203,6 +203,10 @@ function PredictionCard({
 
   const pred = data?.[0]
   const assetMeta = metadata?.assets?.[String(assetId)]
+  const targetField = pred?.target_field ?? 'level'
+  const dotColor = targetField === 'level'
+    ? (RISK_DOT[pred?.risk_level] ?? 'bg-slate-500')
+    : 'bg-emerald-500'
 
   return (
     <Card>
@@ -214,7 +218,7 @@ function PredictionCard({
           }
           icon={
             pred ? (
-              <div className={`h-3 w-3 rounded-full ${RISK_DOT[pred.risk_level] ?? 'bg-slate-500'}`} />
+              <div className={`h-3 w-3 rounded-full ${dotColor}`} />
             ) : (
               <Cpu className="h-5 w-5 text-slate-500" />
             )
@@ -249,13 +253,26 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
 
+  const targetField = pred.target_field ?? 'level'
+  const predictedValue = targetField === 'inflow'
+    ? pred.predicted_inflow
+    : targetField === 'discharge'
+    ? pred.predicted_discharge
+    : pred.predicted_level_ft
+  const valueLabel = targetField === 'inflow'
+    ? 'Predicted Inflow (cusecs)'
+    : targetField === 'discharge'
+    ? 'Predicted Discharge (cusecs)'
+    : 'Predicted Level (ft)'
+  const unit = targetField === 'level' ? 'ft' : 'cusecs'
+
   return (
     <div className="space-y-3 text-xs">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <div className="text-slate-500">Predicted Value</div>
+          <div className="text-slate-500">{valueLabel}</div>
           <div className="text-lg font-bold text-slate-100">
-            {pred.predicted_level_ft != null ? pred.predicted_level_ft.toLocaleString() : '—'}
+            {predictedValue != null ? predictedValue.toLocaleString() : '—'}
           </div>
         </div>
         <div>
@@ -266,35 +283,59 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
             {pred.upper_bound != null ? pred.upper_bound.toLocaleString() : '—'}
           </div>
         </div>
-        <div>
-          <div className="text-slate-500">Risk Score</div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-100">{pred.risk_score}/100</span>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${RISK_COLORS[pred.risk_level] ?? ''}`}>
-              {pred.risk_level}
-            </span>
-          </div>
-        </div>
-        <div>
-          <div className="text-slate-500">Status</div>
-          <Badge tone="amber">
-            <FlaskConical className="mr-1 inline h-3 w-3" />
-            {pred.model_status}
-          </Badge>
-        </div>
+        {targetField === 'level' ? (
+          <>
+            <div>
+              <div className="text-slate-500">Risk Score</div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-100">{pred.risk_score}/100</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${RISK_COLORS[pred.risk_level] ?? ''}`}>
+                  {pred.risk_level}
+                </span>
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500">Status</div>
+              <Badge tone="amber">
+                <FlaskConical className="mr-1 inline h-3 w-3" />
+                {pred.model_status}
+              </Badge>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <div className="text-slate-500">Model Type</div>
+              <div className="font-medium text-slate-300 capitalize">{targetField} Prediction</div>
+            </div>
+            <div>
+              <div className="text-slate-500">Status</div>
+              <Badge tone="amber">
+                <FlaskConical className="mr-1 inline h-3 w-3" />
+                {pred.model_status}
+              </Badge>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex gap-2">
-        {pred.exceeds_warning && (
+        {targetField === 'level' && pred.exceeds_warning && (
           <Badge tone="amber">
             <AlertTriangle className="mr-1 inline h-3 w-3" />
             Exceeds Warning
           </Badge>
         )}
-        {pred.exceeds_danger && (
+        {targetField === 'level' && pred.exceeds_danger && (
           <Badge tone="red">
             <AlertTriangle className="mr-1 inline h-3 w-3" />
             Exceeds Danger
+          </Badge>
+        )}
+        {targetField !== 'level' && (
+          <Badge tone="emerald">
+            <Activity className="mr-1 inline h-3 w-3" />
+            {targetField === 'inflow' ? 'Inflow Forecast' : 'Discharge Forecast'}
           </Badge>
         )}
       </div>

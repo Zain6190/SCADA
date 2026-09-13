@@ -50,6 +50,8 @@ class PredictionResponse(BaseModel):
     prediction_date: str
     horizon_days: int
     predicted_level_ft: Optional[float]
+    predicted_inflow: Optional[float] = None
+    predicted_discharge: Optional[float] = None
     lower_bound: Optional[float]
     upper_bound: Optional[float]
     risk_score: float
@@ -59,6 +61,7 @@ class PredictionResponse(BaseModel):
     model_version: str
     model_status: str
     feature_importance: dict
+    target_field: str = "level"  # "level", "inflow", or "discharge"
 
 
 class TrainRequest(BaseModel):
@@ -122,6 +125,35 @@ async def get_predictions(
         if X is None:
             return []
 
+        # Detect target field for this asset
+        from sqlalchemy import text
+        has_inflow = session.execute(
+            text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
+            {"aid": asset_id},
+        ).scalar()
+        total = session.execute(
+            text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
+            {"aid": asset_id},
+        ).scalar()
+        has_discharge = session.execute(
+            text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND discharge_cusecs IS NOT NULL"),
+            {"aid": asset_id},
+        ).scalar()
+
+        if has_inflow > total * 0.3:
+            target_field = "inflow"
+        elif has_discharge > total * 0.3:
+            target_field = "discharge"
+        else:
+            target_field = "level"
+
+        # For risk scoring: only use level thresholds if model predicts level
+        warn_level = None
+        danger_lvl = None
+        if target_field == "level":
+            warn_level = float(asset.warning_level_ft) if asset.warning_level_ft else None
+            danger_lvl = float(asset.critical_level_ft) if asset.critical_level_ft else None
+
         horizon_list = [int(h.strip()) for h in horizons.split(",")]
         predictions = []
 
@@ -132,16 +164,19 @@ async def get_predictions(
                 X=X,
                 feature_names=feature_names,
                 horizon=horizon,
-                warning_level=float(asset.warning_level_ft) if asset.warning_level_ft else None,
-                danger_level=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+                warning_level=warn_level,
+                danger_level=danger_lvl,
             )
             if pred:
+                predicted_value = pred.predicted_level_ft
                 predictions.append(PredictionResponse(
                     asset_id=pred.asset_id,
                     asset_name=pred.asset_name,
                     prediction_date=pred.prediction_date,
                     horizon_days=pred.horizon_days,
-                    predicted_level_ft=pred.predicted_level_ft,
+                    predicted_level_ft=predicted_value if target_field == "level" else None,
+                    predicted_inflow=predicted_value if target_field == "inflow" else None,
+                    predicted_discharge=predicted_value if target_field == "discharge" else None,
                     lower_bound=pred.lower_bound,
                     upper_bound=pred.upper_bound,
                     risk_score=pred.risk_score,
@@ -151,6 +186,7 @@ async def get_predictions(
                     model_version=pred.model_version,
                     model_status=pred.model_status,
                     feature_importance=pred.feature_importance,
+                    target_field=target_field,
                 ))
 
         return predictions

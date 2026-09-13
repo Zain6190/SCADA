@@ -332,6 +332,8 @@ export interface MLPrediction {
   prediction_date: string
   horizon_days: number
   predicted_level_ft?: number | null
+  predicted_inflow?: number | null
+  predicted_discharge?: number | null
   lower_bound?: number | null
   upper_bound?: number | null
   risk_score: number
@@ -341,6 +343,7 @@ export interface MLPrediction {
   model_version: string
   model_status: string
   feature_importance: Record<string, number>
+  target_field?: string
 }
 
 export interface MLTrainResult {
