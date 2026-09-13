@@ -168,7 +168,16 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         
         db.commit()
     
-    # 4. Run threshold engine for FFD status
+    # 4. Backfill missing inflow using physics
+    try:
+        from scripts.backfill_inflow import backfill_all_assets
+        with SessionLocal() as db:
+            bf_result = backfill_all_assets(db)
+            logger.info(f"Inflow backfill: {bf_result.get('backfilled', 0)} estimated")
+    except Exception as e:
+        logger.warning(f"Inflow backfill failed (non-fatal): {e}")
+    
+    # 5. Run threshold engine for FFD status
     try:
         from infrastructure.thresholds.engine import evaluate_all_assets
         threshold_result = evaluate_all_assets()

@@ -324,6 +324,69 @@ def job_validate_all_models():
             release_pipeline_lock(session, pipeline_type)
 
 
+def job_backfill_inflow():
+    """Backfill missing inflow using physics after FFD ingestion."""
+    pipeline_type = "backfill_inflow"
+    session = get_db_session()
+    run_id = start_pipeline_run(session, pipeline_type)
+    try:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.info("Backfill already running, skipping")
+            return
+        from scripts.backfill_inflow import backfill_all_assets
+        result = backfill_all_assets(session)
+        complete_pipeline_run(session, run_id, "SUCCESS", f"Backfilled: {result}")
+        logger.info(f"Inflow backfill complete: {result}")
+    except Exception as e:
+        complete_pipeline_run(session, run_id, "FAILED", str(e))
+        logger.exception(f"Inflow backfill error: {e}")
+    finally:
+        release_pipeline_lock(session, pipeline_type)
+        session.close()
+
+
+def job_compute_accuracy():
+    """Compute prediction accuracy by matching expired predictions to observations."""
+    pipeline_type = "compute_accuracy"
+    session = get_db_session()
+    run_id = start_pipeline_run(session, pipeline_type)
+    try:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.info("Accuracy computation already running, skipping")
+            return
+        from scripts.compute_accuracy import compute_accuracy
+        result = compute_accuracy(session)
+        complete_pipeline_run(session, run_id, "SUCCESS", f"Accuracy: {result}")
+        logger.info(f"Accuracy computation complete: {result}")
+    except Exception as e:
+        complete_pipeline_run(session, run_id, "FAILED", str(e))
+        logger.exception(f"Accuracy computation error: {e}")
+    finally:
+        release_pipeline_lock(session, pipeline_type)
+        session.close()
+
+
+def job_run_predictions():
+    """Run prediction pipeline: predict → store → alert."""
+    pipeline_type = "prediction_pipeline"
+    session = get_db_session()
+    run_id = start_pipeline_run(session, pipeline_type)
+    try:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.info("Prediction pipeline already running, skipping")
+            return
+        from infrastructure.thresholds.engine import run_prediction_pipeline
+        result = run_prediction_pipeline(session)
+        complete_pipeline_run(session, run_id, "SUCCESS", f"Predictions: {result}")
+        logger.info(f"Prediction pipeline complete: {result}")
+    except Exception as e:
+        complete_pipeline_run(session, run_id, "FAILED", str(e))
+        logger.exception(f"Prediction pipeline error: {e}")
+    finally:
+        release_pipeline_lock(session, pipeline_type)
+        session.close()
+
+
 if __name__ == "__main__":
     # Schedule: daily at 06:30 PKT (01:30 UTC)
     schedule.every().day.at("01:30").do(job_ingest_irsa)
@@ -345,6 +408,15 @@ if __name__ == "__main__":
 
     # Weather forecasts: every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
     schedule.every(6).hours.do(job_refresh_weather)
+
+    # Backfill inflow after FFD ingestion (daily 02:00 UTC)
+    schedule.every().day.at("02:00").do(job_backfill_inflow)
+
+    # Compute prediction accuracy daily (03:00 UTC, after predictions expire)
+    schedule.every().day.at("03:00").do(job_compute_accuracy)
+
+    # Run prediction pipeline daily (02:30 UTC, after backfill)
+    schedule.every().day.at("02:30").do(job_run_predictions)
 
     # Heartbeat: every 5 minutes
     schedule.every(5).minutes.do(update_heartbeat)

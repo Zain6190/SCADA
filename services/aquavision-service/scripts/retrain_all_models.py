@@ -63,6 +63,24 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
 
+        # Detect best target field for this asset
+        from sqlalchemy import text as sql_text
+        has_inflow = session.execute(
+            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
+            {"aid": asset_id}
+        ).scalar()
+        total = session.execute(
+            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
+            {"aid": asset_id}
+        ).scalar()
+        
+        if has_inflow > total * 0.3:
+            target_field = "auto"
+        else:
+            # Assets 9,10 (Kabul, Chenab): no inflow data, use discharge
+            target_field = "discharge"
+            logger.info(f"Asset {asset_name}: no inflow data, using target_field='discharge'")
+
         for horizon in horizons:
             end_date = datetime.utcnow()
             start_date = end_date - timedelta(days=365 * 3)
@@ -73,7 +91,7 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
                 end_date=end_date,
                 forecast_horizon=horizon,
                 real_only=False,
-                target_field="auto",
+                target_field=target_field,
                 source_priority=True,
             )
 
@@ -120,6 +138,22 @@ def train_highflow_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
 
+        # Detect best target field for this asset
+        from sqlalchemy import text as sql_text
+        has_inflow = session.execute(
+            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
+            {"aid": asset_id}
+        ).scalar()
+        total = session.execute(
+            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
+            {"aid": asset_id}
+        ).scalar()
+        
+        if has_inflow > total * 0.3:
+            target_field = "auto"
+        else:
+            target_field = "discharge"
+
         for horizon in horizons:
             end_date = datetime.utcnow()
             start_date = end_date - timedelta(days=365 * 3)
@@ -130,7 +164,7 @@ def train_highflow_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30
                 end_date=end_date,
                 forecast_horizon=horizon,
                 real_only=False,
-                target_field="auto",
+                target_field=target_field,
                 source_priority=True,
             )
 

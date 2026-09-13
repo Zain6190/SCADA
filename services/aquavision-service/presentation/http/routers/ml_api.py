@@ -241,3 +241,32 @@ async def get_model_status():
         "classifiers": classifiers,
         "total_files": len(list(model_dir.glob("*.joblib"))) + len(list(classifier_dir.glob("*.pkl"))),
     }
+
+
+# ─── Backfill Inflow ───────────────────────────────────────────────────────
+
+@router.post("/backfill-inflow")
+async def backfill_inflow(asset_id: Optional[int] = None, dry_run: bool = False):
+    """Estimate and fill missing inflow using physics-based methods."""
+    import subprocess
+    cmd = [
+        sys.executable, "-c",
+        f"import sys; sys.path.insert(0, '{_BASE_DIR}'); "
+        f"from scripts.backfill_inflow import backfill_all_assets; "
+        f"from infrastructure.db.engine import SessionLocal; "
+        f"db = SessionLocal(); "
+        f"r = backfill_all_assets(db, dry_run={'True' if dry_run else 'False'}); "
+        f"print(r)"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=str(_BASE_DIR))
+    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+
+
+# ─── Run Predictions ───────────────────────────────────────────────────────
+
+@router.post("/run-predictions")
+async def run_predictions():
+    """Run prediction pipeline: predict → store → alert for all assets."""
+    from infrastructure.thresholds.engine import run_prediction_pipeline
+    result = run_prediction_pipeline()
+    return result

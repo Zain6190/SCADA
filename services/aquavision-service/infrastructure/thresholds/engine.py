@@ -1020,7 +1020,8 @@ def check_prediction_alerts(db: Session, asset_id: int) -> List[WaterOperational
             return []
         
         predictor = FloodPredictor()
-        if not predictor.load_model(asset_id, 7):
+        key = f"{asset_id}_7"
+        if not predictor._load_model(key):
             return []
         
         # Get latest observation for prediction
@@ -1028,28 +1029,7 @@ def check_prediction_alerts(db: Session, asset_id: int) -> List[WaterOperational
         if not obs or not obs.inflow_cusecs:
             return []
         
-        # Build minimal feature set for prediction
-        from infrastructure.db.engine import engine as sa_engine
-        from sqlalchemy import text
-        import numpy as np
-        
-        with sa_engine.connect() as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT observed_at, inflow_cusecs, outflow_cusecs,
-                           water_level_ft, discharge_cusecs
-                    FROM aquavision.water_observations
-                    WHERE asset_id = :asset_id
-                    ORDER BY observed_at DESC
-                    LIMIT 30
-                """),
-                {"asset_id": asset_id},
-            ).mappings().all()
-        
-        if len(rows) < 10:
-            return []
-        
-        # Use the predictor's feature builder
+        # Build feature set for prediction
         from ml.features.feature_engineering import FloodFeatureBuilder
         builder = FloodFeatureBuilder(db)
         
@@ -1068,11 +1048,19 @@ def check_prediction_alerts(db: Session, asset_id: int) -> List[WaterOperational
             return []
         
         # Predict on latest row
-        prediction = predictor.predict(X[-1:])
-        if not prediction:
+        result = predictor.predict(
+            asset_id=asset_id,
+            asset_name=asset.canonical_name,
+            X=X[-1:],
+            feature_names=feature_names,
+            horizon=7,
+            warning_level=threshold.warning_level_ft,
+            danger_level=threshold.danger_level_ft,
+        )
+        if not result:
             return []
         
-        predicted_level = prediction.get("predicted_level_ft")
+        predicted_level = result.predicted_level_ft
         if predicted_level is None:
             return []
         
@@ -1181,47 +1169,60 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                 from datetime import datetime as dt, timedelta
                 import numpy as np
                 
-                # Check if model exists
-                model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{asset.id}_7.joblib"
-                if not model_path.exists():
-                    continue
-                
+                # Try all horizons
                 predictor = FloodPredictor()
-                if not predictor.load_model(asset.id, 7):
-                    continue
-                
-                # Build features
                 builder = FloodFeatureBuilder(db)
-                end = dt.now(timezone.utc)
-                start = end - timedelta(days=400)
+                end_dt = dt.now(timezone.utc)
+                start_dt = end_dt - timedelta(days=400)
                 
                 X, y, feature_names, weights = builder.build_training_table(
                     asset_id=asset.id,
-                    start_date=start,
-                    end_date=end,
-                    forecast_horizon=7,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                    forecast_horizon=30,
                 )
                 
                 if len(X) == 0:
                     continue
                 
-                # Predict
-                prediction = predictor.predict(X[-1:])
-                if not prediction or "error" in prediction:
-                    continue
+                for horizon in [7, 14, 30]:
+                    key = f"{asset.id}_{horizon}"
+                    model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{key}.joblib"
+                    if not model_path.exists():
+                        continue
+                    
+                    if key not in predictor.models:
+                        if not predictor._load_model(key):
+                            continue
+                    
+                    # Get threshold for risk assessment
+                    threshold = _get_threshold(db, asset.id)
+                    result = predictor.predict(
+                        asset_id=asset.id,
+                        asset_name=asset.canonical_name,
+                        X=X[-1:],
+                        feature_names=feature_names,
+                        horizon=horizon,
+                        warning_level=threshold.warning_level_ft if threshold else None,
+                        danger_level=threshold.danger_level_ft if threshold else None,
+                    )
+                    if not result:
+                        continue
+                    
+                    # Store prediction
+                    store_prediction(
+                        db=db,
+                        asset_id=asset.id,
+                        predicted_level_ft=result.predicted_level_ft,
+                        predicted_inflow=result.predicted_inflow,
+                        predicted_outflow=result.predicted_outflow,
+                        confidence=100.0 - result.risk_score,
+                        model_version=f"xgb_{asset.id}_{horizon}d",
+                        horizon_days=horizon,
+                    )
+                    total_stored += 1
                 
-                # Store prediction
-                store_prediction(
-                    db=db,
-                    asset_id=asset.id,
-                    predicted_level_ft=prediction.get("predicted_level_ft"),
-                    confidence=prediction.get("confidence"),
-                    model_version=f"xgb_{asset.id}_7d",
-                    horizon_days=7,
-                )
-                total_stored += 1
-                
-                # Check for alerts
+                # Check for alerts (7-day)
                 alerts = check_prediction_alerts(db, asset.id)
                 total_alerts += len(alerts)
                 
