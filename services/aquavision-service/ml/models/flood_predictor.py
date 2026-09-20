@@ -142,24 +142,26 @@ class FloodPredictor:
 
         model.fit(X_train_scaled, y_train, **fit_kwargs)
 
-        # Evaluate
-        y_pred = model.predict(X_test_scaled)
-        residuals = y_test - y_pred
+        # Evaluate — metrics in ORIGINAL space (cusecs/ft), not log-space
+        y_pred_log = model.predict(X_test_scaled)
 
-        mae = mean_absolute_error(y_test, y_pred)
-        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-        r2 = r2_score(y_test, y_pred)
-
-        # Invert log-transform for MAPE calculation
         if use_log_transform:
             y_test_orig = np.expm1(y_test)
-            y_pred_orig = np.expm1(y_pred)
-            mape = np.mean(np.abs((y_test_orig - y_pred_orig) / (y_test_orig + 1e-8))) * 100
+            y_pred_orig = np.expm1(y_pred_log)
         else:
-            mape = np.mean(np.abs((y_test - y_pred) / (y_test + 1e-8))) * 100
+            y_test_orig = y_test
+            y_pred_orig = y_pred_log
 
-        residual_std = float(np.std(residuals))
-        residual_p90 = float(np.percentile(np.abs(residuals), 90))
+        residuals_orig = y_test_orig - y_pred_orig
+
+        mae = mean_absolute_error(y_test_orig, y_pred_orig)
+        rmse = np.sqrt(mean_squared_error(y_test_orig, y_pred_orig))
+        r2 = r2_score(y_test_orig, y_pred_orig)
+        mape = np.mean(np.abs(residuals_orig / (y_test_orig + 1e-8))) * 100
+
+        residual_std = float(np.std(residuals_orig))
+        residual_p90 = float(np.percentile(np.abs(residuals_orig), 90))
+        residual_p50 = float(np.percentile(np.abs(residuals_orig), 50))
 
         importance = dict(zip(feature_names, model.feature_importances_))
         top_features = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:10])
@@ -179,20 +181,23 @@ class FloodPredictor:
             "test_samples": len(X_test),
             "real_samples": int(np.sum(w_train == 1.0)) if w_train is not None else len(X_train),
             "synthetic_samples": int(np.sum(w_train < 1.0)) if w_train is not None else 0,
-            "mae": round(mae, 4),
-            "rmse": round(rmse, 4),
+            "mae": round(mae, 2),
+            "rmse": round(rmse, 2),
             "r2": round(r2, 4),
             "mape": round(mape, 2),
-            "residual_std": round(residual_std, 4),
-            "residual_p90": round(residual_p90, 4),
+            "residual_std": round(residual_std, 2),
+            "residual_p90": round(residual_p90, 2),
+            "residual_p50": round(residual_p50, 2),
+            "mae_log_space": round(float(mean_absolute_error(y_test, y_pred_log)), 4),
             "top_features": top_features,
             "trained_at": datetime.utcnow().isoformat(),
             "model_version": self.model_version,
             "model_status": MODEL_STATUS,
             "weighted": w_train is not None,
+            "log_transform": use_log_transform,
         }
 
-        self._save_model(key, model, scaler, feature_names, mae, residual_std, self.training_metrics[key])
+        self._save_model(key, model, scaler, feature_names, mae, residual_p90, residual_std, self.training_metrics[key])
 
         logger.info(f"Trained model: asset={asset_id}, horizon={horizon}d, MAE={mae:.2f}, R2={r2:.4f}")
         return self.training_metrics[key]
@@ -214,22 +219,26 @@ class FloodPredictor:
             loaded = self._load_model(key)
             if not loaded:
                 return None
-            model, scaler, feature_names_loaded, mae, _ = loaded
+            model, scaler, feature_names_loaded, mae_orig, residual_p90 = loaded
         else:
             model = self.models[key]
             scaler = self.scalers[key]
             feature_names_loaded = self.feature_names.get(key, feature_names)
-            mae = self.training_mae.get(key, 0)
+            mae_orig = self.training_mae.get(key, 0)
+            residual_p90 = self.training_mae.get(key, 0)
 
         X_scaled = scaler.transform(X)
-        prediction = model.predict(X_scaled)[0]
+        prediction_log = model.predict(X_scaled)[0]
 
         # Invert log-transform if model was trained with it
         use_log = self.log_transform.get(key, False)
         if use_log:
-            prediction = float(np.expm1(prediction))
+            prediction = float(np.expm1(prediction_log))
+        else:
+            prediction = float(prediction_log)
 
-        margin = mae if mae > 0 else prediction * 0.05
+        # Use residual_p90 (original space) for prediction interval
+        margin = residual_p90 if residual_p90 > 0 else mae_orig if mae_orig > 0 else prediction * 0.05
         lower_bound = prediction - margin
         upper_bound = prediction + margin
 
@@ -285,7 +294,7 @@ class FloodPredictor:
             return "WATCH"
         return "NORMAL"
 
-    def _save_model(self, key, model, scaler, feature_names, mae, residual_std, metrics):
+    def _save_model(self, key, model, scaler, feature_names, mae, residual_p90, residual_std, metrics):
         path = os.path.join(MODEL_DIR, f"{key}.joblib")
         joblib.dump({
             "model": model,
@@ -294,7 +303,9 @@ class FloodPredictor:
             "version": self.model_version,
             "model_status": MODEL_STATUS,
             "training_mae": mae,
-            "residual_std": residual_std,
+            "training_mae_original": mae,
+            "residual_p90_original": residual_p90,
+            "residual_std_original": residual_std,
             "metrics": metrics,
             "log_transform": self.log_transform.get(key, False),
             "saved_at": datetime.utcnow().isoformat(),
@@ -308,15 +319,15 @@ class FloodPredictor:
             self.models[key] = data["model"]
             self.scalers[key] = data["scaler"]
             self.feature_names[key] = data["feature_names"]
-            self.training_mae[key] = data.get("training_mae", 0)
+            self.training_mae[key] = data.get("residual_p90_original", data.get("training_mae", 0))
             self.training_metrics[key] = data.get("metrics", {})
             self.log_transform[key] = data.get("log_transform", False)
             return (
                 data["model"],
                 data["scaler"],
                 data["feature_names"],
-                data.get("training_mae", 0),
-                data.get("residual_std", 0),
+                data.get("training_mae_original", data.get("training_mae", 0)),
+                data.get("residual_p90_original", data.get("residual_std", 0)),
             )
         return None
 
@@ -415,7 +426,7 @@ class HighFlowPredictor:
 
         model.fit(X_train_scaled, y_train, **fit_kwargs)
 
-        # Evaluate
+        # Evaluate — metrics in ORIGINAL space
         y_pred = model.predict(X_test_scaled)
         residuals = y_test - y_pred
 
@@ -426,6 +437,7 @@ class HighFlowPredictor:
 
         residual_std = float(np.std(residuals))
         residual_p90 = float(np.percentile(np.abs(residuals), 90))
+        residual_p50 = float(np.percentile(np.abs(residuals), 50))
 
         importance = dict(zip(feature_names, model.feature_importances_))
         top_features = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:10])
@@ -446,19 +458,20 @@ class HighFlowPredictor:
             "high_flow_samples": len(X_hf),
             "train_samples": len(X_train),
             "test_samples": len(X_test),
-            "mae": round(mae, 4),
-            "rmse": round(rmse, 4),
+            "mae": round(mae, 2),
+            "rmse": round(rmse, 2),
             "r2": round(r2, 4),
             "mape": round(mape, 2),
-            "residual_std": round(residual_std, 4),
-            "residual_p90": round(residual_p90, 4),
+            "residual_std": round(residual_std, 2),
+            "residual_p90": round(residual_p90, 2),
+            "residual_p50": round(residual_p50, 2),
             "top_features": top_features,
             "trained_at": datetime.utcnow().isoformat(),
             "model_version": self.model_version,
             "model_status": MODEL_STATUS,
         }
 
-        self._save_model(key, model, scaler, feature_names, mae, residual_std, self.training_metrics[key])
+        self._save_model(key, model, scaler, feature_names, mae, residual_p90, residual_std, self.training_metrics[key])
 
         logger.info(f"Trained high-flow model: asset={asset_id}, horizon={horizon}d, MAE={mae:.2f}, R2={r2:.4f}")
         return self.training_metrics[key]
@@ -480,17 +493,18 @@ class HighFlowPredictor:
             loaded = self._load_model(key)
             if not loaded:
                 return None
-            model, scaler, feature_names_loaded, mae, _ = loaded
+            model, scaler, feature_names_loaded, mae_orig, residual_p90 = loaded
         else:
             model = self.models[key]
             scaler = self.scalers[key]
             feature_names_loaded = self.feature_names.get(key, feature_names)
-            mae = self.training_mae.get(key, 0)
+            mae_orig = self.training_mae.get(key, 0)
+            residual_p90 = self.training_mae.get(key, 0)
 
         X_scaled = scaler.transform(X)
-        prediction = model.predict(X_scaled)[0]
+        prediction = float(model.predict(X_scaled)[0])
 
-        margin = mae if mae > 0 else prediction * 0.05
+        margin = residual_p90 if residual_p90 > 0 else mae_orig if mae_orig > 0 else prediction * 0.05
         lower_bound = prediction - margin
         upper_bound = prediction + margin
 
@@ -544,7 +558,7 @@ class HighFlowPredictor:
             return "WATCH"
         return "NORMAL"
 
-    def _save_model(self, key, model, scaler, feature_names, mae, residual_std, metrics):
+    def _save_model(self, key, model, scaler, feature_names, mae, residual_p90, residual_std, metrics):
         path = os.path.join(MODEL_DIR, f"{key}.joblib")
         joblib.dump({
             "model": model,
@@ -553,7 +567,9 @@ class HighFlowPredictor:
             "version": self.model_version,
             "model_status": MODEL_STATUS,
             "training_mae": mae,
-            "residual_std": residual_std,
+            "training_mae_original": mae,
+            "residual_p90_original": residual_p90,
+            "residual_std_original": residual_std,
             "metrics": metrics,
             "saved_at": datetime.utcnow().isoformat(),
         }, path)
@@ -566,13 +582,13 @@ class HighFlowPredictor:
             self.models[key] = data["model"]
             self.scalers[key] = data["scaler"]
             self.feature_names[key] = data["feature_names"]
-            self.training_mae[key] = data.get("training_mae", 0)
+            self.training_mae[key] = data.get("residual_p90_original", data.get("training_mae", 0))
             self.training_metrics[key] = data.get("metrics", {})
             return (
                 data["model"],
                 data["scaler"],
                 data["feature_names"],
-                data.get("training_mae", 0),
-                data.get("residual_std", 0),
+                data.get("training_mae_original", data.get("training_mae", 0)),
+                data.get("residual_p90_original", data.get("residual_std", 0)),
             )
         return None

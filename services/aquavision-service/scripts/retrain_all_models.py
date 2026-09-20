@@ -34,12 +34,13 @@ def get_db():
 
 
 def get_active_assets():
-    """Get all active assets with observations."""
+    """Get all active assets with observations, including REAL observation count."""
     engine = get_db()
     with engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT wa.id, wa.canonical_name, wa.asset_type,
-                   COUNT(wo.id) as obs_count
+                   COUNT(wo.id) as obs_count,
+                   COUNT(wo.id) FILTER (WHERE wo.data_origin = 'REAL') as real_count
             FROM aquavision.water_assets wa
             LEFT JOIN aquavision.water_observations wo ON wo.asset_id = wa.id
             WHERE wa.is_active = true
@@ -295,8 +296,19 @@ def main():
         aid = asset["id"]
         name = asset["canonical_name"]
         obs_count = asset["obs_count"]
+        real_count = asset.get("real_count", 0) or 0
 
-        logger.info(f"\n--- Training {name} (ID={aid}, observations={obs_count}) ---")
+        # Gate: require at least 100 REAL observations for meaningful training
+        if real_count < 100:
+            logger.warning(f"Skipping {name}: only {real_count} REAL observations (need 100)")
+            all_results.append({
+                "asset_id": aid, "asset_name": name,
+                "horizon": 7, "status": "SKIPPED",
+                "reason": f"insufficient_real_data: {real_count}/100 REAL observations"
+            })
+            continue
+
+        logger.info(f"\n--- Training {name} (ID={aid}, total={obs_count}, real={real_count}) ---")
 
         # FloodPredictor (7d, 14d, 30d)
         results = train_flood_predictor(aid, name)

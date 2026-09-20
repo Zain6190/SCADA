@@ -100,8 +100,15 @@ class FloodFeatureBuilder:
             if target is not None and not np.isnan(target):
                 features_list.append([features[k] for k in feature_names])
                 targets.append(target)
-                # Sample weight: REAL=1.0, SYNTHETIC=0.2
-                w = 1.0 if row_obs.get("data_origin") == "REAL" else 0.2
+                # Sample weight: based on BOTH current AND target data quality
+                current_real = row_obs.get("data_origin") == "REAL"
+                target_real = target_obs.get("data_origin") == "REAL"
+                if current_real and target_real:
+                    w = 1.0    # both real — full weight
+                elif current_real or target_real:
+                    w = 0.5    # one real — medium weight
+                else:
+                    w = 0.1    # both synthetic — minimal weight
                 weights.append(w)
         
         if not features_list:
