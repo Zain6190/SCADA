@@ -531,3 +531,24 @@ export interface V2AssetPrediction {
     prediction_method: string
   }
 }
+
+export interface V2NationalOverview {
+  timestamp: string
+  national_wai: number
+  national_status: string
+  provinces: Array<{
+    province: string
+    wai_score: number
+    category: string
+    assets: V2AssetPrediction[]
+  }>
+  critical_alerts: Array<{
+    level: string
+    type: string
+    message: string
+    action: string
+    lead_time: string
+    timestamp: string
+  }>
+  assets_monitored: number
+}

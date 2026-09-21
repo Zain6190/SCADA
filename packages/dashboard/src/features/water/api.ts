@@ -27,6 +27,7 @@ import type {
   AssetWeeklySummary,
   ModelPerformance,
   V2AssetPrediction,
+  V2NationalOverview,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -239,6 +240,11 @@ export const waterApi = {
 
   getV2Prediction: async (assetId: number): Promise<V2AssetPrediction> => {
     const { data } = await waterClient.get(`/v2/predict/${assetId}`)
+    return data
+  },
+
+  getV2NationalOverview: async (): Promise<V2NationalOverview> => {
+    const { data } = await waterClient.get('/v2/national-overview')
     return data
   },
 
