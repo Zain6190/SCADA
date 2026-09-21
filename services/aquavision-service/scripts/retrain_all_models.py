@@ -51,7 +51,7 @@ def get_active_assets():
     return [dict(r) for r in rows]
 
 
-def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
+def train_flood_predictor(asset_id: int, asset_name: str, horizons=[3, 7, 14, 30]):
     """Train FloodPredictor for an asset across all horizons."""
     from sqlalchemy.orm import Session
     from infrastructure.db.engine import SessionLocal
@@ -65,22 +65,35 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
         builder = FloodFeatureBuilder(session)
 
         # Detect best target field for this asset
-        from sqlalchemy import text as sql_text
-        has_inflow = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
-            {"aid": asset_id}
-        ).scalar()
-        total = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
-            {"aid": asset_id}
-        ).scalar()
-        
-        if has_inflow > total * 0.3:
-            target_field = "auto"
-        else:
-            # Assets 9,10 (Kabul, Chenab): no inflow data, use discharge
+        # Assets 9,10: predict discharge directly (have discharge data)
+        # Assets 1,2: predict inflow (mass balance: inflow = outflow + dS/dt)
+        # Assets 3-8,11: physics routing (not trained via ML)
+        DISCHARGE_ASSETS = {9, 10}  # Kabul, Chenab
+        INFLOW_ASSETS = {1, 2}  # Tarbela, Mangla (mass balance)
+
+        if asset_id in DISCHARGE_ASSETS:
             target_field = "discharge"
-            logger.info(f"Asset {asset_name}: no inflow data, using target_field='discharge'")
+            logger.info(f"Asset {asset_name}: forced target_field='discharge'")
+        elif asset_id in INFLOW_ASSETS:
+            target_field = "auto"  # prefers inflow
+            logger.info(f"Asset {asset_name}: using target_field='auto' (inflow)")
+        else:
+            # Fallback: detect from data
+            from sqlalchemy import text as sql_text
+            has_inflow = session.execute(
+                sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
+                {"aid": asset_id}
+            ).scalar()
+            total = session.execute(
+                sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
+                {"aid": asset_id}
+            ).scalar()
+            
+            if has_inflow > total * 0.3:
+                target_field = "auto"
+            else:
+                target_field = "discharge"
+                logger.info(f"Asset {asset_name}: no inflow data, using target_field='discharge'")
 
         for horizon in horizons:
             end_date = datetime.utcnow()
@@ -108,6 +121,7 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
                 asset_id=asset_id, X=X, y=y,
                 feature_names=feature_names, horizon=horizon,
                 sample_weights=weights,
+                target_field=target_field,  # NEW: pass target field
             )
 
             if "error" not in metrics:
@@ -298,13 +312,13 @@ def main():
         obs_count = asset["obs_count"]
         real_count = asset.get("real_count", 0) or 0
 
-        # Gate: require at least 100 REAL observations for meaningful training
-        if real_count < 100:
-            logger.warning(f"Skipping {name}: only {real_count} REAL observations (need 100)")
+        # Gate: require at least 30 REAL observations for meaningful training
+        if real_count < 30:
+            logger.warning(f"Skipping {name}: only {real_count} REAL observations (need 30)")
             all_results.append({
                 "asset_id": aid, "asset_name": name,
                 "horizon": 7, "status": "SKIPPED",
-                "reason": f"insufficient_real_data: {real_count}/100 REAL observations"
+                "reason": f"insufficient_real_data: {real_count}/30 REAL observations"
             })
             continue
 

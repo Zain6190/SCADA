@@ -26,6 +26,7 @@ import type {
   PipelineHealth,
   AssetWeeklySummary,
   ModelPerformance,
+  V2AssetPrediction,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -231,6 +232,13 @@ export const waterApi = {
 
   getMLPredictions: async (assetId: number, horizons = '7'): Promise<MLPrediction[]> => {
     const { data } = await waterClient.get(`/ml/predictions/${assetId}`, { params: { horizons } })
+    return data
+  },
+
+  // ─── AquaVision v2 Predictions ────────────────────────────────────────────
+
+  getV2Prediction: async (assetId: number): Promise<V2AssetPrediction> => {
+    const { data } = await waterClient.get(`/v2/predict/${assetId}`)
     return data
   },
 

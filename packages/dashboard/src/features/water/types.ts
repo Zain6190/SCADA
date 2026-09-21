@@ -465,3 +465,69 @@ export interface PipelineHealth {
     ffd_hours: number | null
   }
 }
+
+// ─── AquaVision v2 Prediction Types ────────────────────────────────────────
+
+export interface V2DischargePrediction {
+  value_m3s: number
+  confidence_lower_m3s: number
+  confidence_upper_m3s: number
+  value_cusecs: number
+  confidence_lower_cusecs: number
+  confidence_upper_cusecs: number
+  unit: string
+}
+
+export interface V2WaterStressPrediction {
+  value: number
+  category: string
+  trend: number
+  components: Record<string, number>
+}
+
+export interface V2FloodRiskPrediction {
+  value: number
+  category: string
+  confidence: number
+  drivers: Array<{ name: string; value: string; impact: string }>
+}
+
+export interface V2RainfallPrediction {
+  value_mm: number
+  probability: number
+  unit: string
+}
+
+export interface V2LeadTimeForecast {
+  lead_time_days: number
+  water_stress: V2WaterStressPrediction
+  flood_risk: V2FloodRiskPrediction
+  discharge: V2DischargePrediction
+  rainfall: V2RainfallPrediction
+  confidence: number
+}
+
+export interface V2AssetPrediction {
+  asset_id: number
+  asset_name: string
+  asset_type: string
+  timestamp: string
+  predictions: Record<string, V2LeadTimeForecast>
+  alerts: Array<{
+    level: string
+    type: string
+    message: string
+    action: string
+    lead_time: string
+    timestamp: string
+  }>
+  model_metadata: {
+    model_version: string
+    last_training: string
+    accuracy_3day: number
+    accuracy_7day: number
+    accuracy_14day: number
+    features_used: number
+    prediction_method: string
+  }
+}

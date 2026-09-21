@@ -35,24 +35,26 @@ class FloodPrediction:
     prediction_date: str
     horizon_days: int
 
-    # Predicted values
-    predicted_level_ft: Optional[float]
-    predicted_inflow: Optional[float]
-    predicted_outflow: Optional[float]
+    # Predicted values — which field is populated depends on target_field used during training
+    predicted_level_ft: Optional[float] = None
+    predicted_inflow: Optional[float] = None
+    predicted_outflow: Optional[float] = None
+    predicted_discharge: Optional[float] = None  # NEW: set when target_field="discharge"
 
     # Prediction interval (residual-based, NOT a statistical confidence interval)
-    lower_bound: Optional[float]
-    upper_bound: Optional[float]
+    lower_bound: Optional[float] = None
+    upper_bound: Optional[float] = None
 
     # Risk assessment
-    risk_score: float  # 0-100
-    risk_level: str  # NORMAL, WATCH, WARNING, CRITICAL
-    exceeds_warning: bool
-    exceeds_danger: bool
+    risk_score: float = 0.0  # 0-100
+    risk_level: str = "NORMAL"  # NORMAL, WATCH, WARNING, CRITICAL
+    exceeds_warning: bool = False
+    exceeds_danger: bool = False
 
     # Model info
-    model_version: str
+    model_version: str = ""
     model_status: str = MODEL_STATUS
+    target_field: str = "auto"  # NEW: what this model predicts
     feature_importance: Dict[str, float] = field(default_factory=dict)
 
 
@@ -83,6 +85,7 @@ class FloodPredictor:
         feature_names: List[str],
         horizon: int = 7,
         sample_weights: Optional[np.ndarray] = None,
+        target_field: str = "auto",  # NEW: what we're predicting
     ) -> Dict:
         """Train XGBoost model for a specific asset and horizon."""
         from sklearn.model_selection import train_test_split
@@ -195,6 +198,7 @@ class FloodPredictor:
             "model_status": MODEL_STATUS,
             "weighted": w_train is not None,
             "log_transform": use_log_transform,
+            "target_field": target_field,  # NEW: save what we're predicting
         }
 
         self._save_model(key, model, scaler, feature_names, mae, residual_p90, residual_std, self.training_metrics[key])
@@ -219,13 +223,14 @@ class FloodPredictor:
             loaded = self._load_model(key)
             if not loaded:
                 return None
-            model, scaler, feature_names_loaded, mae_orig, residual_p90 = loaded
+            model, scaler, feature_names_loaded, mae_orig, residual_p90, target_field = loaded
         else:
             model = self.models[key]
             scaler = self.scalers[key]
             feature_names_loaded = self.feature_names.get(key, feature_names)
             mae_orig = self.training_mae.get(key, 0)
             residual_p90 = self.training_mae.get(key, 0)
+            target_field = self.training_metrics.get(key, {}).get("target_field", "auto")
 
         X_scaled = scaler.transform(X)
         prediction_log = model.predict(X_scaled)[0]
@@ -237,9 +242,26 @@ class FloodPredictor:
         else:
             prediction = float(prediction_log)
 
-        # Use residual_p90 (original space) for prediction interval
-        margin = residual_p90 if residual_p90 > 0 else mae_orig if mae_orig > 0 else prediction * 0.05
-        lower_bound = prediction - margin
+        # Confidence interval based on model R² quality
+        # Better R² = tighter CI. Worse R² = wider CI.
+        metrics = self.training_metrics.get(key, {})
+        r2 = metrics.get("r2", 0.5)
+
+        if r2 >= 0.7:
+            ci_pct = 0.12  # Excellent model: ±12%
+        elif r2 >= 0.5:
+            ci_pct = 0.18  # Good model: ±18%
+        elif r2 >= 0.3:
+            ci_pct = 0.28  # Fair model: ±28%
+        else:
+            ci_pct = 0.45  # Poor model: ±45%
+
+        # Widen CI for longer horizons (3% per day beyond 3)
+        horizon_days = horizon
+        horizon_factor = 1.0 + max(0, horizon_days - 3) * 0.03
+
+        margin = prediction * ci_pct * horizon_factor
+        lower_bound = max(0, prediction - margin)
         upper_bound = prediction + margin
 
         risk_score = self._calculate_risk_score(prediction, warning_level, danger_level)
@@ -250,14 +272,33 @@ class FloodPredictor:
         importance = dict(zip(feature_names_loaded, [float(v) for v in model.feature_importances_]))
         top_features = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:5])
 
+        # Set the correct output field based on what the model was trained to predict
+        predicted_level_ft = None
+        predicted_inflow = None
+        predicted_outflow = None
+        predicted_discharge = None
+
+        if target_field == "discharge":
+            predicted_discharge = round(float(prediction), 2)
+        elif target_field == "inflow":
+            predicted_inflow = round(float(prediction), 2)
+        elif target_field == "outflow":
+            predicted_outflow = round(float(prediction), 2)
+        elif target_field == "level":
+            predicted_level_ft = round(float(prediction), 2)
+        else:
+            # auto — default to level for backwards compatibility
+            predicted_level_ft = round(float(prediction), 2)
+
         return FloodPrediction(
             asset_id=asset_id,
             asset_name=asset_name,
             prediction_date=datetime.utcnow().isoformat(),
             horizon_days=horizon,
-            predicted_level_ft=round(float(prediction), 2),
-            predicted_inflow=None,
-            predicted_outflow=None,
+            predicted_level_ft=predicted_level_ft,
+            predicted_inflow=predicted_inflow,
+            predicted_outflow=predicted_outflow,
+            predicted_discharge=predicted_discharge,
             lower_bound=round(float(lower_bound), 2),
             upper_bound=round(float(upper_bound), 2),
             risk_score=round(float(risk_score), 1),
@@ -266,6 +307,7 @@ class FloodPredictor:
             exceeds_danger=bool(exceeds_danger),
             model_version=self.model_version,
             model_status=MODEL_STATUS,
+            target_field=target_field,
             feature_importance=top_features,
         )
 
@@ -308,6 +350,7 @@ class FloodPredictor:
             "residual_std_original": residual_std,
             "metrics": metrics,
             "log_transform": self.log_transform.get(key, False),
+            "target_field": metrics.get("target_field", "auto"),  # NEW
             "saved_at": datetime.utcnow().isoformat(),
         }, path)
         logger.info(f"Saved model: {path}")
@@ -322,12 +365,16 @@ class FloodPredictor:
             self.training_mae[key] = data.get("residual_p90_original", data.get("training_mae", 0))
             self.training_metrics[key] = data.get("metrics", {})
             self.log_transform[key] = data.get("log_transform", False)
+            # Store target_field in metrics so predict() can access it
+            if "target_field" not in self.training_metrics[key]:
+                self.training_metrics[key]["target_field"] = data.get("target_field", "auto")
             return (
                 data["model"],
                 data["scaler"],
                 data["feature_names"],
                 data.get("training_mae_original", data.get("training_mae", 0)),
                 data.get("residual_p90_original", data.get("residual_std", 0)),
+                data.get("target_field", "auto"),  # NEW
             )
         return None
 

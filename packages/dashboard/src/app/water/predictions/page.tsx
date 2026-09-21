@@ -2,8 +2,8 @@
 // AquaVision Predictions - Flood (XGBoost per-asset) + Water Stress (WAI per-region).
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Cpu, RefreshCw, AlertTriangle, FlaskConical, TrendingUp, Activity } from 'lucide-react'
+import { useState, useEffect, Suspense } from 'react'
+import { Cpu, RefreshCw, AlertTriangle, FlaskConical, TrendingUp, Activity, Zap } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -13,6 +13,7 @@ import { waterApi } from '@/features/water/api'
 import type { MLPrediction } from '@/features/water/types'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fmtDateTime } from '@/lib/format'
+import V2PredictionsTab from './v2-tab'
 
 const RISK_COLORS: Record<string, string> = {
   NORMAL: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -50,7 +51,7 @@ interface WAIPrediction {
 }
 
 export default function PredictionsPage() {
-  const [tab, setTab] = useState<'flood' | 'wai'>('flood')
+  const [tab, setTab] = useState<'v2' | 'flood' | 'wai'>('v2')
 
   return (
     <AppShell>
@@ -63,6 +64,17 @@ export default function PredictionsPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 rounded-xl border border-slate-700 bg-slate-800/40 p-1 w-fit">
+          <button
+            onClick={() => setTab('v2')}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'v2'
+                ? 'bg-sky-500/15 text-sky-300'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Zap className="mr-1.5 inline h-4 w-4" />
+            AquaVision v2
+          </button>
           <button
             onClick={() => setTab('flood')}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
@@ -87,7 +99,9 @@ export default function PredictionsPage() {
           </button>
         </div>
 
-        {tab === 'flood' ? <FloodPredictionsTab /> : <WAIPredictionsTab />}
+        {tab === 'v2' && <V2PredictionsTab />}
+        {tab === 'flood' && <FloodPredictionsTab />}
+        {tab === 'wai' && <WAIPredictionsTab />}
       </div>
     </AppShell>
   )
