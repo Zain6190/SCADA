@@ -10,8 +10,13 @@ import { AccessDenied } from '@/components/shell/access-denied'
 import { moduleForPath } from '@/lib/navigation'
 import { modulesForUser } from '@/lib/rbac'
 import { useAuth } from '@/context/AuthContext'
+import { cn } from '@/lib/utils'
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, className, navigationClassName }: {
+  children: React.ReactNode
+  className?: string
+  navigationClassName?: string
+}) {
   const [navOpen, setNavOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
@@ -30,9 +35,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const allowed = !!user && modulesForUser(user).includes(module)
 
   return (
-    <div className="min-h-screen bg-canvas text-ink">
+    <div className={cn('min-h-screen bg-canvas text-ink', className)}>
       <div className="lg:grid lg:grid-cols-[240px_1fr]">
-        <aside className="sticky top-0 hidden h-screen border-r border-line bg-surface backdrop-blur lg:block">
+        <aside className={cn('sticky top-0 hidden h-screen border-r border-line bg-surface backdrop-blur lg:block', navigationClassName)}>
           <Sidebar />
         </aside>
 
@@ -55,7 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      <MobileNavigationDrawer open={navOpen} onClose={() => setNavOpen(false)} />
+      <MobileNavigationDrawer open={navOpen} onClose={() => setNavOpen(false)} className={navigationClassName} />
     </div>
   )
 }

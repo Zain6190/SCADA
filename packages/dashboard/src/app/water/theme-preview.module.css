@@ -1,0 +1,104 @@
+/* Indus Slate preview: scoped to /water until the palette is approved.
+ * Existing RGB token names preserve Tailwind opacity utilities and status colours.
+ * Hallmark: technical workbench; existing layout and IBM Plex type retained.
+ */
+.preview {
+  --canvas: 220 227 232; /* #DCE3E8: the approved, deeper blue-grey */
+  --surface: 241 244 243;
+  --surface-alt: 228 235 233;
+  --surface-sunken: 212 222 219;
+  --line: 193 205 206;
+  --line-strong: 157 177 175;
+  --ink: 36 52 49;
+  --ink-muted: 70 91 87;
+  --ink-subtle: 85 103 99;
+  --brand: 36 103 92;
+  --brand-hover: 27 80 71;
+  --brand-soft: 220 232 226;
+  --brand-on: 241 244 243;
+  --info: 36 103 92;
+  --info-soft: 220 232 226;
+}
+
+.heading {
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgb(var(--line));
+}
+
+.heading h1 {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: rgb(var(--ink));
+}
+
+.preview :global(.text-micro) {
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  letter-spacing: 0.09em;
+}
+
+.preview :global(.shadow-card) {
+  box-shadow: none;
+}
+
+/* This class carries its own tokens because Radix portals mount outside
+ * the page wrapper. Desktop navigation and the mobile drawer stay identical.
+ */
+.navigation {
+  --canvas: 24 62 56;
+  --surface: 24 62 56;
+  --surface-alt: 33 76 68;
+  --surface-sunken: 43 86 77;
+  --line: 55 88 80;
+  --line-strong: 90 124 112;
+  --ink: 237 244 240;
+  --ink-muted: 202 220 211;
+  --ink-subtle: 162 190 177;
+  --brand: 195 225 209;
+  --brand-hover: 220 237 228;
+  --brand-soft: 46 88 76;
+  --brand-on: 24 62 56;
+  color: rgb(var(--ink));
+}
+
+.navigation :global(.bg-brand) > :global(.text-white) {
+  color: rgb(var(--brand-on));
+}
+
+.navigation :global(.shadow-card) {
+  box-shadow: none;
+}
+
+.navigation ::selection {
+  background: rgb(var(--brand));
+  color: rgb(var(--brand-on));
+}
+
+.navigation::-webkit-scrollbar-track,
+.navigation ::-webkit-scrollbar-track {
+  background: rgb(var(--surface));
+}
+
+.navigation::-webkit-scrollbar-thumb,
+.navigation ::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border-color: rgb(var(--surface));
+}
+
+.navigation[role='dialog'] {
+  display: flex;
+  flex-direction: column;
+}
+
+.navigation[role='dialog'] > :global(.h-full) {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+@media (min-width: 640px) {
+  .heading h1 {
+    font-size: 1.75rem;
+    line-height: 1.25;
+  }
+}
