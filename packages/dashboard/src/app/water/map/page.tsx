@@ -44,26 +44,26 @@ export default function WaterMapPage() {
           <Card className="overflow-hidden p-3">
             <WaterMapDynamic features={features} height={560} onSelect={setSelected} />
             {selected && (
-              <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+              <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-line bg-canvas px-4 py-3">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500">Region</p>
-                  <p className="text-sm font-semibold text-slate-100">{selected.name}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Region</p>
+                  <p className="text-sm font-semibold text-ink">{selected.name}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500">WAI</p>
-                  <p className="text-sm font-semibold text-slate-100">{fmtNumber(selected.waiScore)}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-ink-subtle">WAI</p>
+                  <p className="text-sm font-semibold text-ink">{fmtNumber(selected.waiScore)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500">Severity</p>
+                  <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Severity</p>
                   <SeverityBadge severity={selected.severity} className="mt-0.5" />
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500">Rainfall (30d)</p>
-                  <p className="text-sm font-semibold text-slate-100">{fmtNumber(selected.rainfallMm30day)} mm</p>
+                  <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Rainfall (30d)</p>
+                  <p className="text-sm font-semibold text-ink">{fmtNumber(selected.rainfallMm30day)} mm</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500">ET (8d)</p>
-                  <p className="text-sm font-semibold text-slate-100">{fmtNumber(selected.etMm8day)} mm</p>
+                  <p className="text-[10px] uppercase tracking-wider text-ink-subtle">ET (8d)</p>
+                  <p className="text-sm font-semibold text-ink">{fmtNumber(selected.etMm8day)} mm</p>
                 </div>
               </div>
             )}

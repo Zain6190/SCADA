@@ -120,7 +120,7 @@ function TrendArrow({ current, previous }: { current: number; previous: number }
   if (!previous) return null
   const pct = ((current - previous) / previous) * 100
   return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${pct > 0 ? 'text-amber-400' : 'text-sky-400'}`}>
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${pct > 0 ? 'text-warn' : 'text-brand'}`}>
       {pct > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
       {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
     </span>
@@ -129,12 +129,12 @@ function TrendArrow({ current, previous }: { current: number; previous: number }
 
 function SourceBadge({ source }: { source: string }) {
   const colors: Record<string, string> = {
-    IRSA: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-    KAGGLE: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
-    'FFD/PMD': 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    IRSA: 'bg-brand-soft text-brand border-brand/25',
+    KAGGLE: 'bg-brand-soft text-brand border-brand/25',
+    'FFD/PMD': 'bg-warn-soft text-warn border-warn/25',
   }
   return (
-    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${colors[source] || 'bg-slate-700/50 text-slate-400 border-slate-600/50'}`}>
+    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${colors[source] || 'bg-surface-sunken text-ink-muted border-line-strong'}`}>
       {source}
     </span>
   )
@@ -156,11 +156,11 @@ interface WAIIndicator {
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
-  Critical: 'text-red-400 bg-red-500/10 border-red-500/30',
-  Severe: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-  Stressed: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
-  Moderate: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-  Normal: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30',
+  Critical: 'text-crit bg-crit-soft border-crit/25',
+  Severe: 'text-warn bg-warn-soft border-warn/25',
+  Stressed: 'text-brand bg-brand-soft border-brand/25',
+  Moderate: 'text-ok bg-ok-soft border-ok/25',
+  Normal: 'text-ok bg-ok-soft border-ok/25',
 }
 
 function WAISummarySection() {
@@ -176,45 +176,45 @@ function WAISummarySection() {
 
   const latest = indicators[0]
   const severity = latest.severity || 'Unknown'
-  const colorClass = SEVERITY_COLOR[severity] || 'text-slate-400 bg-slate-500/10 border-slate-500/30'
+  const colorClass = SEVERITY_COLOR[severity] || 'text-ink-muted bg-surface-sunken border-line-strong'
 
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
+    <div className="rounded-xl border border-line bg-surface p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Activity className="h-4 w-4 text-sky-400" />
-        <h2 className="text-sm font-semibold text-slate-200">Water Availability Index (WAI)</h2>
+        <Activity className="h-4 w-4 text-brand" />
+        <h2 className="text-sm font-semibold text-ink">Water Availability Index (WAI)</h2>
         <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${colorClass}`}>{severity}</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
         <div>
-          <div className="text-slate-500">WAI Score</div>
-          <div className="text-lg font-bold text-slate-100">{latest.wai_score?.toFixed(1) ?? '—'}</div>
+          <div className="text-ink-subtle">WAI Score</div>
+          <div className="text-lg font-bold text-ink">{latest.wai_score?.toFixed(1) ?? '—'}</div>
         </div>
         <div>
-          <div className="text-slate-500">Rainfall (30d)</div>
-          <div className="font-mono text-slate-200">{latest.rainfall_mm_30day?.toFixed(0) ?? '—'} mm</div>
+          <div className="text-ink-subtle">Rainfall (30d)</div>
+          <div className="font-mono text-ink">{latest.rainfall_mm_30day?.toFixed(0) ?? '—'} mm</div>
           {latest.rainfall_anomaly != null && (
-            <div className={`text-[10px] ${latest.rainfall_anomaly < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <div className={`text-[10px] ${latest.rainfall_anomaly < 0 ? 'text-crit' : 'text-ok'}`}>
               {latest.rainfall_anomaly > 0 ? '+' : ''}{latest.rainfall_anomaly.toFixed(1)}% anomaly
             </div>
           )}
         </div>
         <div>
-          <div className="text-slate-500">ET (8-day)</div>
-          <div className="font-mono text-slate-200">{latest.et_mm_8day?.toFixed(0) ?? '—'} mm</div>
+          <div className="text-ink-subtle">ET (8-day)</div>
+          <div className="font-mono text-ink">{latest.et_mm_8day?.toFixed(0) ?? '—'} mm</div>
           {latest.et_anomaly != null && (
-            <div className={`text-[10px] ${latest.et_anomaly > 25 ? 'text-amber-400' : 'text-slate-400'}`}>
+            <div className={`text-[10px] ${latest.et_anomaly > 25 ? 'text-warn' : 'text-ink-muted'}`}>
               {latest.et_anomaly > 0 ? '+' : ''}{latest.et_anomaly.toFixed(1)}% anomaly
             </div>
           )}
         </div>
         <div>
-          <div className="text-slate-500">Surface Water</div>
-          <div className="font-mono text-slate-200">{latest.surface_water_change_pct != null ? `${latest.surface_water_change_pct > 0 ? '+' : ''}${latest.surface_water_change_pct.toFixed(1)}%` : '—'}</div>
+          <div className="text-ink-subtle">Surface Water</div>
+          <div className="font-mono text-ink">{latest.surface_water_change_pct != null ? `${latest.surface_water_change_pct > 0 ? '+' : ''}${latest.surface_water_change_pct.toFixed(1)}%` : '—'}</div>
         </div>
         <div>
-          <div className="text-slate-500">Week</div>
-          <div className="text-slate-300">{latest.week_start_date}</div>
+          <div className="text-ink-subtle">Week</div>
+          <div className="text-ink-muted">{latest.week_start_date}</div>
         </div>
       </div>
     </div>
@@ -260,25 +260,25 @@ export default function IndicatorsPage() {
   }, [regions])
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
+    <div className="min-h-screen bg-canvas text-ink">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(56,189,248,0.04),_transparent_40%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.03),_transparent_35%)]" />
 
       {/* Top bar */}
-      <header className="sticky top-0 z-30 border-b border-slate-800/70 bg-slate-950/80 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-line bg-canvas backdrop-blur">
         <div className="mx-auto max-w-screen-2xl px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/water" className="p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors">
-              <ArrowLeft className="w-4 h-4 text-slate-400" />
+            <Link href="/water" className="p-1.5 rounded-lg hover:bg-surface-alt transition-colors">
+              <ArrowLeft className="w-4 h-4 text-ink-muted" />
             </Link>
             <div>
-              <h1 className="text-sm font-semibold text-slate-100">Indicators</h1>
-              <p className="text-[11px] text-slate-500">Regional flow summaries from real observation data</p>
+              <h1 className="text-sm font-semibold text-ink">Indicators</h1>
+              <p className="text-[11px] text-ink-subtle">Regional flow summaries from real observation data</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => refetch()} disabled={isFetching}
-              className="p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors disabled:opacity-40">
-              <RefreshCw className={`w-4 h-4 text-slate-400 ${isFetching ? 'animate-spin' : ''}`} />
+              className="p-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-40">
+              <RefreshCw className={`w-4 h-4 text-ink-muted ${isFetching ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
@@ -296,9 +296,9 @@ export default function IndicatorsPage() {
             { label: 'Total Observations', value: national?.totalObs?.toLocaleString() ?? '—', color: 'violet' },
             { label: 'Data Sources', value: 'IRSA · Kaggle · FFD', color: 'amber' },
           ].map(kpi => (
-            <div key={kpi.label} className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1">{kpi.label}</div>
-              <div className="text-xl font-semibold text-slate-100">{kpi.value}</div>
+            <div key={kpi.label} className="rounded-xl border border-line bg-surface p-4">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-ink-subtle mb-1">{kpi.label}</div>
+              <div className="text-xl font-semibold text-ink">{kpi.value}</div>
             </div>
           ))}
         </div>
@@ -307,7 +307,7 @@ export default function IndicatorsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setSelectedProvince(null)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${!selectedProvince ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${!selectedProvince ? 'bg-brand-soft text-brand border border-brand/25' : 'text-ink-subtle hover:text-ink-muted border border-transparent'}`}
           >
             All Provinces
           </button>
@@ -315,17 +315,17 @@ export default function IndicatorsPage() {
             <button
               key={r.province}
               onClick={() => setSelectedProvince(r.province)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedProvince === r.province ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedProvince === r.province ? 'bg-brand-soft text-brand border border-brand/25' : 'text-ink-subtle hover:text-ink-muted border border-transparent'}`}
             >
-              {r.province} <span className="text-slate-600 ml-1">({r.assetCount})</span>
+              {r.province} <span className="text-ink-subtle ml-1">({r.assetCount})</span>
             </button>
           ))}
         </div>
 
         {isLoading && (
-          <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-12 text-center">
-            <RefreshCw className="w-5 h-5 text-slate-600 animate-spin mx-auto mb-2" />
-            <p className="text-sm text-slate-500">Loading indicators...</p>
+          <div className="rounded-xl border border-line bg-surface p-12 text-center">
+            <RefreshCw className="w-5 h-5 text-ink-subtle animate-spin mx-auto mb-2" />
+            <p className="text-sm text-ink-subtle">Loading indicators...</p>
           </div>
         )}
 
@@ -337,49 +337,49 @@ export default function IndicatorsPage() {
           const prevInflow = prevWeek ? (prevWeek[1].observations > 0 ? prevWeek[1].totalInflow / prevWeek[1].observations : 0) : 0
 
           return (
-            <div key={region.province} className="rounded-xl border border-slate-800/80 bg-slate-900/50 overflow-hidden">
+            <div key={region.province} className="rounded-xl border border-line bg-surface overflow-hidden">
               {/* Header */}
-              <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between">
+              <div className="px-5 py-4 border-b border-line flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROVINCE_COLORS[region.province] || '#64748b' }} />
-                    <h3 className="text-sm font-semibold text-slate-100">{region.province}</h3>
-                    <span className="text-[10px] text-slate-500">{region.assetCount} assets · {region.totalObs.toLocaleString()} obs</span>
+                    <h3 className="text-sm font-semibold text-ink">{region.province}</h3>
+                    <span className="text-[10px] text-ink-subtle">{region.assetCount} assets · {region.totalObs.toLocaleString()} obs</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">{region.assets.join(' · ')}</p>
+                  <p className="text-[11px] text-ink-subtle mt-0.5">{region.assets.join(' · ')}</p>
                 </div>
                 {latest && (
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Avg Inflow</div>
-                      <div className="text-sm font-semibold text-slate-200">{fmtNumber(latest.inflow)}</div>
+                      <div className="text-[10px] text-ink-subtle uppercase tracking-wider">Avg Inflow</div>
+                      <div className="text-sm font-semibold text-ink">{fmtNumber(latest.inflow)}</div>
                       <TrendArrow current={latest.inflow} previous={prevInflow} />
                     </div>
                     <div className="text-right">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Avg Outflow</div>
-                      <div className="text-sm font-semibold text-slate-200">{fmtNumber(latest.outflow)}</div>
+                      <div className="text-[10px] text-ink-subtle uppercase tracking-wider">Avg Outflow</div>
+                      <div className="text-sm font-semibold text-ink">{fmtNumber(latest.outflow)}</div>
                     </div>
                   </div>
                 )}
               </div>
 
               {/* Chart */}
-              <div className="px-5 py-3 border-b border-slate-800/40">
+              <div className="px-5 py-3 border-b border-line">
                 <RegionChart region={region} />
               </div>
 
               {/* Weekly detail table */}
               <div className="overflow-x-auto max-h-[300px]">
                 <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-900/95">
-                    <tr className="border-b border-slate-800/50">
-                      <th className="px-4 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-slate-500">Week</th>
-                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-slate-500">Obs</th>
-                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-slate-500">Avg Inflow</th>
-                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-slate-500">Avg Outflow</th>
-                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-slate-500">Avg Discharge</th>
-                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-slate-500">Assets</th>
-                      <th className="px-4 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-slate-500">Sources</th>
+                  <thead className="sticky top-0 bg-surface">
+                    <tr className="border-b border-line">
+                      <th className="px-4 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Week</th>
+                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Obs</th>
+                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Avg Inflow</th>
+                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Avg Outflow</th>
+                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Avg Discharge</th>
+                      <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Assets</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Sources</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -388,16 +388,16 @@ export default function IndicatorsPage() {
                       const avgOut = w.observations > 0 ? w.totalOutflow / w.observations : 0
                       const avgDis = w.observations > 0 ? w.totalDischarge / w.observations : 0
                       return (
-                        <tr key={wk} className={`border-b border-slate-800/30 ${i === 0 ? 'bg-sky-500/5' : 'hover:bg-slate-800/30'} transition-colors`}>
-                          <td className="px-4 py-2 font-medium text-slate-300">
+                        <tr key={wk} className={`border-b border-line ${i === 0 ? 'bg-brand-soft' : 'hover:bg-surface-alt'} transition-colors`}>
+                          <td className="px-4 py-2 font-medium text-ink-muted">
                             {wk}
-                            {i === 0 && <span className="ml-1.5 text-[9px] text-sky-400 font-semibold">LATEST</span>}
+                            {i === 0 && <span className="ml-1.5 text-[9px] text-brand font-semibold">LATEST</span>}
                           </td>
-                          <td className="px-4 py-2 text-right text-slate-400">{w.observations}</td>
-                          <td className="px-4 py-2 text-right font-medium text-slate-200">{fmtNumber(avgIn)}</td>
-                          <td className="px-4 py-2 text-right text-slate-300">{fmtNumber(avgOut)}</td>
-                          <td className="px-4 py-2 text-right text-slate-300">{fmtNumber(avgDis)}</td>
-                          <td className="px-4 py-2 text-right text-slate-400">{w.assetCount}</td>
+                          <td className="px-4 py-2 text-right text-ink-muted">{w.observations}</td>
+                          <td className="px-4 py-2 text-right font-medium text-ink">{fmtNumber(avgIn)}</td>
+                          <td className="px-4 py-2 text-right text-ink-muted">{fmtNumber(avgOut)}</td>
+                          <td className="px-4 py-2 text-right text-ink-muted">{fmtNumber(avgDis)}</td>
+                          <td className="px-4 py-2 text-right text-ink-muted">{w.assetCount}</td>
                           <td className="px-4 py-2">
                             <div className="flex flex-wrap gap-1">
                               {Array.from(w.sources).map(s => <SourceBadge key={s} source={s} />)}

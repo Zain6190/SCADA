@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { fmtNumber } from '@/lib/format'
 
-const CROP = 'bg-emerald-500/10 text-emerald-300'
+const CROP = 'bg-ok-soft text-ok'
 
 interface SeasonPoint {
   year: number
@@ -74,14 +74,14 @@ export default function HistoricalYieldPage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard label="Seasons Covered" value={SERIES.length} detail="2019 – 2026 crop years" icon={CalendarDays} accent={CROP} />
-          <KpiCard label="Crops Tracked" value={4} detail="Wheat, rice, cotton, sugarcane" icon={Wheat} accent="bg-teal-500/10 text-teal-300" />
+          <KpiCard label="Crops Tracked" value={4} detail="Wheat, rice, cotton, sugarcane" icon={Wheat} accent="bg-ok-soft text-ok" />
           <KpiCard label="Latest Avg Yield" value={fmtNumber(avgLatestAll)} detail="Tonnes per hectare, 2026" icon={TrendingUp} accent={CROP} />
           <KpiCard
             label="Sugarcane Gain"
             value={`+${fmtNumber(growth, 0)}%`}
             detail="vs 2019 base season"
             icon={Leaf}
-            accent="bg-cyan-500/10 text-cyan-300"
+            accent="bg-brand-soft text-brand"
             trend={{ value: 'improving', positive: true }}
           />
         </div>
@@ -125,13 +125,13 @@ export default function HistoricalYieldPage() {
               {LINKS.map((line) => {
                 const point = latest[line.key as keyof SeasonPoint]
                 return (
-                  <div key={line.key} className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                  <div key={line.key} className="rounded-xl border border-line bg-canvas p-4">
                     <div className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: line.color }} />
-                      <p className="text-xs font-medium capitalize text-slate-400">{line.key}</p>
+                      <p className="text-xs font-medium capitalize text-ink-muted">{line.key}</p>
                     </div>
-                    <p className="mt-2 text-2xl font-semibold text-slate-100">{fmtNumber(point)}</p>
-                    <p className="text-[11px] text-slate-500">t/ha · {latest.year}</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">{fmtNumber(point)}</p>
+                    <p className="text-[11px] text-ink-subtle">t/ha · {latest.year}</p>
                   </div>
                 )
               })}

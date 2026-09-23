@@ -2,9 +2,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useAuth } from '@/context/AuthContext'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Eye, EyeOff, LogIn, Shield } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Eye, EyeOff, ShieldCheck, Waves } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import styles from './login.module.css'
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -15,8 +17,8 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     setError('')
     setLoading(true)
 
@@ -29,7 +31,7 @@ export default function LoginPage() {
       } else if (detail === 'access-pending') {
         router.push('/access-pending')
       } else {
-        setError(detail || 'Login failed')
+        setError(detail || 'We could not sign you in. Check your username and password, then try again.')
       }
     } finally {
       setLoading(false)
@@ -37,89 +39,147 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(56,189,248,0.06),_transparent_45%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.05),_transparent_40%)]" />
+    <main className={styles.page}>
+      <section className={styles.contextPanel} aria-labelledby="context-heading">
+        <Link href="/" className={styles.wordmark} aria-label="IBCP-SCADA home">
+          <span className={styles.wordmarkMark} aria-hidden="true">Σ</span>
+          <span>
+            <strong>IBCP-SCADA</strong>
+            <small>Indus Basin Operations</small>
+          </span>
+        </Link>
 
-      <div className="relative w-full max-w-md px-4">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/50 shadow-xl shadow-black/20 backdrop-blur p-8">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-sky-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-sky-500/20">
-              <Shield className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-semibold text-slate-100 mt-4">Welcome Back</h1>
-            <p className="text-slate-500 text-sm mt-1">Sign in to IBCP-SCADA Operations Console</p>
+        <div className={styles.contextCopy}>
+          <p className={styles.systemLabel}>
+            <Waves aria-hidden="true" />
+            Protected operations console
+          </p>
+          <h2 id="context-heading">One basin. One protected record.</h2>
+          <p>
+            Enter the same operational picture used to review water conditions,
+            forecasts and alerts across the Indus Basin.
+          </p>
+        </div>
+
+        <BasinTrace />
+
+        <p className={styles.securityNote}>
+          <ShieldCheck aria-hidden="true" />
+          Session access is role-scoped and recorded.
+        </p>
+      </section>
+
+      <section className={styles.formPanel} aria-labelledby="login-heading">
+        <Link href="/" className={styles.backLink}>
+          <ArrowLeft aria-hidden="true" />
+          Back to overview
+        </Link>
+
+        <div className={styles.formWrap}>
+          <div className={styles.formHeading}>
+            <p>Authorised access</p>
+            <h1 id="login-heading">Sign in to the console</h1>
+            <span>Use the username assigned to your operator account.</span>
           </div>
 
-          {/* Error */}
           {error && (
-            <div className="mb-4 p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-sm text-red-300">
+            <div className={styles.error} role="alert">
               {error}
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">
-                Username
-              </label>
+          <form onSubmit={handleSubmit} className={styles.form} aria-busy={loading}>
+            <div className={styles.field}>
+              <label htmlFor="username">Username</label>
               <input
+                id="username"
+                name="username"
                 type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/60 text-sm text-slate-200 placeholder-slate-600 focus:border-sky-500/50 focus:outline-none transition-colors"
-                placeholder="Enter your username"
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="admin"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 required
                 autoFocus
               />
             </div>
 
-            <div>
-              <label className="block text-[11px] font-medium uppercase tracking-wider text-slate-500 mb-1.5">
-                Password
-              </label>
-              <div className="relative">
+            <div className={styles.field}>
+              <label htmlFor="password">Password</label>
+              <div className={styles.passwordField}>
                 <input
+                  id="password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/60 text-sm text-slate-200 placeholder-slate-600 focus:border-sky-500/50 focus:outline-none transition-colors"
+                  onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter your password"
+                  autoComplete="current-password"
                   required
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  className={styles.visibilityButton}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
                 </button>
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-600 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 hover:from-sky-400 hover:to-cyan-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
+            <button type="submit" className={styles.submitButton} disabled={loading}>
+              {loading ? (
+                <>
+                  <span className={styles.spinner} aria-hidden="true" />
+                  Signing in…
+                </>
+              ) : (
+                <>
+                  Sign in
+                  <ArrowRight aria-hidden="true" />
+                </>
+              )}
             </button>
           </form>
 
-          {/* Demo credentials hint */}
-          <div className="mt-6 pt-4 border-t border-slate-800/70">
-            <p className="text-[11px] text-slate-600 text-center">
-              Demo: <span className="text-slate-500">admin / admin123</span> · <span className="text-slate-500">water / water123</span>
-            </p>
+          <div className={styles.demoAccess}>
+            <span>Local demonstration access</span>
+            <code>admin / admin123</code>
           </div>
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-[11px] text-slate-600 mt-6">
-          IBCP-SCADA · Indus Basin Cyber-Physical System
-        </p>
-      </div>
-    </div>
+        <p className={styles.formFooter}>IBCP-SCADA · Indus Basin Cyber-Physical System</p>
+      </section>
+    </main>
+  )
+}
+
+function BasinTrace() {
+  return (
+    <svg
+      className={styles.basinTrace}
+      viewBox="0 0 560 360"
+      role="img"
+      aria-label="Schematic trace of the Indus river network"
+    >
+      <g className={styles.traceGrid} aria-hidden="true">
+        <path d="M0 90H560M0 180H560M0 270H560" />
+        <path d="M112 0V360M224 0V360M336 0V360M448 0V360" />
+      </g>
+      <g className={styles.traceRivers} aria-hidden="true">
+        <path d="M269 8C252 59 283 82 272 128C262 169 298 190 289 229C281 268 310 300 322 353" />
+        <path d="M95 61C159 78 207 106 273 144" />
+        <path d="M484 73C421 91 367 123 293 166" />
+        <path d="M513 145C432 151 372 177 294 211" />
+        <path d="M477 235C409 219 357 231 296 249" />
+      </g>
+      {[58, 128, 212, 275, 326].map((y) => (
+        <circle key={y} className={styles.traceStation} cx={y === 58 ? 268 : 270 + y / 6} cy={y} r="5" />
+      ))}
+    </svg>
   )
 }

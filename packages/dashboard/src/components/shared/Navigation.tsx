@@ -18,14 +18,14 @@ export default function Navigation() {
   ]
 
   return (
-    <nav className="bg-white/80 backdrop-blur-sm border-b border-gray-200/50 px-4 py-3 sticky top-0 z-50">
+    <nav className="bg-white/80 backdrop-blur-sm border-b border-line px-4 py-3 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-md shadow-blue-500/25">
+            <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow-card">
               <LayoutDashboard className="w-4 h-4 text-white" />
             </div>
-            <span className="font-semibold text-gray-900 text-sm">IBCP-SCADA</span>
+            <span className="font-semibold text-ink text-sm">IBCP-SCADA</span>
           </div>
 
           <div className="hidden md:flex items-center gap-1">
@@ -38,11 +38,11 @@ export default function Navigation() {
                   href={item.href}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200
                     ${isActive 
-                      ? 'bg-blue-50 text-blue-700 shadow-sm' 
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      ? 'bg-brand-soft text-brand shadow-sm' 
+                      : 'text-ink-subtle hover:bg-surface hover:text-ink'
                     }`}
                 >
-                  <item.icon className={`w-4 h-4 ${isActive ? 'text-blue-500' : 'text-gray-400'}`} />
+                  <item.icon className={`w-4 h-4 ${isActive ? 'text-brand' : 'text-ink-muted'}`} />
                   <span>{item.name}</span>
                 </Link>
               )
@@ -51,12 +51,12 @@ export default function Navigation() {
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-600 hidden md:block">
+          <span className="text-sm text-ink-subtle hidden md:block">
             {user?.full_name || user?.username}
           </span>
           <button
             onClick={logout}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-crit hover:bg-crit-soft rounded-lg transition-colors"
           >
             <LogOut className="w-4 h-4" />
             <span className="hidden md:inline">Logout</span>

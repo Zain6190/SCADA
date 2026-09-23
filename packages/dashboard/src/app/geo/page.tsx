@@ -21,8 +21,8 @@ import { KpiCard } from '@/components/ui/kpi'
 import { cn } from '@/lib/utils'
 import { fmtNumber, fmtDate } from '@/lib/format'
 
-const VIOLET = 'bg-violet-500/10 text-violet-300'
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const VIOLET = 'bg-brand-soft text-brand'
+const AMBER = 'bg-warn-soft text-warn'
 
 interface DistrictScene {
   id: number
@@ -109,14 +109,14 @@ export default function GeoOverviewPage() {
             value={fmtNumber(meanNdwi, 2)}
             detail="Surface-water presence index"
             icon={Droplets}
-            accent="bg-sky-500/10 text-sky-300"
+            accent="bg-brand-soft text-brand"
           />
           <KpiCard
             label="Moisture Mean"
             value={`${fmtNumber(meanMoisture)}%`}
             detail="Topsoil moisture estimate"
             icon={Gauge}
-            accent="bg-emerald-500/10 text-emerald-300"
+            accent="bg-ok-soft text-ok"
           />
         </div>
 
@@ -164,7 +164,7 @@ export default function GeoOverviewPage() {
           <CardBody className="p-0">
             <div className="max-h-[460px] overflow-auto">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-slate-900 text-[11px] uppercase tracking-wider text-slate-500">
+                <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-ink-subtle">
                   <tr>
                     <Th>District</Th>
                     <Th>NDVI</Th>
@@ -174,19 +174,19 @@ export default function GeoOverviewPage() {
                     <Th>Acquired</Th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/70">
+                <tbody className="divide-y divide-line">
                   {scenes.map((s) => (
-                    <tr key={s.id} className="text-slate-300 hover:bg-slate-800/30">
+                    <tr key={s.id} className="text-ink-muted hover:bg-surface-alt">
                       <Td>
-                        <Link href={`/geo/regions`} className="font-medium text-slate-100 hover:text-violet-300">
+                        <Link href={`/geo/regions`} className="font-medium text-ink hover:text-brand">
                           {s.name}
                         </Link>
                       </Td>
-                      <Td><span className="font-semibold text-slate-100">{s.ndvi.toFixed(2)}</span></Td>
+                      <Td><span className="font-semibold text-ink">{s.ndvi.toFixed(2)}</span></Td>
                       <Td>{s.ndwi.toFixed(2)}</Td>
                       <Td><SeverityBadge severity={s.severity} /></Td>
                       <Td><Badge tone="slate">{s.satellite}</Badge></Td>
-                      <Td className="text-[11px] text-slate-500">{fmtDate(s.acquisitionDate)}</Td>
+                      <Td className="text-[11px] text-ink-subtle">{fmtDate(s.acquisitionDate)}</Td>
                     </tr>
                   ))}
                 </tbody>

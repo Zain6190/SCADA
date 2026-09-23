@@ -327,7 +327,7 @@ export function FloodArrivalMap({
     return ids
   }, [currentLevels, assetThresholds])
 
-  if (!mounted) return <div style={{ height }} className="rounded-2xl bg-slate-900" />
+  if (!mounted) return <div style={{ height }} className="rounded-2xl bg-surface" />
 
   return (
     <div className="relative overflow-hidden rounded-2xl" style={{ height }}>
@@ -336,7 +336,7 @@ export function FloodArrivalMap({
         <div className="absolute top-4 left-4 z-[1000]">
           <button
             onClick={() => onAssetClick(null)}
-            className="flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-slate-900/95 px-3 py-2 text-[11px] font-medium text-sky-400 backdrop-blur hover:bg-slate-800 hover:text-sky-300 transition-colors shadow-lg"
+            className="flex items-center gap-1.5 rounded-lg border border-brand/25 bg-surface px-3 py-2 text-[11px] font-medium text-brand backdrop-blur hover:bg-surface-alt hover:text-brand transition-colors shadow-lg"
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             Back to Overview
@@ -419,10 +419,10 @@ export function FloodArrivalMap({
                 <Tooltip>
                   <div className="space-y-0.5">
                     <p className="text-[11px] font-semibold">{ASSET_NAMES[seg.from_id]} → {ASSET_NAMES[seg.to_id]}</p>
-                    <p className="text-[10px] text-slate-500">{riverName} River</p>
+                    <p className="text-[10px] text-ink-subtle">{riverName} River</p>
                     <p className="text-[10px]">Travel: <span className="font-semibold">{seg.travel_time_hours}h</span></p>
                     <p className="text-[10px]">Distance: <span className="font-semibold">{seg.distance_km} km</span></p>
-                    <p className="text-[10px]">Pop: <span className="font-semibold text-amber-500">{(seg.population_exposed / 1000000).toFixed(1)}M</span></p>
+                    <p className="text-[10px]">Pop: <span className="font-semibold text-warn">{(seg.population_exposed / 1000000).toFixed(1)}M</span></p>
                   </div>
                 </Tooltip>
               }
@@ -483,7 +483,7 @@ export function FloodArrivalMap({
                 <Tooltip permanent direction="right" offset={[12, 0]} className="asset-label-tooltip">
                   <div>
                     <p className="text-[11px] font-bold m-0">{name}</p>
-                    <p className="text-[9px] text-slate-400 m-0">{type}</p>
+                    <p className="text-[9px] text-ink-muted m-0">{type}</p>
                     {currentLevels?.[id] != null && (
                       <p className="text-[10px] m-0">{currentLevels[id].toLocaleString()} {id <= 2 ? 'ft' : 'cusecs'}</p>
                     )}
@@ -500,7 +500,7 @@ export function FloodArrivalMap({
                 <div className="space-y-1.5 min-w-[180px]">
                   <div>
                     <p className="text-sm font-bold m-0">{name}</p>
-                    <p className="text-[10px] text-slate-400 m-0">{type}</p>
+                    <p className="text-[10px] text-ink-muted m-0">{type}</p>
                   </div>
                   {currentLevels?.[id] != null && (
                     <p className="text-[11px] m-0">Level: <span className="font-semibold">{currentLevels[id].toLocaleString()} {id <= 2 ? 'ft' : 'cusecs'}</span></p>
@@ -519,7 +519,7 @@ export function FloodArrivalMap({
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); if (onAssetClick) onAssetClick(id) }}
-                    className="w-full mt-1 rounded bg-sky-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-sky-600 cursor-pointer"
+                    className="w-full mt-1 rounded bg-brand px-2 py-1 text-[10px] font-medium text-white hover:bg-brand cursor-pointer"
                   >
                     Calculate Impact
                   </button>
@@ -548,7 +548,7 @@ export function FloodArrivalMap({
                   {isBridge && 'Bridge'}
                   {isHosp && 'Hospital'}
                   <br />
-                  <span className="text-[10px] text-slate-400">{marker.segment}</span>
+                  <span className="text-[10px] text-ink-muted">{marker.segment}</span>
                 </span>
               </Tooltip>
             </CircleMarker>
@@ -572,7 +572,7 @@ export function FloodArrivalMap({
               <Popup>
                 <div className="space-y-1 min-w-[160px]">
                   <p className="text-xs font-bold m-0">{w.station}</p>
-                  <p className="text-[10px] text-slate-400 m-0">{w.river}</p>
+                  <p className="text-[10px] text-ink-muted m-0">{w.river}</p>
                   <p className="text-[10px] m-0">Discharge: <span className="font-semibold">{w.discharge_cusecs?.toLocaleString()} cusecs</span></p>
                   <p className="text-[10px] m-0">Level: <span className="font-semibold">{w.level_ft} ft</span></p>
                   <p className="text-[10px] m-0">Status: <span className="font-semibold" style={{ color: severityColor }}>{w.severity}</span></p>
@@ -624,7 +624,7 @@ export function FloodArrivalMap({
               <Popup>
                 <div className="space-y-1 min-w-[160px]">
                   <p className="text-xs font-bold m-0">{marker.station_name}</p>
-                  <p className="text-[10px] text-slate-400 m-0">{marker.river_name}</p>
+                  <p className="text-[10px] text-ink-muted m-0">{marker.river_name}</p>
                   {marker.discharge_cusecs != null && <p className="text-[10px] m-0">Discharge: <span className="font-semibold">{marker.discharge_cusecs.toLocaleString()} cusecs</span></p>}
                   {marker.gauge_level_ft != null && <p className="text-[10px] m-0">Level: <span className="font-semibold">{marker.gauge_level_ft} ft</span></p>}
                   <p className="text-[10px] m-0">Status: <span className="font-semibold" style={{ color: statusColor }}>{marker.flood_status}</span></p>
