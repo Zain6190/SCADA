@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     removeToken()
     removeStoredUser()
     setUserState(null)
-    router.push('/login')
+    router.replace('/')
   }
 
   const hasPermission = (perm: string) => {
