@@ -1,4 +1,4 @@
-// packages/dashboard/src/app/page.tsx
+// packages/dashboard/src/app/portal/page.tsx
 // Command Center - a portal launcher (not a data dashboard). Each approved,
 // authenticated user may open it, but only sees the portal cards granted by
 // their role and permissions. Portal data lives in each portal, not here.

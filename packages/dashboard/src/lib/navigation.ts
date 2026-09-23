@@ -46,7 +46,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: 'command',
     title: 'Command',
     accent: 'text-slate-300',
-    items: [{ label: 'Command Center', href: '/', icon: LayoutDashboard, section: 'command' }],
+    items: [{ label: 'Command Center', href: '/portal', icon: LayoutDashboard, section: 'command' }],
   },
   {
     id: 'aqua',
@@ -129,6 +129,7 @@ export const SECTION_ACCENT: Record<NavSectionId, string> = {
 
 /** Root path segments that scope a page to its module/portal. */
 const MODULE_SEGMENT: Record<string, NavSectionId> = {
+  portal: 'command',
   water: 'aqua',
   crop: 'crop',
   geo: 'geo',
@@ -139,6 +140,7 @@ const MODULE_SEGMENT: Record<string, NavSectionId> = {
 
 /** The module/a portal a given path belongs to (or 'command' for the launcher). */
 export function moduleForPath(pathname: string): NavSectionId {
+  // '/' is the public landing page; the launcher lives at '/portal'.
   if (pathname === '/' || pathname === '') return 'command'
   const first = (pathname.split('/')[1] || '').toLowerCase()
   return MODULE_SEGMENT[first] ?? 'command'
@@ -159,7 +161,7 @@ export function pathIsActive(pathname: string, href: string): boolean {
 }
 
 export function findSectionForPath(pathname: string): NavSection | undefined {
-  if (pathname === '/') return NAV_SECTIONS[0]
+  if (pathname === '/portal') return NAV_SECTIONS[0]
   return NAV_SECTIONS.find((section) =>
     section.items.some((item) => pathIsActive(pathname, item.href))
   )

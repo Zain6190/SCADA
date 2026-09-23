@@ -49,7 +49,7 @@ function NavItemLink({
 function PortalSwitcher({ pathname, user }: { pathname: string; user: PortalUserLike | null }) {
   const modules = modulesForUser(user)
   const allPortals: { id: NavSectionId; label: string; href: string }[] = [
-    { id: 'command', label: 'Command Center', href: '/' },
+    { id: 'command', label: 'Command Center', href: '/portal' },
     { id: 'aqua', label: 'AquaVision', href: '/water' },
     { id: 'crop', label: 'Crop Yield', href: '/crop' },
     { id: 'geo', label: 'GeoVision', href: '/geo' },
