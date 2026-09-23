@@ -1,4 +1,6 @@
 // packages/dashboard/src/components/ui/card.tsx
+// Elevation comes from a hairline border, not a shadow. Compact padding:
+// 16px body, 12px header — an operator sees more rows per screen.
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 
@@ -10,12 +12,7 @@ export function Card({
   className?: string
 }) {
   return (
-    <div
-      className={cn(
-        'rounded-2xl border border-slate-800/80 bg-slate-900/50 shadow-lg shadow-black/20 backdrop-blur',
-        className
-      )}
-    >
+    <div className={cn('rounded-lg border border-line bg-surface shadow-card', className)}>
       {children}
     </div>
   )
@@ -37,21 +34,21 @@ export function CardHeader({
   className?: string
 }) {
   return (
-    <div className={cn('flex items-start justify-between gap-4 border-b border-slate-800/70 px-5 py-4', className)}>
+    <div className={cn('flex items-start justify-between gap-4 border-b border-line px-4 py-3', className)}>
       <div className="flex items-center gap-3">
         {icon && (
           <div
             className={cn(
-              'flex h-10 w-10 items-center justify-center rounded-xl',
-              accent || 'bg-sky-500/10 text-sky-300'
+              'flex h-9 w-9 items-center justify-center rounded',
+              accent || 'bg-brand-soft text-brand'
             )}
           >
             {icon}
           </div>
         )}
         <div>
-          <h3 className="text-sm font-semibold tracking-wide text-slate-200">{title}</h3>
-          {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+          <h3 className="text-sm font-semibold text-ink">{title}</h3>
+          {subtitle && <p className="mt-0.5 text-caption text-ink-subtle">{subtitle}</p>}
         </div>
       </div>
       {action}
@@ -60,5 +57,14 @@ export function CardHeader({
 }
 
 export function CardBody({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('p-5', className)}>{children}</div>
+  return <div className={cn('p-4', className)}>{children}</div>
+}
+
+/** Footer strip for card-level actions or provenance notes. */
+export function CardFooter({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn('flex items-center justify-between gap-3 border-t border-line bg-surface-alt/60 px-4 py-2.5', className)}>
+      {children}
+    </div>
+  )
 }

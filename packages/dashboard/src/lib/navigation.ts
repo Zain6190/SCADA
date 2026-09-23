@@ -45,13 +45,13 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     id: 'command',
     title: 'Command',
-    accent: 'text-slate-300',
+    accent: 'text-ink-subtle',
     items: [{ label: 'Command Center', href: '/portal', icon: LayoutDashboard, section: 'command' }],
   },
   {
     id: 'aqua',
     title: 'AquaVision · Water',
-    accent: 'text-sky-400',
+    accent: 'text-brand',
     items: [
       { label: 'Command Center', href: '/water/command-center', icon: LayoutDashboard, section: 'aqua', group: 'Operational' },
       { label: 'Operations', href: '/water/operator', icon: Workflow, section: 'aqua', group: 'Operational' },
@@ -73,7 +73,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     id: 'crop',
     title: 'Crop Yield · Agriculture',
-    accent: 'text-emerald-400',
+    accent: 'text-ok',
     items: [
       { label: 'Overview', href: '/crop', icon: Sprout, section: 'crop' },
       { label: 'Historical Yield', href: '/crop/historical', icon: BarChart3, section: 'crop' },
@@ -83,7 +83,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     id: 'geo',
     title: 'GeoVision · Remote Sensing',
-    accent: 'text-violet-400',
+    accent: 'text-ink-muted',
     items: [
       { label: 'Overview', href: '/geo', icon: Satellite, section: 'geo' },
       { label: 'NDVI Analysis', href: '/geo/ndvi', icon: Activity, section: 'geo' },
@@ -93,7 +93,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     id: 'system',
     title: 'System & Reports',
-    accent: 'text-amber-400',
+    accent: 'text-warn',
     items: [
       { label: 'Reports', href: '/reports', icon: Gauge, section: 'system' },
       { label: 'System Health', href: '/system', icon: ScrollText, section: 'system' },
@@ -106,7 +106,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     id: 'admin',
     title: 'Admin',
-    accent: 'text-amber-400',
+    accent: 'text-warn',
     items: [
       { label: 'Dashboard', href: '/admin', icon: Settings, section: 'admin' },
       { label: 'Pipelines', href: '/admin/pipelines', icon: Workflow, section: 'admin' },
@@ -119,12 +119,12 @@ export const NAV_SECTIONS: NavSection[] = [
 ]
 
 export const SECTION_ACCENT: Record<NavSectionId, string> = {
-  command: 'text-slate-300',
-  aqua: 'text-sky-400',
-  crop: 'text-emerald-400',
-  geo: 'text-violet-400',
-  system: 'text-amber-400',
-  admin: 'text-amber-400',
+  command: 'text-ink-subtle',
+  aqua: 'text-brand',
+  crop: 'text-ok',
+  geo: 'text-ink-muted',
+  system: 'text-warn',
+  admin: 'text-warn',
 }
 
 /** Root path segments that scope a page to its module/portal. */
