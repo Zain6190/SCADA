@@ -82,7 +82,7 @@ export default function SensorsPage() {
           title="Real-Time Sensors"
           description="Monitor live sensor data from IoT devices pushing to the ingestion API"
           icon={<Radio className="h-6 w-6" />}
-          accent="bg-emerald-500/10 text-emerald-300"
+          accent="bg-ok-soft text-ok"
         />
 
         {loading ? (
@@ -97,13 +97,13 @@ export default function SensorsPage() {
                 label="API Status"
                 value={status?.status || 'UNKNOWN'}
                 icon={Radio}
-                accent={status?.status === 'OPERATIONAL' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}
+                accent={status?.status === 'OPERATIONAL' ? 'bg-ok-soft text-ok' : 'bg-warn-soft text-warn'}
               />
               <KpiCard
                 label="Total Readings"
                 value={status?.total_readings || 0}
                 icon={ExternalLink}
-                accent="bg-sky-500/10 text-sky-300"
+                accent="bg-brand-soft text-brand"
               />
               <KpiCard
                 label="Latest Reading"
@@ -118,14 +118,14 @@ export default function SensorsPage() {
                 title="Test Sensor Ingestion"
                 subtitle="Send a test reading to verify the API endpoint is working"
                 icon={<Send className="h-5 w-5" />}
-                accent="bg-sky-500/10 text-sky-300"
+                accent="bg-brand-soft text-brand"
               />
               <CardBody>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={sendTestReading}
                     disabled={sending}
-                    className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm font-medium text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-soft px-4 py-2.5 text-sm font-medium text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
                   >
                     <Send className="h-4 w-4" />
                     {sending ? 'Sending...' : 'Send Test Reading'}
@@ -149,7 +149,7 @@ export default function SensorsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-800/70 text-[11px] uppercase tracking-wider text-slate-500">
+                      <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                         <th className="px-6 py-3 text-left font-semibold">ID</th>
                         <th className="px-6 py-3 text-left font-semibold">Asset</th>
                         <th className="px-6 py-3 text-left font-semibold">Type</th>
@@ -157,14 +157,14 @@ export default function SensorsPage() {
                         <th className="px-6 py-3 text-left font-semibold">Province</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/50">
+                    <tbody className="divide-y divide-line">
                       {assets.map(asset => (
-                        <tr key={asset.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="px-6 py-3 text-slate-400">{asset.id}</td>
-                          <td className="px-6 py-3 font-medium text-slate-200">{asset.canonical_name}</td>
-                          <td className="px-6 py-3 text-slate-400">{asset.asset_type}</td>
-                          <td className="px-6 py-3 text-slate-400">{asset.river}</td>
-                          <td className="px-6 py-3 text-slate-400">{asset.province}</td>
+                        <tr key={asset.id} className="hover:bg-surface-alt transition-colors">
+                          <td className="px-6 py-3 text-ink-muted">{asset.id}</td>
+                          <td className="px-6 py-3 font-medium text-ink">{asset.canonical_name}</td>
+                          <td className="px-6 py-3 text-ink-muted">{asset.asset_type}</td>
+                          <td className="px-6 py-3 text-ink-muted">{asset.river}</td>
+                          <td className="px-6 py-3 text-ink-muted">{asset.province}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -180,12 +180,12 @@ export default function SensorsPage() {
                 icon={<ExternalLink className="h-5 w-5" />}
               />
               <CardBody>
-                <div className="rounded-xl bg-slate-950/50 p-4 font-mono text-xs">
-                  <div className="text-emerald-400 font-semibold">POST</div>
-                  <div className="mt-1 text-slate-300">{API}/water/sensors/ingest</div>
-                  <div className="mt-2 text-slate-600">{'{ "readings": [...], "source": "SENSOR_API" }'}</div>
+                <div className="rounded-xl bg-canvas p-4 font-mono text-xs">
+                  <div className="text-ok font-semibold">POST</div>
+                  <div className="mt-1 text-ink-muted">{API}/water/sensors/ingest</div>
+                  <div className="mt-2 text-ink-subtle">{'{ "readings": [...], "source": "SENSOR_API" }'}</div>
                 </div>
-                <div className="mt-3 text-xs text-slate-500 space-y-1">
+                <div className="mt-3 text-xs text-ink-subtle space-y-1">
                   <p>Fields: asset_id (required), timestamp (required), water_level_ft, inflow_cusecs, outflow_cusecs, discharge_cusecs, sensor_id</p>
                   <p>Max batch size: 100 readings per request</p>
                 </div>

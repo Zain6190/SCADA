@@ -79,9 +79,9 @@ export default function StressAlertsPage() {
           title="Water Stress Alerts"
           description="Region-level WAI alerts from the prediction pipeline"
           icon={<AlertTriangle className="h-6 w-6" />}
-          accent="bg-amber-500/10 text-amber-300"
+          accent="bg-warn-soft text-warn"
           action={
-            <button onClick={loadAlerts} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2 text-sm text-slate-300 transition-colors hover:border-sky-500/40 hover:text-sky-300">
+            <button onClick={loadAlerts} className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2 text-sm text-ink-muted transition-colors hover:border-brand/25 hover:text-brand">
               Refresh
             </button>
           }
@@ -94,8 +94,8 @@ export default function StressAlertsPage() {
             {/* Filters */}
             <div className="flex flex-wrap gap-3">
               <div>
-                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500">Status</label>
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2.5 text-sm text-slate-300 focus:border-sky-500/50 focus:outline-none">
+                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">Status</label>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2.5 text-sm text-ink-muted focus:border-brand/25 focus:outline-none">
                   <option value="">All Status</option>
                   <option value="New">New</option>
                   <option value="Acknowledged">Acknowledged</option>
@@ -103,8 +103,8 @@ export default function StressAlertsPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500">Severity</label>
-                <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-2.5 text-sm text-slate-300 focus:border-sky-500/50 focus:outline-none">
+                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">Severity</label>
+                <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value)} className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2.5 text-sm text-ink-muted focus:border-brand/25 focus:outline-none">
                   <option value="">All Severity</option>
                   <option value="Critical">Critical</option>
                   <option value="Severe">Severe</option>
@@ -115,8 +115,8 @@ export default function StressAlertsPage() {
 
             {/* Summary */}
             <div className="flex gap-4 text-sm">
-              <span className="text-slate-500">Active: <strong className="text-slate-200">{activeAlerts.length}</strong></span>
-              <span className="text-slate-500">Resolved: <strong className="text-slate-400">{resolvedAlerts.length}</strong></span>
+              <span className="text-ink-subtle">Active: <strong className="text-ink">{activeAlerts.length}</strong></span>
+              <span className="text-ink-subtle">Resolved: <strong className="text-ink-muted">{resolvedAlerts.length}</strong></span>
             </div>
 
             {alerts.length === 0 ? (
@@ -129,45 +129,45 @@ export default function StressAlertsPage() {
                       <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className="font-bold text-slate-100">{alert.region_name || `Region ${alert.region_id}`}</span>
+                            <span className="font-bold text-ink">{alert.region_name || `Region ${alert.region_id}`}</span>
                             <Badge tone={SEVERITY_TONE[alert.severity] || 'slate'}>{alert.severity}</Badge>
                             <Badge tone={STATUS_TONE[alert.status] || 'slate'}>{alert.status}</Badge>
-                            <span className="text-sm text-slate-400">{ALERT_LABELS[alert.alert_type] || alert.alert_type}</span>
+                            <span className="text-sm text-ink-muted">{ALERT_LABELS[alert.alert_type] || alert.alert_type}</span>
                           </div>
 
                           {/* WAI Metrics */}
                           <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
                             {alert.wai_score != null && (
-                              <span className="text-slate-500">
-                                WAI: <strong className="font-mono text-slate-200">{alert.wai_score.toFixed(1)}</strong>
+                              <span className="text-ink-subtle">
+                                WAI: <strong className="font-mono text-ink">{alert.wai_score.toFixed(1)}</strong>
                               </span>
                             )}
                             {alert.rainfall_anomaly != null && (
-                              <span className="text-slate-500">
-                                Rainfall: <strong className={`font-mono ${alert.rainfall_anomaly < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                              <span className="text-ink-subtle">
+                                Rainfall: <strong className={`font-mono ${alert.rainfall_anomaly < 0 ? 'text-crit' : 'text-ok'}`}>
                                   {alert.rainfall_anomaly > 0 ? '+' : ''}{alert.rainfall_anomaly.toFixed(1)}%
                                 </strong>
                               </span>
                             )}
                             {alert.et_anomaly != null && (
-                              <span className="text-slate-500">
-                                ET: <strong className={`font-mono ${alert.et_anomaly > 25 ? 'text-amber-400' : 'text-slate-200'}`}>
+                              <span className="text-ink-subtle">
+                                ET: <strong className={`font-mono ${alert.et_anomaly > 25 ? 'text-warn' : 'text-ink'}`}>
                                   {alert.et_anomaly > 0 ? '+' : ''}{alert.et_anomaly.toFixed(1)}%
                                 </strong>
                               </span>
                             )}
                             {alert.confidence != null && (
-                              <span className="text-slate-500">
-                                Confidence: <strong className="font-mono text-slate-200">{(alert.confidence * 100).toFixed(0)}%</strong>
+                              <span className="text-ink-subtle">
+                                Confidence: <strong className="font-mono text-ink">{(alert.confidence * 100).toFixed(0)}%</strong>
                               </span>
                             )}
                           </div>
 
                           {alert.notes && (
-                            <p className="mt-2 text-xs text-slate-500 italic">{alert.notes}</p>
+                            <p className="mt-2 text-xs text-ink-subtle italic">{alert.notes}</p>
                           )}
 
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-slate-600">
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-ink-subtle">
                             <span>Week: {alert.week_start_date}</span>
                             <span>Created: {fmtDateTime(alert.created_at)}</span>
                             {alert.acknowledged_at && <span>Acked: {fmtDateTime(alert.acknowledged_at)}</span>}
@@ -178,12 +178,12 @@ export default function StressAlertsPage() {
                         {/* Actions */}
                         <div className="flex flex-col items-end gap-3 sm:min-w-[120px]">
                           {alert.status === 'New' && (
-                            <button onClick={() => handleAck(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/20">
+                            <button onClick={() => handleAck(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
                               <CheckCircle className="h-3.5 w-3.5" /> Acknowledge
                             </button>
                           )}
                           {alert.status !== 'Resolved' && (
-                            <button onClick={() => handleResolve(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20">
+                            <button onClick={() => handleResolve(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-ok/25 bg-ok-soft px-3 py-1.5 text-xs font-medium text-ok transition-colors hover:bg-ok-soft">
                               <CheckCircle className="h-3.5 w-3.5" /> Resolve
                             </button>
                           )}

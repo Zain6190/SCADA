@@ -65,28 +65,28 @@ function RegionTable({
         title={title}
         subtitle={`${rows.length} regions`}
         icon={<MapPin className="h-5 w-5" />}
-        accent="bg-sky-500/10 text-sky-300"
+        accent="bg-brand-soft text-brand"
         action={openAlertCount > 0 ? <Badge tone="amber">{openAlertCount} open alerts</Badge> : undefined}
       />
       <CardBody className="p-0">
         <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 bg-slate-900 text-[11px] uppercase tracking-wider text-slate-500">
+          <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-ink-subtle">
             <tr>
               <Th>Name</Th>
               <Th>Code</Th>
               <Th></Th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/70">
+          <tbody className="divide-y divide-line">
             {rows.map((r) => (
-              <tr key={r.id} className="text-slate-300 hover:bg-slate-800/30">
+              <tr key={r.id} className="text-ink-muted hover:bg-surface-alt">
                 <Td>
-                  <Link href={`/water/regions/${r.id}`} className="font-medium text-slate-100 hover:text-sky-300">
+                  <Link href={`/water/regions/${r.id}`} className="font-medium text-ink hover:text-brand">
                     {r.name}
                   </Link>
                 </Td>
                 <Td><Badge tone="slate">{r.code || '\u2014'}</Badge></Td>
-                <Td className="text-right text-[11px] text-slate-500">
+                <Td className="text-right text-[11px] text-ink-subtle">
                   <Link href={`/water/regions/${r.id}`}>View →</Link>
                 </Td>
               </tr>

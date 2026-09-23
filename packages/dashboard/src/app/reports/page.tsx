@@ -25,7 +25,7 @@ import { PERMISSIONS } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
 import type { WaterReport } from '@/features/water/types'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -116,7 +116,7 @@ export default function ReportsPage() {
               <button
                 onClick={handleGenerate}
                 disabled={busy}
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-500/20 px-4 py-2 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-warn-soft px-4 py-2 text-xs font-medium text-warn transition-colors hover:bg-warn-soft disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {generateReport.isPending ? (
                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -130,7 +130,7 @@ export default function ReportsPage() {
         />
 
         {exportError && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          <div className="rounded-xl border border-crit/25 bg-crit-soft px-4 py-3 text-xs text-crit">
             {exportError}
           </div>
         )}
@@ -171,18 +171,18 @@ export default function ReportsPage() {
             title="Data Exports"
             subtitle={canExport ? 'Download raw indicators as CSV or GeoJSON (access-level filtered)' : 'AQUAVISION_EXPORT required'}
             icon={<Layers className="h-5 w-5" />}
-            accent={canExport ? AMBER : 'bg-slate-500/10 text-slate-400'}
+            accent={canExport ? AMBER : 'bg-surface-sunken text-ink-muted'}
           />
           <CardBody className="space-y-4">
             {!canExport ? (
-              <div className="flex items-center gap-3 text-sm text-slate-500">
-                <ShieldCheck className="h-5 w-5 text-slate-600" />
+              <div className="flex items-center gap-3 text-sm text-ink-subtle">
+                <ShieldCheck className="h-5 w-5 text-ink-subtle" />
                 Your role does not include export privileges.{' '}
                 {user?.role ?? 'Viewer'} accounts can browse the archive but not download data.
               </div>
             ) : (
               <>
-                <p className="text-xs leading-5 text-slate-500">
+                <p className="text-xs leading-5 text-ink-subtle">
                   Exports honour your geographic scope and access level — viewer-level
                   accounts never receive rainfall/ET analysis fields, even in bulk files.
                 </p>
@@ -244,7 +244,7 @@ export default function ReportsPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800/70 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                       <th className="px-5 py-3 font-medium">Title</th>
                       <th className="px-5 py-3 font-medium">Week</th>
                       <th className="px-5 py-3 font-medium">Scope</th>
@@ -253,7 +253,7 @@ export default function ReportsPage() {
                       <th className="px-5 py-3 font-medium">File</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-line">
                     {reports.map((report) => (
                       <ReportRow
                         key={report.id}
@@ -296,8 +296,8 @@ function ExportButton({
       className={cn(
         'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         active
-          ? 'bg-amber-500/30 text-amber-200'
-          : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+          ? 'bg-warn-soft text-warn'
+          : 'bg-warn-soft text-warn hover:bg-warn-soft'
       )}
     >
       {active ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : icon}
@@ -318,26 +318,26 @@ function ReportRow({
   const done = /generated|success|done|complete/i.test(report.status)
   const hasFile = !!report.file_path && done
   return (
-    <tr className="transition-colors hover:bg-slate-800/20">
-      <td className="px-5 py-3 font-medium text-slate-200">{report.title}</td>
-      <td className="px-5 py-3 text-slate-400">{fmtDate(report.week_start_date)}</td>
+    <tr className="transition-colors hover:bg-surface-alt">
+      <td className="px-5 py-3 font-medium text-ink">{report.title}</td>
+      <td className="px-5 py-3 text-ink-muted">{fmtDate(report.week_start_date)}</td>
       <td className="px-5 py-3"><Badge tone="slate">{report.scope}</Badge></td>
       <td className="px-5 py-3">
         <Badge tone={done ? 'emerald' : 'amber'}>{report.status}</Badge>
       </td>
-      <td className="px-5 py-3 font-mono text-xs text-slate-500">{fmtDateTime(report.generated_at)}</td>
+      <td className="px-5 py-3 font-mono text-xs text-ink-subtle">{fmtDateTime(report.generated_at)}</td>
       <td className="px-5 py-3">
         {hasFile ? (
           <button
             onClick={onDownload}
             disabled={disabled}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-warn/25 bg-warn-soft px-2.5 py-1 text-xs font-medium text-warn transition-colors hover:bg-warn-soft disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
             PDF
           </button>
         ) : (
-          <span className="text-xs text-slate-600">—</span>
+          <span className="text-xs text-ink-subtle">—</span>
         )}
       </td>
     </tr>

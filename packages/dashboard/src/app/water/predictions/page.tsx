@@ -16,17 +16,17 @@ import { fmtDateTime } from '@/lib/format'
 import V2PredictionsTab from './v2-tab'
 
 const RISK_COLORS: Record<string, string> = {
-  NORMAL: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  WATCH: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-  WARNING: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  CRITICAL: 'bg-red-500/15 text-red-300 border-red-500/30',
+  NORMAL: 'bg-ok-soft text-ok border-ok/25',
+  WATCH: 'bg-brand-soft text-brand border-brand/25',
+  WARNING: 'bg-warn-soft text-warn border-warn/25',
+  CRITICAL: 'bg-crit-soft text-crit border-crit/25',
 }
 
 const RISK_DOT: Record<string, string> = {
-  NORMAL: 'bg-emerald-400',
-  WATCH: 'bg-sky-400',
-  WARNING: 'bg-amber-400',
-  CRITICAL: 'bg-red-400',
+  NORMAL: 'bg-ok',
+  WATCH: 'bg-brand',
+  WARNING: 'bg-warn',
+  CRITICAL: 'bg-crit',
 }
 
 const SEVERITY_TONE: Record<string, 'red' | 'amber' | 'sky' | 'emerald' | 'slate'> = {
@@ -63,13 +63,13 @@ export default function PredictionsPage() {
         />
 
         {/* Tabs */}
-        <div className="flex gap-1 rounded-xl border border-slate-700 bg-slate-800/40 p-1 w-fit">
+        <div className="flex gap-1 rounded-xl border border-line-strong bg-surface-alt p-1 w-fit">
           <button
             onClick={() => setTab('v2')}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'v2'
-                ? 'bg-sky-500/15 text-sky-300'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-brand-soft text-brand'
+                : 'text-ink-muted hover:text-ink'
             }`}
           >
             <Zap className="mr-1.5 inline h-4 w-4" />
@@ -79,8 +79,8 @@ export default function PredictionsPage() {
             onClick={() => setTab('flood')}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'flood'
-                ? 'bg-sky-500/15 text-sky-300'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-brand-soft text-brand'
+                : 'text-ink-muted hover:text-ink'
             }`}
           >
             <Cpu className="mr-1.5 inline h-4 w-4" />
@@ -90,8 +90,8 @@ export default function PredictionsPage() {
             onClick={() => setTab('wai')}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'wai'
-                ? 'bg-sky-500/15 text-sky-300'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-brand-soft text-brand'
+                : 'text-ink-muted hover:text-ink'
             }`}
           >
             <TrendingUp className="mr-1.5 inline h-4 w-4" />
@@ -133,7 +133,7 @@ function FloodPredictionsTab() {
   return (
     <>
       {trainMutation.isSuccess && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <div className="rounded-xl border border-ok/25 bg-ok-soft px-4 py-3 text-sm text-ok">
           Training complete: {trainMutation.data.models_trained} models trained.
         </div>
       )}
@@ -141,24 +141,24 @@ function FloodPredictionsTab() {
       {/* Model Health Summary */}
       {metadata && (
         <div className="grid gap-3 sm:grid-cols-4">
-          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-            <div className="text-[10px] font-semibold uppercase text-slate-500">Model Version</div>
-            <div className="mt-1 font-mono text-sm font-bold text-slate-200">{metadata.model_version}</div>
+          <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
+            <div className="text-[10px] font-semibold uppercase text-ink-subtle">Model Version</div>
+            <div className="mt-1 font-mono text-sm font-bold text-ink">{metadata.model_version}</div>
           </div>
-          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-            <div className="text-[10px] font-semibold uppercase text-slate-500">Total Model Files</div>
-            <div className="mt-1 text-sm font-bold text-slate-200">{modelStatus?.total_files ?? '—'}</div>
+          <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
+            <div className="text-[10px] font-semibold uppercase text-ink-subtle">Total Model Files</div>
+            <div className="mt-1 text-sm font-bold text-ink">{modelStatus?.total_files ?? '—'}</div>
           </div>
-          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-            <div className="text-[10px] font-semibold uppercase text-slate-500">Weather Features</div>
+          <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
+            <div className="text-[10px] font-semibold uppercase text-ink-subtle">Weather Features</div>
             <div className="mt-1">
               <Badge tone={metadata.weather_features ? 'emerald' : 'slate'}>
                 {metadata.weather_features ? 'Enabled' : 'Disabled'}
               </Badge>
             </div>
           </div>
-          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-            <div className="text-[10px] font-semibold uppercase text-slate-500">Log Transform</div>
+          <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
+            <div className="text-[10px] font-semibold uppercase text-ink-subtle">Log Transform</div>
             <div className="mt-1">
               <Badge tone={metadata.log_transform ? 'emerald' : 'slate'}>
                 {metadata.log_transform ? 'Active' : 'Off'}
@@ -176,7 +176,7 @@ function FloodPredictionsTab() {
         <button
           onClick={() => trainMutation.mutate()}
           disabled={trainMutation.isPending}
-          className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand border border-brand/25 hover:bg-brand-soft transition disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
           {trainMutation.isPending ? 'Training...' : 'Retrain Models'}
@@ -219,8 +219,8 @@ function PredictionCard({
   const assetMeta = metadata?.assets?.[String(assetId)]
   const targetField = pred?.target_field ?? 'level'
   const dotColor = targetField === 'level'
-    ? (RISK_DOT[pred?.risk_level] ?? 'bg-slate-500')
-    : 'bg-emerald-500'
+    ? (RISK_DOT[pred?.risk_level] ?? 'bg-surface-sunken')
+    : 'bg-ok'
 
   return (
     <Card>
@@ -234,15 +234,15 @@ function PredictionCard({
             pred ? (
               <div className={`h-3 w-3 rounded-full ${dotColor}`} />
             ) : (
-              <Cpu className="h-5 w-5 text-slate-500" />
+              <Cpu className="h-5 w-5 text-ink-subtle" />
             )
           }
-          accent={pred ? RISK_COLORS[pred.risk_level] ?? 'bg-slate-500/15 text-slate-300' : 'bg-slate-500/15 text-slate-500'}
+          accent={pred ? RISK_COLORS[pred.risk_level] ?? 'bg-surface-sunken text-ink-muted' : 'bg-surface-sunken text-ink-subtle'}
         />
       </button>
 
       {isExpanded && (
-        <CardBody className="border-t border-slate-800/70 pt-4">
+        <CardBody className="border-t border-line pt-4">
           {isPending ? (
             <Spinner />
           ) : isError ? (
@@ -284,14 +284,14 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
     <div className="space-y-3 text-xs">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <div className="text-slate-500">{valueLabel}</div>
-          <div className="text-lg font-bold text-slate-100">
+          <div className="text-ink-subtle">{valueLabel}</div>
+          <div className="text-lg font-bold text-ink">
             {predictedValue != null ? predictedValue.toLocaleString() : '—'}
           </div>
         </div>
         <div>
-          <div className="text-slate-500">Prediction Interval</div>
-          <div className="font-medium text-slate-300">
+          <div className="text-ink-subtle">Prediction Interval</div>
+          <div className="font-medium text-ink-muted">
             {pred.lower_bound != null ? pred.lower_bound.toLocaleString() : '—'}
             {' — '}
             {pred.upper_bound != null ? pred.upper_bound.toLocaleString() : '—'}
@@ -300,16 +300,16 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
         {targetField === 'level' ? (
           <>
             <div>
-              <div className="text-slate-500">Risk Score</div>
+              <div className="text-ink-subtle">Risk Score</div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-100">{pred.risk_score}/100</span>
+                <span className="font-bold text-ink">{pred.risk_score}/100</span>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${RISK_COLORS[pred.risk_level] ?? ''}`}>
                   {pred.risk_level}
                 </span>
               </div>
             </div>
             <div>
-              <div className="text-slate-500">Status</div>
+              <div className="text-ink-subtle">Status</div>
               <Badge tone="amber">
                 <FlaskConical className="mr-1 inline h-3 w-3" />
                 {pred.model_status}
@@ -319,11 +319,11 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
         ) : (
           <>
             <div>
-              <div className="text-slate-500">Model Type</div>
-              <div className="font-medium text-slate-300 capitalize">{targetField} Prediction</div>
+              <div className="text-ink-subtle">Model Type</div>
+              <div className="font-medium text-ink-muted capitalize">{targetField} Prediction</div>
             </div>
             <div>
-              <div className="text-slate-500">Status</div>
+              <div className="text-ink-subtle">Status</div>
               <Badge tone="amber">
                 <FlaskConical className="mr-1 inline h-3 w-3" />
                 {pred.model_status}
@@ -355,43 +355,43 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
       </div>
 
       {/* Weather Context Indicator */}
-      <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-2">
-        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-sky-400">
+      <div className="rounded-lg border border-brand/25 bg-brand-soft p-2">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-brand">
           <TrendingUp className="h-3 w-3" />
           Weather Context
         </div>
         <div className="mt-1 grid grid-cols-3 gap-2 text-[10px]">
           <div>
-            <div className="text-slate-500">7-Day Precip</div>
-            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_precip_7d ? 'Included' : 'N/A'}</div>
+            <div className="text-ink-subtle">7-Day Precip</div>
+            <div className="font-mono text-ink-muted">{pred.feature_importance?.forecast_precip_7d ? 'Included' : 'N/A'}</div>
           </div>
           <div>
-            <div className="text-slate-500">Max Temp</div>
-            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_temp_max ? 'Included' : 'N/A'}</div>
+            <div className="text-ink-subtle">Max Temp</div>
+            <div className="font-mono text-ink-muted">{pred.feature_importance?.forecast_temp_max ? 'Included' : 'N/A'}</div>
           </div>
           <div>
-            <div className="text-slate-500">Humidity</div>
-            <div className="font-mono text-slate-300">{pred.feature_importance?.forecast_humidity_mean ? 'Included' : 'N/A'}</div>
+            <div className="text-ink-subtle">Humidity</div>
+            <div className="font-mono text-ink-muted">{pred.feature_importance?.forecast_humidity_mean ? 'Included' : 'N/A'}</div>
           </div>
         </div>
       </div>
 
       {topFeatures.length > 0 && (
         <div>
-          <div className="mb-1 text-slate-500">Top Features</div>
+          <div className="mb-1 text-ink-subtle">Top Features</div>
           <div className="space-y-1">
             {topFeatures.map(([name, importance]) => (
               <div key={name} className="flex items-center gap-2">
-                <div className="h-1.5 rounded-full bg-violet-500/30" style={{ width: `${importance * 100}%`, minWidth: 4 }} />
-                <span className="text-slate-400">{name}</span>
-                <span className="ml-auto text-slate-600">{(importance * 100).toFixed(1)}%</span>
+                <div className="h-1.5 rounded-full bg-brand-soft" style={{ width: `${importance * 100}%`, minWidth: 4 }} />
+                <span className="text-ink-muted">{name}</span>
+                <span className="ml-auto text-ink-subtle">{(importance * 100).toFixed(1)}%</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div className="text-slate-600">
+      <div className="text-ink-subtle">
         Model: {pred.model_version} | {pred.model_status} | {pred.prediction_date}
       </div>
     </div>
@@ -405,15 +405,15 @@ function ModelHealthBar({ assetMeta }: { assetMeta: any }) {
   if (entries.length === 0) return null
 
   return (
-    <div className="mt-3 border-t border-slate-800/50 pt-3">
-      <div className="mb-2 text-[10px] font-semibold uppercase text-slate-500">Trained Models</div>
+    <div className="mt-3 border-t border-line pt-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase text-ink-subtle">Trained Models</div>
       <div className="space-y-1">
         {entries.map(([key, m]: [string, any]) => (
-          <div key={key} className="flex items-center justify-between rounded bg-slate-800/30 px-2 py-1 text-[10px]">
-            <span className="text-slate-400">{m.model_type} ({m.horizon}d)</span>
+          <div key={key} className="flex items-center justify-between rounded bg-surface-alt px-2 py-1 text-[10px]">
+            <span className="text-ink-muted">{m.model_type} ({m.horizon}d)</span>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500">R²={m.r2?.toFixed(3) ?? '—'}</span>
-              <span className="text-slate-500">MAE={m.mae?.toFixed(2) ?? '—'}</span>
+              <span className="text-ink-subtle">R²={m.r2?.toFixed(3) ?? '—'}</span>
+              <span className="text-ink-subtle">MAE={m.mae?.toFixed(2) ?? '—'}</span>
             </div>
           </div>
         ))}
@@ -442,7 +442,7 @@ function WAIPredictionsTab() {
     <div className="space-y-4">
       {xgbPreds.length > 0 && (
         <div>
-          <h3 className="mb-3 text-sm font-semibold text-slate-300">XGBoost Next-Month Forecasts</h3>
+          <h3 className="mb-3 text-sm font-semibold text-ink-muted">XGBoost Next-Month Forecasts</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {xgbPreds.map(pred => (
               <WAIPredictionCard key={pred.id} pred={pred} />
@@ -453,7 +453,7 @@ function WAIPredictionsTab() {
 
       {otherPreds.length > 0 && (
         <div>
-          <h3 className="mb-3 text-sm font-semibold text-slate-400">Historical Predictions</h3>
+          <h3 className="mb-3 text-sm font-semibold text-ink-muted">Historical Predictions</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {otherPreds.slice(0, 14).map(pred => (
               <WAIPredictionCard key={pred.id} pred={pred} />
@@ -471,25 +471,25 @@ function WAIPredictionCard({ pred }: { pred: WAIPrediction }) {
     <Card>
       <div className="p-4">
         <div className="flex items-start justify-between mb-2">
-          <span className="font-bold text-slate-100">Region {pred.region_id}</span>
+          <span className="font-bold text-ink">Region {pred.region_id}</span>
           <Badge tone={tone}>{pred.predicted_severity}</Badge>
         </div>
         <div className="space-y-1 text-xs">
           <div className="flex justify-between">
-            <span className="text-slate-500">WAI Score</span>
-            <span className="font-mono font-bold text-slate-200">{pred.predicted_wai_score.toFixed(1)}</span>
+            <span className="text-ink-subtle">WAI Score</span>
+            <span className="font-mono font-bold text-ink">{pred.predicted_wai_score.toFixed(1)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Confidence</span>
-            <span className="font-mono text-slate-300">{(pred.confidence * 100).toFixed(0)}%</span>
+            <span className="text-ink-subtle">Confidence</span>
+            <span className="font-mono text-ink-muted">{(pred.confidence * 100).toFixed(0)}%</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Target</span>
-            <span className="text-slate-400">{pred.target_week_start_date}</span>
+            <span className="text-ink-subtle">Target</span>
+            <span className="text-ink-muted">{pred.target_week_start_date}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Model</span>
-            <span className="text-slate-400">{pred.model_version}</span>
+            <span className="text-ink-subtle">Model</span>
+            <span className="text-ink-muted">{pred.model_version}</span>
           </div>
         </div>
       </div>

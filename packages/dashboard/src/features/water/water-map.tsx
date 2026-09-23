@@ -56,8 +56,8 @@ function FeaturePolygons({
         >
           <Tooltip>
             <div className="p-1">
-              <p className="text-sm font-semibold text-slate-900">{feature.name}</p>
-              <p className="text-xs text-slate-700">
+              <p className="text-sm font-semibold text-ink">{feature.name}</p>
+              <p className="text-xs text-ink-muted">
                 WAI {feature.waiScore ?? '—'} · {style.label}
               </p>
             </div>
@@ -111,7 +111,7 @@ export function WaterMap({ features, height = 520, onSelect }: WaterMapProps) {
   if (!mounted) return <div style={{ height }} />
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-800" style={{ height }}>
+    <div className="relative overflow-hidden rounded-2xl border border-line" style={{ height }}>
       <MapContainer
         center={[30.0, 69.35]}
         zoom={5}

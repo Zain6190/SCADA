@@ -15,17 +15,17 @@ import type { MLAnomaly } from '@/features/water/types'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 const SEVERITY_COLORS: Record<string, string> = {
-  HIGH: 'bg-red-500/15 text-red-300 border border-red-500/30',
-  MODERATE: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
-  LOW: 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
-  NORMAL: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+  HIGH: 'bg-crit-soft text-crit border border-crit/25',
+  MODERATE: 'bg-warn-soft text-warn border border-warn/25',
+  LOW: 'bg-brand-soft text-brand border border-brand/25',
+  NORMAL: 'bg-ok-soft text-ok border border-ok/25',
 }
 
 const SEVERITY_DOT: Record<string, string> = {
-  HIGH: 'bg-red-400',
-  MODERATE: 'bg-amber-400',
-  LOW: 'bg-sky-400',
-  NORMAL: 'bg-emerald-400',
+  HIGH: 'bg-crit',
+  MODERATE: 'bg-warn',
+  LOW: 'bg-brand',
+  NORMAL: 'bg-ok',
 }
 
 const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
@@ -55,7 +55,7 @@ export default function AnomaliesPage() {
               <button
                 onClick={() => trainMutation.mutate()}
                 disabled={trainMutation.isPending}
-                className="flex items-center gap-1.5 rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-medium text-red-300 border border-red-500/30 hover:bg-red-500/25 transition disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg bg-crit-soft px-3 py-1.5 text-xs font-medium text-crit border border-crit/25 hover:bg-crit-soft transition disabled:opacity-50"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${trainMutation.isPending ? 'animate-spin' : ''}`} />
                 {trainMutation.isPending ? 'Training...' : 'Retrain Detectors'}
@@ -65,7 +65,7 @@ export default function AnomaliesPage() {
         />
 
         {trainMutation.isSuccess && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          <div className="rounded-xl border border-ok/25 bg-ok-soft px-4 py-3 text-sm text-ok">
             Training complete: {trainMutation.data.models_trained} detectors trained.
           </div>
         )}
@@ -122,15 +122,15 @@ function AnomalyCard({
             hasAnomalies ? (
               <div className={`h-3 w-3 rounded-full ${SEVERITY_DOT[worstSeverity]}`} />
             ) : (
-              <ShieldAlert className="h-5 w-5 text-slate-500" />
+              <ShieldAlert className="h-5 w-5 text-ink-subtle" />
             )
           }
-          accent={SEVERITY_COLORS[worstSeverity] ?? 'bg-slate-500/15 text-slate-500'}
+          accent={SEVERITY_COLORS[worstSeverity] ?? 'bg-surface-sunken text-ink-subtle'}
         />
       </button>
 
       {isExpanded && (
-        <CardBody className="border-t border-slate-800/70 pt-4">
+        <CardBody className="border-t border-line pt-4">
           {isPending ? (
             <Spinner />
           ) : isError ? (
@@ -155,18 +155,18 @@ function AnomalyRow({ anomaly }: { anomaly: MLAnomaly }) {
   const dateStr = anomaly.observed_at.split('T')[0]
 
   return (
-    <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
+    <div className="rounded-xl border border-line bg-surface p-3">
       <button onClick={() => setOpen(!open)} className="w-full text-left">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${SEVERITY_COLORS[anomaly.severity]}`}>
               {anomaly.severity}
             </span>
-            <span className="text-xs text-slate-300">{dateStr}</span>
+            <span className="text-xs text-ink-muted">{dateStr}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">score: {anomaly.anomaly_score.toFixed(3)}</span>
-            {open ? <ChevronUp className="h-3.5 w-3.5 text-slate-500" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />}
+            <span className="text-xs text-ink-subtle">score: {anomaly.anomaly_score.toFixed(3)}</span>
+            {open ? <ChevronUp className="h-3.5 w-3.5 text-ink-subtle" /> : <ChevronDown className="h-3.5 w-3.5 text-ink-subtle" />}
           </div>
         </div>
       </button>
@@ -175,25 +175,25 @@ function AnomalyRow({ anomaly }: { anomaly: MLAnomaly }) {
         <div className="mt-3 space-y-2 text-xs">
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <div className="text-slate-500">Level</div>
-              <div className="font-medium text-slate-200">{anomaly.details.level_ft.toLocaleString()} ft</div>
+              <div className="text-ink-subtle">Level</div>
+              <div className="font-medium text-ink">{anomaly.details.level_ft.toLocaleString()} ft</div>
             </div>
             <div>
-              <div className="text-slate-500">Inflow</div>
-              <div className="font-medium text-slate-200">{anomaly.details.inflow_cusecs.toLocaleString()} cusecs</div>
+              <div className="text-ink-subtle">Inflow</div>
+              <div className="font-medium text-ink">{anomaly.details.inflow_cusecs.toLocaleString()} cusecs</div>
             </div>
             <div>
-              <div className="text-slate-500">Outflow</div>
-              <div className="font-medium text-slate-200">{anomaly.details.outflow_cusecs.toLocaleString()} cusecs</div>
+              <div className="text-ink-subtle">Outflow</div>
+              <div className="font-medium text-ink">{anomaly.details.outflow_cusecs.toLocaleString()} cusecs</div>
             </div>
           </div>
 
           {anomaly.anomaly_features.length > 0 && (
             <div>
-              <div className="text-slate-500 mb-1">Triggering Features</div>
+              <div className="text-ink-subtle mb-1">Triggering Features</div>
               <div className="flex flex-wrap gap-1">
                 {anomaly.anomaly_features.map((f) => (
-                  <span key={f} className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300 border border-amber-500/20">
+                  <span key={f} className="rounded-full bg-warn-soft px-2 py-0.5 text-[10px] text-warn border border-warn/25">
                     {f}
                   </span>
                 ))}
@@ -201,7 +201,7 @@ function AnomalyRow({ anomaly }: { anomaly: MLAnomaly }) {
             </div>
           )}
 
-          <div className="text-slate-600">
+          <div className="text-ink-subtle">
             Model: {anomaly.model_version} | {anomaly.model_status}
           </div>
         </div>
