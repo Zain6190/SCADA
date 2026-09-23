@@ -30,10 +30,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const allowed = !!user && modulesForUser(user).includes(module)
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(56,189,248,0.06),_transparent_45%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.05),_transparent_40%)]" />
-      <div className="relative lg:grid lg:grid-cols-[240px_1fr]">
-        <aside className="sticky top-0 hidden h-screen border-r border-slate-800/80 bg-slate-950/80 backdrop-blur lg:block">
+    <div className="min-h-screen bg-canvas text-ink">
+      <div className="lg:grid lg:grid-cols-[240px_1fr]">
+        <aside className="sticky top-0 hidden h-screen border-r border-line bg-surface backdrop-blur lg:block">
           <Sidebar />
         </aside>
 
@@ -48,8 +47,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <AccessDenied module={module} pathname={pathname} />
             )}
           </main>
-          <footer className="border-t border-slate-800/60 px-6 py-4">
-            <p className="text-center text-[11px] text-slate-600">
+          <footer className="border-t border-line px-6 py-4">
+            <p className="text-center text-[11px] text-ink-subtle">
               IBCP-SCADA · Indus Basin Cyber-Physical System · AquaVision AI (XGBoost · GEE MODIS/CHIRPS) · Simulation & telemetry
             </p>
           </footer>
@@ -65,13 +64,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function SessionSkeleton() {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Loading session">
-      <div className="h-8 w-64 animate-pulse rounded-lg bg-slate-800/60" />
+      <div className="h-8 w-64 animate-pulse rounded-lg bg-surface-alt" />
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-28 animate-pulse rounded-xl bg-slate-900/70" />
+          <div key={i} className="h-28 animate-pulse rounded-xl bg-surface/70" />
         ))}
       </div>
-      <div className="h-64 animate-pulse rounded-xl bg-slate-900/70" />
+      <div className="h-64 animate-pulse rounded-xl bg-surface/70" />
     </div>
   )
 }

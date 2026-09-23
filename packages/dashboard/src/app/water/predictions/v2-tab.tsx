@@ -10,18 +10,18 @@ import { useQuery } from '@tanstack/react-query'
 import type { V2AssetPrediction, V2LeadTimeForecast } from '@/features/water/types'
 
 const STRESS_COLORS: Record<string, string> = {
-  Abundant: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  Moderate: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-  Stressed: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  Critical: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-  Severe: 'bg-red-500/15 text-red-300 border-red-500/30',
+  Abundant: 'bg-ok-soft text-ok border-ok/25',
+  Moderate: 'bg-brand-soft text-brand border-brand/25',
+  Stressed: 'bg-warn-soft text-warn border-warn/25',
+  Critical: 'bg-sev-severe-soft text-sev-severe border-sev-severe/25',
+  Severe: 'bg-crit-soft text-crit border-crit/25',
 }
 
 const FLOOD_COLORS: Record<string, string> = {
-  'No Risk': 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  Moderate: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  High: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-  Critical: 'bg-red-500/15 text-red-300 border-red-500/30',
+  'No Risk': 'bg-ok-soft text-ok border-ok/25',
+  Moderate: 'bg-warn-soft text-warn border-warn/25',
+  High: 'bg-sev-severe-soft text-sev-severe border-sev-severe/25',
+  Critical: 'bg-crit-soft text-crit border-crit/25',
 }
 
 const LEAD_TIME_LABELS: Record<string, string> = {
@@ -54,8 +54,8 @@ export default function V2PredictionsTab() {
             onClick={() => setSelectedAsset(a.id)}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               selectedAsset === a.id
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                : 'bg-slate-800/40 text-slate-400 border border-slate-700 hover:text-slate-200'
+                ? 'bg-brand-soft text-brand border border-brand/25'
+                : 'bg-surface-alt text-ink-muted border border-line-strong hover:text-ink'
             }`}
           >
             {a.name}
@@ -85,8 +85,8 @@ function AssetPredictionDetail({ assetId }: { assetId: number }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-bold text-slate-100">{data.asset_name}</h3>
-          <p className="text-xs text-slate-500">
+          <h3 className="text-lg font-bold text-ink">{data.asset_name}</h3>
+          <p className="text-xs text-ink-subtle">
             Method: {data.model_metadata.prediction_method} | Features: {data.model_metadata.features_used}
           </p>
         </div>
@@ -101,17 +101,17 @@ function AssetPredictionDetail({ assetId }: { assetId: number }) {
               key={i}
               className={`rounded-lg border px-3 py-2 text-xs ${
                 alert.level === 'CRITICAL'
-                  ? 'border-red-500/30 bg-red-500/10 text-red-300'
-                  : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                  ? 'border-crit/25 bg-crit-soft text-crit'
+                  : 'border-warn/25 bg-warn-soft text-warn'
               }`}
             >
               <div className="flex items-center gap-1.5">
                 <AlertTriangle className="h-3 w-3" />
                 <span className="font-semibold">{alert.level}</span>
-                <span className="text-slate-400">|</span>
+                <span className="text-ink-muted">|</span>
                 <span>{alert.type}</span>
               </div>
-              <p className="mt-1 text-slate-300">{alert.message}</p>
+              <p className="mt-1 text-ink-muted">{alert.message}</p>
             </div>
           ))}
         </div>
@@ -145,22 +145,22 @@ function LeadTimeCard({ label, forecast }: { label: string; forecast: V2LeadTime
       <CardHeader
         title={label}
         subtitle={`Confidence: ${(forecast.confidence * 100).toFixed(0)}%`}
-        icon={<BarChart3 className="h-5 w-5 text-sky-400" />}
+        icon={<BarChart3 className="h-5 w-5 text-brand" />}
       />
       <CardBody className="space-y-3">
         {/* Discharge */}
-        <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-3">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-sky-400">
+        <div className="rounded-lg border border-line-strong bg-surface-alt p-3">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-brand">
             <Waves className="h-3 w-3" />
             Discharge
           </div>
-          <div className="mt-1 text-xl font-bold text-slate-100">
-            {discharge.value_m3s.toFixed(0)} <span className="text-xs font-normal text-slate-400">m³/s</span>
+          <div className="mt-1 text-xl font-bold text-ink">
+            {discharge.value_m3s.toFixed(0)} <span className="text-xs font-normal text-ink-muted">m³/s</span>
           </div>
-          <div className="text-[10px] text-slate-500">
+          <div className="text-[10px] text-ink-subtle">
             {discharge.value_cusecs.toLocaleString()} cusecs
           </div>
-          <div className="mt-1 text-[10px] text-slate-500">
+          <div className="mt-1 text-[10px] text-ink-subtle">
             CI: [{discharge.confidence_lower_m3s.toFixed(0)}, {discharge.confidence_upper_m3s.toFixed(0)}] m³/s
           </div>
         </div>
@@ -168,8 +168,8 @@ function LeadTimeCard({ label, forecast }: { label: string; forecast: V2LeadTime
         {/* Water Stress */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Droplets className="h-3.5 w-3.5 text-sky-400" />
-            <span className="text-xs text-slate-400">Water Stress</span>
+            <Droplets className="h-3.5 w-3.5 text-brand" />
+            <span className="text-xs text-ink-muted">Water Stress</span>
           </div>
           <Badge tone={stress.category === 'Abundant' ? 'emerald' : stress.category === 'Moderate' ? 'sky' : stress.category === 'Stressed' ? 'amber' : 'red'}>
             {stress.value}/100 {stress.category}
@@ -179,8 +179,8 @@ function LeadTimeCard({ label, forecast }: { label: string; forecast: V2LeadTime
         {/* Flood Risk */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-            <span className="text-xs text-slate-400">Flood Risk</span>
+            <AlertTriangle className="h-3.5 w-3.5 text-warn" />
+            <span className="text-xs text-ink-muted">Flood Risk</span>
           </div>
           <Badge tone={flood.category === 'No Risk' ? 'emerald' : flood.category === 'Moderate' ? 'amber' : 'red'}>
             {flood.value}/100 {flood.category}
@@ -190,10 +190,10 @@ function LeadTimeCard({ label, forecast }: { label: string; forecast: V2LeadTime
         {/* Rainfall */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <CloudRain className="h-3.5 w-3.5 text-blue-400" />
-            <span className="text-xs text-slate-400">Rainfall</span>
+            <CloudRain className="h-3.5 w-3.5 text-brand" />
+            <span className="text-xs text-ink-muted">Rainfall</span>
           </div>
-          <span className="text-xs font-medium text-slate-300">
+          <span className="text-xs font-medium text-ink-muted">
             {rain.value_mm.toFixed(0)}mm ({(rain.probability * 100).toFixed(0)}%)
           </span>
         </div>
@@ -201,8 +201,8 @@ function LeadTimeCard({ label, forecast }: { label: string; forecast: V2LeadTime
         {/* Trend */}
         {stress.trend !== 0 && (
           <div className="flex items-center gap-1.5 text-[10px]">
-            <TrendingUp className={`h-3 w-3 ${stress.trend > 0 ? 'text-emerald-400' : 'text-red-400'}`} />
-            <span className={stress.trend > 0 ? 'text-emerald-400' : 'text-red-400'}>
+            <TrendingUp className={`h-3 w-3 ${stress.trend > 0 ? 'text-ok' : 'text-crit'}`} />
+            <span className={stress.trend > 0 ? 'text-ok' : 'text-crit'}>
               {stress.trend > 0 ? '+' : ''}{stress.trend}% trend
             </span>
           </div>
@@ -217,10 +217,10 @@ function AccuracyCard({ label, accuracy }: { label: string; accuracy: number }) 
   const tone = accuracy >= 0.7 ? 'emerald' : accuracy >= 0.5 ? 'sky' : accuracy >= 0.3 ? 'amber' : 'red'
 
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-      <div className="text-[10px] font-semibold uppercase text-slate-500">{label} Accuracy</div>
+    <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
+      <div className="text-[10px] font-semibold uppercase text-ink-subtle">{label} Accuracy</div>
       <div className="mt-1 flex items-center gap-2">
-        <span className="text-lg font-bold text-slate-100">{pct}%</span>
+        <span className="text-lg font-bold text-ink">{pct}%</span>
         <Badge tone={tone}>{accuracy >= 0.7 ? 'Good' : accuracy >= 0.5 ? 'Fair' : 'Low'}</Badge>
       </div>
     </div>

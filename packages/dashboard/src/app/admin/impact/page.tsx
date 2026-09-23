@@ -105,7 +105,7 @@ export default function ImpactPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="h-6 w-6 text-sky-400 animate-spin" />
+        <RefreshCw className="h-6 w-6 text-brand animate-spin" />
       </div>
     );
   }
@@ -115,22 +115,22 @@ export default function ImpactPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Downstream Impact Calculator</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-ink-muted mt-1">
             Estimate when a flood condition may move downstream and what could be exposed
           </p>
         </div>
       </div>
 
       <Card>
-        <CardHeader title="Calculate Impact" icon={<Calculator className="h-5 w-5 text-sky-400" />} />
+        <CardHeader title="Calculate Impact" icon={<Calculator className="h-5 w-5 text-brand" />} />
         <CardBody>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Source Asset</label>
+              <label className="block text-sm text-ink-muted mb-1">Source Asset</label>
               <select
                 value={sourceId}
                 onChange={(e) => setSourceId(Number(e.target.value))}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white"
+                className="w-full bg-surface-alt border border-line-strong rounded px-3 py-2 text-white"
               >
                 {assets.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -140,12 +140,12 @@ export default function ImpactPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Release Flow (cusecs)</label>
+              <label className="block text-sm text-ink-muted mb-1">Release Flow (cusecs)</label>
               <input
                 type="number"
                 value={flow}
                 onChange={(e) => setFlow(Number(e.target.value))}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white"
+                className="w-full bg-surface-alt border border-line-strong rounded px-3 py-2 text-white"
                 step={10000}
               />
             </div>
@@ -153,7 +153,7 @@ export default function ImpactPage() {
               <button
                 onClick={calculate}
                 disabled={calculating}
-                className="w-full bg-sky-600 hover:bg-sky-700 disabled:bg-slate-700 text-white font-medium py-2 px-4 rounded transition-colors"
+                className="w-full bg-brand hover:bg-brand disabled:bg-surface-sunken text-white font-medium py-2 px-4 rounded transition-colors"
               >
                 {calculating ? "Calculating..." : "Calculate Impact"}
               </button>
@@ -169,7 +169,7 @@ export default function ImpactPage() {
               label="Population Exposed"
               value={formatNumber(result.total_population_exposed)}
               icon={Users}
-              accent="bg-amber-500/10 text-amber-300"
+              accent="bg-warn-soft text-warn"
             />
             <KpiCard
               label="Villages"
@@ -180,13 +180,13 @@ export default function ImpactPage() {
               label="Bridges"
               value={result.total_bridges.toString()}
               icon={Building2}
-              accent="bg-red-500/10 text-red-300"
+              accent="bg-crit-soft text-crit"
             />
             <KpiCard
               label="Hospitals"
               value={result.total_hospitals.toString()}
               icon={Building2}
-              accent="bg-red-500/10 text-red-300"
+              accent="bg-crit-soft text-crit"
             />
             <KpiCard
               label="Furthest Asset"
@@ -206,39 +206,39 @@ export default function ImpactPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-700">
-                      <th className="text-left p-3 text-slate-400 font-medium">Segment</th>
-                      <th className="text-left p-3 text-slate-400 font-medium">Travel</th>
-                      <th className="text-left p-3 text-slate-400 font-medium">Arrival</th>
-                      <th className="text-right p-3 text-slate-400 font-medium">Flow</th>
-                      <th className="text-right p-3 text-slate-400 font-medium">Population</th>
-                      <th className="text-right p-3 text-slate-400 font-medium">Villages</th>
-                      <th className="text-right p-3 text-slate-400 font-medium">Bridges</th>
-                      <th className="text-right p-3 text-slate-400 font-medium">Hospitals</th>
-                      <th className="text-center p-3 text-slate-400 font-medium">Confidence</th>
+                    <tr className="border-b border-line-strong">
+                      <th className="text-left p-3 text-ink-muted font-medium">Segment</th>
+                      <th className="text-left p-3 text-ink-muted font-medium">Travel</th>
+                      <th className="text-left p-3 text-ink-muted font-medium">Arrival</th>
+                      <th className="text-right p-3 text-ink-muted font-medium">Flow</th>
+                      <th className="text-right p-3 text-ink-muted font-medium">Population</th>
+                      <th className="text-right p-3 text-ink-muted font-medium">Villages</th>
+                      <th className="text-right p-3 text-ink-muted font-medium">Bridges</th>
+                      <th className="text-right p-3 text-ink-muted font-medium">Hospitals</th>
+                      <th className="text-center p-3 text-ink-muted font-medium">Confidence</th>
                     </tr>
                   </thead>
                   <tbody>
                     {result.segments.map((seg) => (
                       <tr
                         key={seg.segment_order}
-                        className="border-b border-slate-800 hover:bg-slate-800/50"
+                        className="border-b border-line hover:bg-surface-alt"
                       >
                         <td className="p-3">
                           <div className="text-white font-medium">{seg.upstream_asset}</div>
-                          <div className="text-slate-500 text-xs">→ {seg.downstream_asset}</div>
+                          <div className="text-ink-subtle text-xs">→ {seg.downstream_asset}</div>
                         </td>
-                        <td className="p-3 text-sky-400 font-mono">{seg.travel_time_hours.toFixed(0)}h</td>
+                        <td className="p-3 text-brand font-mono">{seg.travel_time_hours.toFixed(0)}h</td>
                         <td className="p-3 text-white">{formatArrival(seg.arrival_time)}</td>
-                        <td className="p-3 text-right text-amber-400 font-mono">
+                        <td className="p-3 text-right text-warn font-mono">
                           {formatNumber(seg.flow_at_arrival)}
                         </td>
                         <td className="p-3 text-right text-white font-medium">
                           {formatNumber(seg.population_exposed)}
                         </td>
-                        <td className="p-3 text-right text-slate-300">{seg.village_count}</td>
-                        <td className="p-3 text-right text-red-400">{seg.bridges_count}</td>
-                        <td className="p-3 text-right text-red-400">{seg.hospitals_count}</td>
+                        <td className="p-3 text-right text-ink-muted">{seg.village_count}</td>
+                        <td className="p-3 text-right text-crit">{seg.bridges_count}</td>
+                        <td className="p-3 text-right text-crit">{seg.hospitals_count}</td>
                         <td className="p-3 text-center">
                           <Badge
                             tone={
@@ -265,21 +265,21 @@ export default function ImpactPage() {
               <CardHeader title="Impact Timeline" />
               <CardBody>
                 <div className="relative">
-                  <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-700" />
+                  <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-surface-sunken" />
                   {result.segments.map((seg) => (
                     <div key={seg.segment_order} className="relative pl-10 pb-6">
-                      <div className="absolute left-2.5 top-1 w-3 h-3 rounded-full bg-sky-500 border-2 border-slate-900" />
+                      <div className="absolute left-2.5 top-1 w-3 h-3 rounded-full bg-brand border-2 border-line" />
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="text-white font-medium">{seg.downstream_asset}</div>
-                          <div className="text-sm text-slate-400">
+                          <div className="text-sm text-ink-muted">
                             {seg.river_name} | {seg.distance_km}km | {seg.travel_time_hours.toFixed(0)}h travel
                           </div>
-                          <div className="text-xs text-slate-500 mt-1">{seg.notes}</div>
+                          <div className="text-xs text-ink-subtle mt-1">{seg.notes}</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-sky-400 font-mono text-sm">{formatArrival(seg.arrival_time)}</div>
-                          <div className="text-amber-400 font-mono text-sm">{formatNumber(seg.flow_at_arrival)} cusecs</div>
+                          <div className="text-brand font-mono text-sm">{formatArrival(seg.arrival_time)}</div>
+                          <div className="text-warn font-mono text-sm">{formatNumber(seg.flow_at_arrival)} cusecs</div>
                           <div className="text-white text-sm">{formatNumber(seg.population_exposed)} people</div>
                         </div>
                       </div>

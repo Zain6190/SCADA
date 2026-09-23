@@ -13,10 +13,10 @@ import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
 import { modulesForUser, type PortalUserLike } from '@/lib/rbac'
 
-const AQUA = 'bg-sky-500/10 text-sky-300'
-const CROP = 'bg-emerald-500/10 text-emerald-300'
-const GEO = 'bg-violet-500/10 text-violet-300'
-const SYS = 'bg-amber-500/10 text-amber-300'
+const AQUA = 'bg-brand-soft text-brand'
+const CROP = 'bg-ok-soft text-ok'
+const GEO = 'bg-brand-soft text-brand'
+const SYS = 'bg-warn-soft text-warn'
 
 const ACCESS_TONE: Record<string, 'emerald' | 'sky' | 'amber' | 'red' | 'slate'> = {
   ACTIVE: 'emerald',
@@ -40,9 +40,9 @@ export default function CommandCenterPage() {
         />
 
         {user && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-sm">
-            <span className="text-slate-400">
-              Signed in as <span className="font-medium text-slate-200">{user.full_name}</span>
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
+            <span className="text-ink-muted">
+              Signed in as <span className="font-medium text-ink">{user.full_name}</span>
             </span>
             <Badge tone="slate">{user.role}</Badge>
             {user.access_status && (
@@ -66,7 +66,7 @@ export default function CommandCenterPage() {
           ))}
           {portalCards(user).length === 0 && (
             <div className="col-span-full">
-              <p className="rounded-xl border border-slate-800 bg-slate-950/50 p-6 text-center text-sm text-slate-500">
+              <p className="rounded-xl border border-line bg-surface p-6 text-center text-sm text-ink-subtle">
                 No portals are enabled for your account. Contact an administrator
                 to request access.
               </p>
@@ -95,15 +95,15 @@ function ModuleCard({
 }) {
   return (
     <Link href={href}>
-      <Card className="group h-full transition-colors hover:border-slate-700">
+      <Card className="group h-full transition-colors hover:border-line-strong">
         <CardBody className="flex h-full flex-col">
           <div className="flex items-start justify-between">
             <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${accent}`}>{icon}</div>
             {badge}
           </div>
-          <h3 className="mt-4 text-base font-semibold text-slate-100">{title}</h3>
-          <p className="mt-2 flex-1 text-xs leading-5 text-slate-500">{description}</p>
-          <span className="mt-4 text-xs font-medium text-sky-400 opacity-0 transition-opacity group-hover:opacity-100">
+          <h3 className="mt-4 text-base font-semibold text-ink">{title}</h3>
+          <p className="mt-2 flex-1 text-xs leading-5 text-ink-subtle">{description}</p>
+          <span className="mt-4 text-xs font-medium text-brand opacity-0 transition-opacity group-hover:opacity-100">
             Open →
           </span>
         </CardBody>

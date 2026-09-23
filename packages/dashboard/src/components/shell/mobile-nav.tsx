@@ -16,11 +16,11 @@ export function MobileNavigationDrawer({
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in" />
-        <Dialog.Content className="fixed inset-y-0 left-0 z-50 w-72 bg-slate-950 shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-left">
+        <Dialog.Content className="fixed inset-y-0 left-0 z-50 w-72 bg-canvas shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-left">
           <div className="flex justify-end p-3">
             <button
               onClick={onClose}
-              className="rounded-lg border border-slate-800 p-2 text-slate-300 hover:bg-slate-800/70"
+              className="rounded-lg border border-line p-2 text-ink-muted hover:bg-surface-alt"
               aria-label="Close navigation"
             >
               <X className="h-4 w-4" />

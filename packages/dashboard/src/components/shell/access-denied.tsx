@@ -28,13 +28,13 @@ export function AccessDenied({
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
       <Card className="max-w-md p-8 text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-crit-soft text-crit">
           <ShieldAlert className="h-8 w-8" />
         </div>
-        <h2 className="mt-5 text-xl font-semibold text-slate-100">Access Restricted</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
+        <h2 className="mt-5 text-xl font-semibold text-ink">Access Restricted</h2>
+        <p className="mt-2 text-sm leading-6 text-ink-subtle">
           Your current role does not grant access to the{' '}
-          <span className="font-semibold text-slate-300">{label}</span> portal
+          <span className="font-semibold text-ink-muted">{label}</span> portal
           ({pathname}).
         </p>
         <div className="mt-4 flex justify-center">
@@ -42,7 +42,7 @@ export function AccessDenied({
         </div>
         <Link
           href="/portal"
-          className="mt-6 inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-700/60"
+          className="mt-6 inline-flex items-center gap-2 rounded-lg border border-line-strong bg-surface-alt px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-alt"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Command Center
         </Link>

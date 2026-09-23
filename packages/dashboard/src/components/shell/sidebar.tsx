@@ -34,13 +34,13 @@ function NavItemLink({
       className={cn(
         'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
         active
-          ? 'bg-sky-500/10 text-sky-300'
-          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+          ? 'bg-brand-soft text-brand'
+          : 'text-ink-muted hover:bg-surface-alt hover:text-ink'
       )}
     >
-      <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-sky-400' : 'text-slate-500 group-hover:text-slate-300')} />
+      <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-brand' : 'text-ink-subtle group-hover:text-ink-muted')} />
       <span className="truncate">{label}</span>
-      {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
+      {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand" />}
     </Link>
   )
 }
@@ -62,8 +62,8 @@ function PortalSwitcher({ pathname, user }: { pathname: string; user: PortalUser
   const current = portals.find((p) => p.id === moduleForPath(pathname)) ?? portals[0]
 
   return (
-    <div className="space-y-1 border-b border-slate-800/70 px-4 py-3">
-      <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Portals</p>
+    <div className="space-y-1 border-b border-line px-4 py-3">
+      <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-ink-subtle">Portals</p>
       <div className="flex flex-wrap gap-1.5">
         {portals.map((p) => (
           <Link
@@ -72,8 +72,8 @@ function PortalSwitcher({ pathname, user }: { pathname: string; user: PortalUser
             className={cn(
               'rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors',
               p.id === current.id
-                ? 'bg-sky-500/15 text-sky-300'
-                : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+                ? 'bg-brand-soft text-brand'
+                : 'text-ink-muted hover:bg-surface-alt hover:text-ink'
             )}
           >
             {p.label}
@@ -95,13 +95,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-slate-800/70 px-5 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-cyan-600 shadow-lg shadow-sky-500/20">
+      <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand shadow-card">
           <span className="text-sm font-bold text-white">Σ</span>
         </div>
         <div>
-          <p className="text-sm font-semibold tracking-wide text-slate-100">IBCP-SCADA</p>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Operations Console</p>
+          <p className="text-sm font-semibold tracking-wide text-ink">IBCP-SCADA</p>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Operations Console</p>
         </div>
       </div>
 
@@ -126,7 +126,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 Array.from(groups.entries()).map(([group, items]) => (
                   <div key={group} className="mb-3">
                     {group && (
-                      <p className="mb-0.5 px-3 pt-2 text-[10px] font-medium uppercase tracking-[0.15em] text-slate-600">
+                      <p className="mb-0.5 px-3 pt-2 text-[10px] font-medium uppercase tracking-[0.15em] text-ink-subtle">
                         {group}
                       </p>
                     )}
@@ -162,7 +162,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           )
         })}
         {portalSections.length === 0 && (
-          <p className="px-3 py-6 text-center text-xs text-slate-600">
+          <p className="px-3 py-6 text-center text-xs text-ink-subtle">
             No modules available for your role.
           </p>
         )}

@@ -17,29 +17,29 @@ import { useAssetNotes, useAddAssetNote } from '@/features/water/hooks'
 import { fmtNumber, timeAgo } from '@/lib/format'
 import type { OperationalAsset, OperationalObservation, OperationalAlert } from '@/features/water/types'
 
-const AQUA = 'bg-sky-500/10 text-sky-300'
+const AQUA = 'bg-brand-soft text-brand'
 
 function LevelGauge({ level, warning, danger, critical }: { level: number; warning?: number; danger?: number; critical?: number }) {
   const max = critical ? critical * 1.05 : (danger ? danger * 1.1 : (warning ? warning * 1.2 : level * 1.3))
   const pct = Math.min((level / max) * 100, 100)
-  let color = 'bg-emerald-500'
-  if (critical && level >= critical) color = 'bg-red-500'
-  else if (danger && level >= danger) color = 'bg-red-400'
-  else if (warning && level >= warning) color = 'bg-amber-500'
+  let color = 'bg-ok'
+  if (critical && level >= critical) color = 'bg-crit'
+  else if (danger && level >= danger) color = 'bg-crit'
+  else if (warning && level >= warning) color = 'bg-warn'
 
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-baseline">
-        <span className="text-sm font-medium text-slate-400">Reservoir Level</span>
-        <span className="font-mono text-2xl font-bold text-white">{level.toFixed(2)} <span className="text-sm font-normal text-slate-500">ft</span></span>
+        <span className="text-sm font-medium text-ink-muted">Reservoir Level</span>
+        <span className="font-mono text-2xl font-bold text-white">{level.toFixed(2)} <span className="text-sm font-normal text-ink-subtle">ft</span></span>
       </div>
-      <div className="relative h-3 rounded-full bg-slate-800 overflow-hidden">
+      <div className="relative h-3 rounded-full bg-surface-alt overflow-hidden">
         <div className={`absolute left-0 top-0 h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
       </div>
       <div className="flex gap-4 text-[11px]">
-        {warning && <span className="text-amber-400">W: {warning} ft</span>}
-        {danger && <span className="text-red-400">D: {danger} ft</span>}
-        {critical && <span className="text-red-500">C: {critical} ft</span>}
+        {warning && <span className="text-warn">W: {warning} ft</span>}
+        {danger && <span className="text-crit">D: {danger} ft</span>}
+        {critical && <span className="text-crit">C: {critical} ft</span>}
       </div>
     </div>
   )
@@ -48,11 +48,11 @@ function LevelGauge({ level, warning, danger, critical }: { level: number; warni
 function TelemetryCard({ label, value, unit, accent }: { label: string; value: number | null; unit: string; accent?: string }) {
   return (
     <Card className="p-4">
-      <p className="text-[10px] uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="text-[10px] uppercase tracking-wider text-ink-subtle">{label}</p>
       <p className={`text-xl font-bold font-mono mt-1 ${accent ?? 'text-white'}`}>
         {value != null ? fmtNumber(value) : '\u2014'}
       </p>
-      <p className="text-[11px] text-slate-500">{unit}</p>
+      <p className="text-[11px] text-ink-subtle">{unit}</p>
     </Card>
   )
 }
@@ -60,8 +60,8 @@ function TelemetryCard({ label, value, unit, accent }: { label: string; value: n
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-lg">
-      <p className="mb-1 font-medium text-slate-400">{label}</p>
+    <div className="rounded-lg border border-line-strong bg-surface px-3 py-2 text-xs shadow-lg">
+      <p className="mb-1 font-medium text-ink-muted">{label}</p>
       {payload.map((p: any, i: number) => (
         <p key={i} style={{ color: p.color }} className="font-mono">
           {p.name}: {fmtNumber(p.value)}
@@ -148,17 +148,17 @@ export function AssetDetailClient() {
           }
           action={
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-500">Updated {timeAgo(asset.last_observed_at)}</span>
-              <Link href="/water/command-center" className="text-xs text-sky-400 hover:text-sky-300">Back to Command Center</Link>
+              <span className="text-[11px] text-ink-subtle">Updated {timeAgo(asset.last_observed_at)}</span>
+              <Link href="/water/command-center" className="text-xs text-brand hover:text-brand">Back to Command Center</Link>
             </div>
           }
         />
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <TelemetryCard label="Water Level" value={asset.current_level_ft} unit="ft" accent="text-sky-400" />
-          <TelemetryCard label="Inflow" value={asset.current_inflow} unit="cusecs" accent="text-emerald-400" />
-          <TelemetryCard label="Outflow" value={asset.current_outflow} unit="cusecs" accent="text-amber-400" />
-          <TelemetryCard label="Discharge" value={asset.current_discharge} unit="cusecs" accent="text-violet-400" />
+          <TelemetryCard label="Water Level" value={asset.current_level_ft} unit="ft" accent="text-brand" />
+          <TelemetryCard label="Inflow" value={asset.current_inflow} unit="cusecs" accent="text-ok" />
+          <TelemetryCard label="Outflow" value={asset.current_outflow} unit="cusecs" accent="text-warn" />
+          <TelemetryCard label="Discharge" value={asset.current_discharge} unit="cusecs" accent="text-brand" />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -176,8 +176,8 @@ export function AssetDetailClient() {
                       onClick={() => setDays(d)}
                       className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
                         days === d
-                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                          : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                          ? 'bg-brand-soft text-brand border border-brand/25'
+                          : 'text-ink-subtle hover:text-ink-muted border border-transparent'
                       }`}
                     >
                       {d}d
@@ -188,7 +188,7 @@ export function AssetDetailClient() {
             />
             <CardBody className="p-3">
               {chartData.length < 2 ? (
-                <div className="flex h-48 items-center justify-center text-sm text-slate-500">Not enough data for chart</div>
+                <div className="flex h-48 items-center justify-center text-sm text-ink-subtle">Not enough data for chart</div>
               ) : (
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -240,29 +240,29 @@ export function AssetDetailClient() {
                     critical={asset.critical_level_ft ?? undefined}
                   />
                 ) : (
-                  <p className="text-sm text-slate-500">No level reading available</p>
+                  <p className="text-sm text-ink-subtle">No level reading available</p>
                 )}
               </CardBody>
             </Card>
 
             {latestFlood && (
               <Card>
-                <CardHeader title="Flood Classification" icon={<span className="text-lg">{'\u{26A0}'}</span>} accent="bg-red-500/10 text-red-300" />
+                <CardHeader title="Flood Classification" icon={<span className="text-lg">{'\u{26A0}'}</span>} accent="bg-crit-soft text-crit" />
                 <CardBody className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-400">Severity</span>
+                    <span className="text-sm text-ink-muted">Severity</span>
                     <Badge tone={latestFlood.flood_severity === 'Critical' ? 'red' : 'amber'}>{latestFlood.flood_severity}</Badge>
                   </div>
                   {latestFlood.flood_probability != null && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-slate-400">Probability</span>
+                      <span className="text-sm text-ink-muted">Probability</span>
                       <span className="text-sm font-semibold text-white">{(latestFlood.flood_probability * 100).toFixed(0)}%</span>
                     </div>
                   )}
                   {latestFlood.flood_recommendation && (
                     <div>
-                      <span className="text-[11px] text-slate-500">Recommendation</span>
-                      <p className="text-xs text-slate-300 mt-1">{latestFlood.flood_recommendation}</p>
+                      <span className="text-[11px] text-ink-subtle">Recommendation</span>
+                      <p className="text-xs text-ink-muted mt-1">{latestFlood.flood_recommendation}</p>
                     </div>
                   )}
                 </CardBody>
@@ -270,19 +270,19 @@ export function AssetDetailClient() {
             )}
 
             <Card>
-              <CardHeader title="Operational Notes" icon={<span className="text-lg">{'\u{1F4DD}'}</span>} accent="bg-emerald-500/10 text-emerald-300" />
+              <CardHeader title="Operational Notes" icon={<span className="text-lg">{'\u{1F4DD}'}</span>} accent="bg-ok-soft text-ok" />
               <CardBody>
                 <form onSubmit={submitNote} className="mb-3 flex gap-2">
                   <input
                     value={noteText}
                     onChange={(e) => setNoteText(e.target.value)}
                     placeholder="Add a note..."
-                    className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300 placeholder:text-slate-600 focus:border-emerald-500/50 focus:outline-none"
+                    className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-ink-muted placeholder:text-ink-subtle focus:border-ok/25 focus:outline-none"
                   />
                   <button
                     type="submit"
                     disabled={!noteText.trim() || addNote.isPending}
-                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                    className="rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-xs font-medium text-ok hover:bg-ok-soft disabled:opacity-50"
                   >
                     Log
                   </button>
@@ -290,14 +290,14 @@ export function AssetDetailClient() {
                 {notesQuery.data?.length ? (
                   <div className="space-y-2 max-h-[200px] overflow-y-auto">
                     {notesQuery.data.slice().reverse().map((n) => (
-                      <div key={n.id} className="rounded-lg border border-slate-800/70 bg-slate-950/40 p-2.5">
-                        <p className="text-xs text-slate-300">{n.note}</p>
-                        <p className="mt-1 text-[10px] text-slate-600">{timeAgo(n.createdAt)}</p>
+                      <div key={n.id} className="rounded-lg border border-line bg-canvas p-2.5">
+                        <p className="text-xs text-ink-muted">{n.note}</p>
+                        <p className="mt-1 text-[10px] text-ink-subtle">{timeAgo(n.createdAt)}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-600">No notes yet</p>
+                  <p className="text-xs text-ink-subtle">No notes yet</p>
                 )}
               </CardBody>
             </Card>
@@ -310,28 +310,28 @@ export function AssetDetailClient() {
               title="Active Alerts"
               subtitle={`${activeAlerts.length} alert(s) for this asset`}
               icon={<span className="text-lg">{'\u{1F514}'}</span>}
-              accent="bg-amber-500/10 text-amber-300"
+              accent="bg-warn-soft text-warn"
             />
             <CardBody className="p-0">
-              <div className="divide-y divide-slate-800/70">
+              <div className="divide-y divide-line">
                 {activeAlerts.map((alert) => (
                   <div key={alert.id} className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-1">
                           <Badge tone={alert.severity === 'Critical' ? 'red' : alert.severity === 'Danger' ? 'amber' : 'sky'}>{alert.severity}</Badge>
-                          <span className="text-sm font-medium text-slate-200">{alert.alert_type.replace(/_/g, ' ')}</span>
+                          <span className="text-sm font-medium text-ink">{alert.alert_type.replace(/_/g, ' ')}</span>
                           {alert.alert_source && <Badge tone="slate">{alert.alert_source}</Badge>}
                         </div>
-                        <p className="text-xs text-slate-400">{alert.message}</p>
-                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
-                          {alert.triggered_value != null && <span>Triggered: <span className="text-slate-300 font-mono">{fmtNumber(alert.triggered_value)}</span></span>}
+                        <p className="text-xs text-ink-muted">{alert.message}</p>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-subtle">
+                          {alert.triggered_value != null && <span>Triggered: <span className="text-ink-muted font-mono">{fmtNumber(alert.triggered_value)}</span></span>}
                           {alert.downstream_population_exposed != null && alert.downstream_population_exposed > 0 && (
-                            <span className="text-amber-400">Pop. exposed: {fmtNumber(alert.downstream_population_exposed)}</span>
+                            <span className="text-warn">Pop. exposed: {fmtNumber(alert.downstream_population_exposed)}</span>
                           )}
                         </div>
                       </div>
-                      <span className="text-[11px] text-slate-600 shrink-0">{timeAgo(alert.created_at)}</span>
+                      <span className="text-[11px] text-ink-subtle shrink-0">{timeAgo(alert.created_at)}</span>
                     </div>
                   </div>
                 ))}
@@ -344,12 +344,12 @@ export function AssetDetailClient() {
           <CardHeader title="Observation History" icon={<span className="text-lg">{'\u{1F4CA}'}</span>} accent={AQUA} />
           <CardBody className="p-0">
             {observations.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">No observations found</div>
+              <div className="p-8 text-center text-sm text-ink-subtle">No observations found</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800/70 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                       <th className="px-4 py-2.5 text-left font-medium">Date</th>
                       <th className="px-4 py-2.5 text-right font-medium">Level (ft)</th>
                       <th className="px-4 py-2.5 text-right font-medium">Inflow</th>
@@ -358,10 +358,10 @@ export function AssetDetailClient() {
                       <th className="px-4 py-2.5 text-center font-medium">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-line">
                     {observations.map((obs) => (
-                      <tr key={obs.id} className="hover:bg-slate-800/20 transition-colors">
-                        <td className="px-4 py-2.5 font-medium text-slate-300">{new Date(obs.observed_at).toLocaleDateString()}</td>
+                      <tr key={obs.id} className="hover:bg-surface-alt transition-colors">
+                        <td className="px-4 py-2.5 font-medium text-ink-muted">{new Date(obs.observed_at).toLocaleDateString()}</td>
                         <td className="px-4 py-2.5 text-right font-mono text-white">{fmtNumber(obs.water_level_ft, 2)}</td>
                         <td className="px-4 py-2.5 text-right font-mono text-white">{fmtNumber(obs.inflow_cusecs)}</td>
                         <td className="px-4 py-2.5 text-right font-mono text-white">{fmtNumber(obs.outflow_cusecs)}</td>

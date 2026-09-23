@@ -41,7 +41,7 @@ export default function FloodMapPage() {
               {selectedAsset && (
                 <button
                   onClick={() => setSelectedAsset(null)}
-                  className="flex items-center gap-1 rounded-lg bg-sky-500/10 px-3 py-1.5 text-xs text-sky-400 hover:bg-sky-500/20 transition-colors"
+                  className="flex items-center gap-1 rounded-lg bg-brand-soft px-3 py-1.5 text-xs text-brand hover:bg-brand-soft transition-colors"
                 >
                   Back to Overview
                 </button>
@@ -52,14 +52,14 @@ export default function FloodMapPage() {
         />
 
         <div className="relative">
-          <div className="flex gap-0 rounded-2xl border border-slate-800 overflow-hidden" style={{ height: 'calc(100vh - 220px)', minHeight: '600px' }}>
+          <div className="flex gap-0 rounded-2xl border border-line overflow-hidden" style={{ height: 'calc(100vh - 220px)', minHeight: '600px' }}>
             <div className="flex-1 relative">
               {loading ? (
-                <div className="flex h-full items-center justify-center bg-slate-950">
+                <div className="flex h-full items-center justify-center bg-canvas">
                   <Spinner label="Loading flood map" />
                 </div>
               ) : error ? (
-                <div className="flex h-full items-center justify-center bg-slate-950">
+                <div className="flex h-full items-center justify-center bg-canvas">
                   <ErrorState message={error} />
                 </div>
               ) : (
@@ -120,7 +120,7 @@ export default function FloodMapPage() {
           {/* Mobile sidebar toggle */}
           <button
             onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-            className="lg:hidden fixed bottom-6 right-6 z-[1001] flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/95 px-4 py-3 text-xs font-medium text-slate-200 shadow-xl backdrop-blur hover:bg-slate-800 transition-colors"
+            className="lg:hidden fixed bottom-6 right-6 z-[1001] flex items-center gap-2 rounded-full border border-line-strong bg-surface px-4 py-3 text-xs font-medium text-ink shadow-xl backdrop-blur hover:bg-surface-alt transition-colors"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
             Controls
