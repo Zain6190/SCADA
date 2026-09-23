@@ -1,0 +1,37 @@
+# Title:                 GRDC STATION DATA FILE
+#                        --------------
+# Format:                DOS-ASCII
+# Field delimiter:       ;
+# missing values are indicated by -999.000
+#
+# file generation date:  2026-09-21
+#
+# GRDC-No.:              2836500
+# River:                 JHELUM RIVER
+# Station:               MUNSHIBAG
+# Country:               IN
+# Latitude (DD):       34.06944444
+# Longitude (DD):      74.83861111
+# Catchment area (km²):      4324.0
+# Altitude (m ASL):        -999.00
+# Next downstream station:      2836100
+# Remarks:               
+# Owner of original data: Initial dataset collected in the framework of the First GARP Global Experiment (FGGE)
+#************************************************************
+#
+# Data Set Content:      MEAN DAILY DISCHARGE (Q)
+#                        --------------------
+# Unit of measure:                  m³/s
+# Time series:            - 
+# No. of years:          
+# Last update:           2018-05-25
+#
+# Table Header:
+#     YYYY-MM-DD - Date
+#     hh:mm      - Time
+#     Value   - original (provided) data
+#************************************************************
+#
+# Data lines: 0
+# DATA
+YYYY-MM-DD;hh:mm; Value

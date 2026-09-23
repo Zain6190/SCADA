@@ -52,7 +52,7 @@ if errorlevel 1 (
 echo.
 
 REM ---- 2. Backend (AquaVision) -------------------------------------
-echo [2/3] Starting AquaVision backend on port %BACKEND_PORT%...
+echo [2/4] Starting AquaVision backend on port %BACKEND_PORT%...
 if not exist "%BACKEND_DIR%\main.py" (
     echo   [x] Backend entrypoint missing: %BACKEND_DIR%\main.py
     echo
@@ -75,21 +75,11 @@ goto :backend-wait
 :backend-up
 echo   ^+ Backend is UP  -  http://%BACKEND_HOST%:%BACKEND_PORT%/docs
 
-REM ---- 3. Scheduler (IRSA Auto-Ingestion) ---------------------------
+REM ---- 3. Scheduler ---------------------------------------------------
 echo.
-echo [3/4] Starting IRSA auto-ingestion scheduler...
-docker ps --filter "name=ibcp-scheduler" --format "{{.Names}}" | findstr "ibcp-scheduler" >nul 2>&1
-if not errorlevel 1 (
-    echo   ^+ Scheduler already running.
-) else (
-    docker run -d --name ibcp-scheduler --restart unless-stopped ^
-      --network host ^
-      -e DATABASE_URL="postgresql+psycopg2://postgres:postgres@127.0.0.1:5433/ibcp_scada" ^
-      -v "%ROOT%services/aquavision-service:/app/aquavision-service" ^
-      -v "%ROOT%services/scheduler:/app/scheduler" ^
-      python:3.11-slim bash -c "pip install -q schedule psycopg2-binary httpx pdfplumber beautifulsoup4 sqlalchemy geoalchemy2 pydantic-settings && cd /app/aquavision-service && python -m scheduler.main"
-    echo   ^+ Scheduler started (daily ingestion at 06:30 PKT).
-)
+echo [3/4] Scheduler runs via docker compose (service "scheduler").
+echo        Start the full stack with:  docker compose up -d --build
+echo        (the legacy standalone scheduler container is gone).
 
 REM ---- 4. Frontend (Next.js) ----------------------------------------
 :frontend
@@ -118,7 +108,7 @@ echo ============================================================
 echo   All services started.
 echo    - Database     : Docker container %DB_NAME%  (port 5433)
 echo    - Backend      : http://%BACKEND_HOST%:%BACKEND_PORT%  (Swagger /docs)
-echo    - Scheduler    : IRSA auto-ingestion (daily 06:30 PKT)
+echo    - Scheduler    : docker compose service "scheduler"
 echo    - Frontend     : http://localhost:%FRONTEND_PORT%
 echo   This window will close now; the services keep running
 echo   in their own terminal windows.

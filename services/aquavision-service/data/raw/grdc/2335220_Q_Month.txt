@@ -1,0 +1,51 @@
+# Title:                 GRDC STATION DATA FILE
+#                        --------------
+# Format:                DOS-ASCII
+# Field delimiter:       ;
+# missing values are indicated by -999.000
+#
+# file generation date:  2026-09-20
+#
+# GRDC-No.:              2335220
+# River:                 SIL RIVER
+# Station:               NEAR CHAHAN
+# Country:               PK
+# Latitude (DD):       33.45
+# Longitude (DD):      72.87
+# Catchment area (km²):      241.0
+# Altitude (m ASL):        393.0
+# Next downstream station:      2335240
+# Remarks:               
+# Owner of original data: Initial dataset collected in the framework of the First GARP Global Experiment (FGGE)
+#************************************************************
+#
+# Data Set Content:      MEAN MONTHLY DISCHARGE (MQ)
+#                        --------------------
+# Unit of measure:                  m³/s
+# Time series:           1979 - 1979
+# No. of years:          1
+# Last update:           2018-05-29
+#
+# Table Header:
+#     YYYY-MM-DD - Date (DD=00)
+#     hh:mm      - Time
+#     Original   - original (provided) data
+#     Calculated - GRDC calculated from daily data
+#     Flag       - percentage of valid values used for calculation from daily data
+#************************************************************
+#
+# Data lines: 12
+# DATA
+YYYY-MM-DD;hh:mm; Original; Calculated; Flag
+1979-01-01;--:--;      0.000;      0.387; 100
+1979-02-01;--:--;      1.000;      1.536; 100
+1979-03-01;--:--;      1.000;      1.148;  87
+1979-04-01;--:--;      0.000;      0.038;  87
+1979-05-01;--:--;      0.000;      0.000; 100
+1979-06-01;--:--;      0.000;      0.067; 100
+1979-07-01;--:--;      3.000;      3.419; 100
+1979-08-01;--:--;      2.000;      2.742; 100
+1979-09-01;--:--;      0.000;      0.533; 100
+1979-10-01;--:--;      0.000;      0.000; 100
+1979-11-01;--:--;      0.000;      0.033; 100
+1979-12-01;--:--;      0.000;      0.065; 100

@@ -6,7 +6,11 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func, Enum as SAEnum
+from sqlalchemy import (
+    BigInteger, Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey,
+    Index, Integer, Numeric, String, Text, UniqueConstraint, func,
+    text as sa_text, Enum as SAEnum,
+)
 from sqlalchemy.dialects.postgresql import JSON, JSONB, BYTEA
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,17 +18,97 @@ from infrastructure.db.engine import Base
 
 
 # ---------------------------------------------------------------------------
-# SHARED SCHEMA (READ-ONLY - never written by AquaVision)
+# SHARED SCHEMA (regions/assets are read-only; users/RBAC are written by the
+# auth + admin endpoints)
 # ---------------------------------------------------------------------------
 class User(Base):
-    """Minimal mapping so FKs to shared.users resolve (read-only)."""
-
     __tablename__ = "users"
     __table_args__ = {"schema": "shared"}
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    email: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Access lifecycle: PENDING|APPROVED|REJECTED|ACTIVE|SUSPENDED|REVOKED
+    access_status: Mapped[str] = mapped_column(Text, default="ACTIVE", server_default="ACTIVE")
+    access_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Role(Base):
+    __tablename__ = "roles"
+    __table_args__ = {"schema": "shared"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class Permission(Base):
+    __tablename__ = "permissions"
+    __table_args__ = {"schema": "shared"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+    __table_args__ = {"schema": "shared"}
+
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shared.users.id"), primary_key=True)
+    role_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shared.roles.id"), primary_key=True)
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+    __table_args__ = {"schema": "shared"}
+
+    role_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shared.roles.id"), primary_key=True)
+    permission_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shared.permissions.id"), primary_key=True)
+
+
+class UserRegionScope(Base):
+    """Explicit geographic scope for a user. FAIL-CLOSED: a user with no active
+    scope is DENIED protected regional data. NATIONAL must be explicit.
+
+    scope_type: NATIONAL | PROVINCE | DISTRICT | ASSET
+    """
+    __tablename__ = "user_region_scopes"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('NATIONAL','PROVINCE','DISTRICT','ASSET')",
+            name="ck_user_region_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type = 'NATIONAL' AND region_id IS NULL AND asset_id IS NULL) OR "
+            "(scope_type IN ('PROVINCE','DISTRICT') AND region_id IS NOT NULL AND asset_id IS NULL) OR "
+            "(scope_type = 'ASSET' AND asset_id IS NOT NULL AND region_id IS NULL)",
+            name="ck_user_region_scope_target",
+        ),
+        Index(
+            "uq_user_region_scope_active",
+            "user_id", "scope_type", "region_id", "asset_id",
+            unique=True, postgresql_where=sa_text("is_active"),
+        ),
+        {"schema": "shared"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shared.users.id"), nullable=False)
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    region_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("shared.regions.id"))
+    asset_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("shared.assets.id"))
+    granted_by: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("shared.users.id"))
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Region(Base):
@@ -75,6 +159,11 @@ class WaterIndicator(Base):
     rainfall_anomaly: Mapped[Optional[float]] = mapped_column(Numeric)
     et_mm_8day: Mapped[Optional[float]] = mapped_column(Numeric)
     et_anomaly: Mapped[Optional[float]] = mapped_column(Numeric)
+    spi_1: Mapped[Optional[float]] = mapped_column(Numeric, comment="SPI-1 month")
+    spi_3: Mapped[Optional[float]] = mapped_column(Numeric, comment="SPI-3 month")
+    spi_6: Mapped[Optional[float]] = mapped_column(Numeric, comment="SPI-6 month")
+    spi_12: Mapped[Optional[float]] = mapped_column(Numeric, comment="SPI-12 month")
+    spi_drought_class: Mapped[Optional[str]] = mapped_column(String(20), comment="WMO drought classification")
     wai_score: Mapped[Optional[float]] = mapped_column(Numeric)
     severity: Mapped[Optional[str]] = mapped_column(Text)
     data_source_version: Mapped[Optional[str]] = mapped_column(Text)
@@ -680,6 +769,40 @@ class SchedulerHeartbeat(Base):
     status: Mapped[str] = mapped_column(String(20), default="RUNNING")  # RUNNING, DEGRADED, STOPPED, UNKNOWN
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
+# ─── Audit Log (system schema) ────────────────────────────────────────────
+
+
+class AuditLog(Base):
+    """Structured audit trail for auth/admin/security events."""
+
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "timestamp"),
+        Index("ix_audit_logs_user", "user_id"),
+        Index("ix_audit_logs_module", "module"),
+        {"schema": "system"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("shared.users.id"))
+    role: Mapped[Optional[str]] = mapped_column(Text)
+    module: Mapped[Optional[str]] = mapped_column(Text)
+    resource_type: Mapped[Optional[str]] = mapped_column(Text)
+    resource_id: Mapped[Optional[str]] = mapped_column(Text)
+    region_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    before_value: Mapped[Optional[dict]] = mapped_column(JSONB)
+    after_value: Mapped[Optional[dict]] = mapped_column(JSONB)
+    details: Mapped[Optional[dict]] = mapped_column(JSONB)
+    result: Mapped[Optional[str]] = mapped_column(Text)
+    request_id: Mapped[Optional[str]] = mapped_column(Text)
+    ip_address: Mapped[Optional[str]] = mapped_column(Text)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[Optional[str]] = mapped_column(Text)
+    entity_id: Mapped[Optional[str]] = mapped_column(Text)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ─── Data Quality ─────────────────────────────────────────────────────────

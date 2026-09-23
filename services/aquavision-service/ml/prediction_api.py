@@ -1,9 +1,6 @@
 # ml/prediction_api.py
-# API endpoints for ML predictions.
-# GET  /water/ml/predictions/{asset_id}  - Get flood predictions
-# POST /water/ml/train                    - Trigger model training
-#
-# Phase 2B: Updated field names, added model_status, EXPERIMENTAL labels.
+# Operational ML endpoints (predictions, train, anomalies, classification, performance).
+# v2 predictions (4-metric, CI) live at GET /water/v2/predict/{asset_id}.
 
 import logging
 from datetime import datetime
@@ -23,13 +20,10 @@ router = APIRouter()
 
 
 def _regenerate_model_metadata():
-    """Try to regenerate model_metadata.json after training.
-
-    This only works when sklearn/xgboost are installed (local dev or full container).
-    In slim containers, it logs a warning and the JSON stays stale until next local run.
-    """
+    """Try to regenerate model_metadata.json after training."""
     try:
         import subprocess
+        from pathlib import Path
         script = Path(__file__).parent.parent / "scripts" / "generate_model_metadata.py"
         if script.exists():
             result = subprocess.run(
@@ -219,10 +213,7 @@ async def get_anomalies(
     top_n: int = Query(5, ge=1, le=20),
     session: Session = Depends(get_session),
 ):
-    """Get anomalous observations for an asset.
-
-    WARNING: This model is EXPERIMENTAL. Anomaly scores are advisory only.
-    """
+    """Get anomalous observations for an asset."""
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -286,10 +277,7 @@ async def get_flood_classification(
     asset_id: int,
     session: Session = Depends(get_session),
 ):
-    """Get flood probability classification for an asset.
-
-    Returns flood_probability (0.0-1.0), severity, and recommendation.
-    """
+    """Get flood probability classification for an asset."""
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -314,7 +302,6 @@ async def get_flood_classification(
     try:
         clf = FloodClassifier.load(asset_id, model_path)
 
-        # Load recent observations
         from sqlalchemy import text
         from infrastructure.db.engine import engine as sa_engine
 
@@ -390,27 +377,23 @@ async def train_flood_classifiers():
 class ModelPerformance(BaseModel):
     asset_id: int
     asset_name: str
-    model_type: str  # "flood_predictor" | "flood_classifier" | "anomaly_detector"
+    model_type: str
     model_status: str
     trained_at: Optional[str] = None
     saved_at: Optional[str] = None
     samples: Optional[int] = None
     train_samples: Optional[int] = None
     test_samples: Optional[int] = None
-    # Regression metrics
     r2: Optional[float] = None
     mae: Optional[float] = None
     rmse: Optional[float] = None
     mape: Optional[float] = None
-    # Classification metrics
     accuracy: Optional[float] = None
     auc: Optional[float] = None
     f1: Optional[float] = None
     precision: Optional[float] = None
     recall: Optional[float] = None
-    # Feature importance (top 10)
     feature_importance: dict = {}
-    # Extra info
     horizon_days: Optional[int] = None
     model_version: Optional[str] = None
     model_file: str = ""
@@ -418,11 +401,7 @@ class ModelPerformance(BaseModel):
 
 @router.get("/ml/model-performance", response_model=List[ModelPerformance])
 async def get_model_performance():
-    """Read model performance metadata from pre-generated JSON.
-
-    Run `scripts/generate_model_metadata.py` locally to produce the JSON
-    after training models. This avoids needing sklearn/xgboost in the API container.
-    """
+    """Read model performance metadata from pre-generated JSON."""
     import json
     from pathlib import Path
 

@@ -9,8 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from config.settings import settings
@@ -33,11 +32,7 @@ else:
 logger = logging.getLogger("aquavision")
 
 # ─── Rate Limiter ──────────────────────────────────────────────────────────
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[f"{settings.RATE_LIMIT_PER_MINUTE}/minute"],
-    storage_uri="memory://",
-)
+from presentation.http.rate_limit import limiter  # noqa: E402
 
 
 @asynccontextmanager
@@ -172,6 +167,7 @@ from presentation.http.routers import (  # noqa: E402
     validation,
 )
 from ml.prediction_api import router as ml_router
+from ml.prediction_api_v2 import router as ml_v2_router
 from presentation.http.routers.prediction_pipeline import router as prediction_pipeline_router
 from presentation.http.routers.stress_alerts import router as stress_alerts_router
 from presentation.http.routers.ml_api import router as ml_api_router
@@ -190,6 +186,7 @@ app.include_router(reports.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(operational.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(regions.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(ml_v2_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(stress_alerts_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)

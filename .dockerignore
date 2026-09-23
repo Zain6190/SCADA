@@ -1,0 +1,18 @@
+# Keep build context small and secrets out of images.
+.git
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/venv
+**/.env
+**/.env.local
+**/*.pdf
+**/*.zip
+**/.pytest_cache
+**/.coverage
+**/node_modules
+**/.next
+**/out
+packages/dashboard/out
+services/aquavision-service/data/raw/real/irsa/*.pdf
+services/aquavision-service/infrastructure/ingestion/raw_archive

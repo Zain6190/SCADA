@@ -344,6 +344,11 @@ async def get_forecast_chart_data(
         if date_str not in dates:
             dates.append(date_str)
             actual.append(None)
+            forecast_3d.append(None)
+            forecast_7d.append(None)
+            forecast_14d.append(None)
+            conf_lower.append(None)
+            conf_upper.append(None)
 
         idx = dates.index(date_str)
         if lt == 3:

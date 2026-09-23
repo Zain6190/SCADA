@@ -110,7 +110,7 @@ export default function LoginPage() {
           {/* Demo credentials hint */}
           <div className="mt-6 pt-4 border-t border-slate-800/70">
             <p className="text-[11px] text-slate-600 text-center">
-              Demo: <span className="text-slate-500">admin / admin123</span> · <span className="text-slate-500">water_ops / water123</span>
+              Demo: <span className="text-slate-500">admin / admin123</span> · <span className="text-slate-500">water / water123</span>
             </p>
           </div>
         </div>

@@ -1,0 +1,63 @@
+# Title:                 GRDC STATION DATA FILE
+#                        --------------
+# Format:                DOS-ASCII
+# Field delimiter:       ;
+# missing values are indicated by -999.000
+#
+# file generation date:  2026-09-20
+#
+# GRDC-No.:              2341300
+# River:                 KURRAM RIVER
+# Station:               THAL
+# Country:               PK
+# Latitude (DD):       33.35
+# Longitude (DD):      70.52
+# Catchment area (km²):      5543.0
+# Altitude (m ASL):        -999.00
+# Next downstream station:      2335950
+# Remarks:               
+# Owner of original data: Initial dataset collected in the framework of the First GARP Global Experiment (FGGE)
+#************************************************************
+#
+# Data Set Content:      MEAN MONTHLY DISCHARGE (MQ)
+#                        --------------------
+# Unit of measure:                  m³/s
+# Time series:           1978 - 1979
+# No. of years:          2
+# Last update:           2018-05-29
+#
+# Table Header:
+#     YYYY-MM-DD - Date (DD=00)
+#     hh:mm      - Time
+#     Original   - original (provided) data
+#     Calculated - GRDC calculated from daily data
+#     Flag       - percentage of valid values used for calculation from daily data
+#************************************************************
+#
+# Data lines: 24
+# DATA
+YYYY-MM-DD;hh:mm; Original; Calculated; Flag
+1978-01-01;--:--;     16.000;     16.935; 100
+1978-02-01;--:--;     12.000;     13.714; 100
+1978-03-01;--:--;     22.000;     22.774; 100
+1978-04-01;--:--;     34.000;     35.767; 100
+1978-05-01;--:--;     65.000;     65.355; 100
+1978-06-01;--:--;     23.000;     24.367; 100
+1978-07-01;--:--;     29.000;     29.581; 100
+1978-08-01;--:--;     27.000;     27.968; 100
+1978-09-01;--:--;     17.000;     18.267; 100
+1978-10-01;--:--;     22.000;     22.710; 100
+1978-11-01;--:--;     18.000;     18.933; 100
+1978-12-01;--:--;     13.000;     13.194; 100
+1979-01-01;--:--;     13.000;     13.516; 100
+1979-02-01;--:--;     18.000;     20.107; 100
+1979-03-01;--:--;     29.000;     29.710; 100
+1979-04-01;--:--;     55.000;     57.800; 100
+1979-05-01;--:--;     43.000;     43.742; 100
+1979-06-01;--:--;     26.000;     27.367; 100
+1979-07-01;--:--;     18.000;     18.129; 100
+1979-08-01;--:--;     39.000;     39.097; 100
+1979-09-01;--:--;     20.000;     20.967; 100
+1979-10-01;--:--;     17.000;     17.387; 100
+1979-11-01;--:--;     20.000;     20.767; 100
+1979-12-01;--:--;     19.000;     19.645; 100

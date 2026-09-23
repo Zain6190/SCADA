@@ -1,0 +1,63 @@
+# Title:                 GRDC STATION DATA FILE
+#                        --------------
+# Format:                DOS-ASCII
+# Field delimiter:       ;
+# missing values are indicated by -999.000
+#
+# file generation date:  2026-09-20
+#
+# GRDC-No.:              2335180
+# River:                 BARANDU RIVER
+# Station:               NEAR DAGGAR
+# Country:               PK
+# Latitude (DD):       34.48
+# Longitude (DD):      72.48
+# Catchment area (km²):      598.0
+# Altitude (m ASL):        -999.00
+# Next downstream station:      2335200
+# Remarks:               
+# Owner of original data: Initial dataset collected in the framework of the First GARP Global Experiment (FGGE)
+#************************************************************
+#
+# Data Set Content:      MEAN MONTHLY DISCHARGE (MQ)
+#                        --------------------
+# Unit of measure:                  m³/s
+# Time series:           1978 - 1979
+# No. of years:          2
+# Last update:           2018-05-29
+#
+# Table Header:
+#     YYYY-MM-DD - Date (DD=00)
+#     hh:mm      - Time
+#     Original   - original (provided) data
+#     Calculated - GRDC calculated from daily data
+#     Flag       - percentage of valid values used for calculation from daily data
+#************************************************************
+#
+# Data lines: 24
+# DATA
+YYYY-MM-DD;hh:mm; Original; Calculated; Flag
+1978-01-01;--:--;      2.000;      2.645; 100
+1978-02-01;--:--;      2.000;      3.143; 100
+1978-03-01;--:--;     14.000;     14.968; 100
+1978-04-01;--:--;      7.000;      7.767; 100
+1978-05-01;--:--;      3.000;      3.903; 100
+1978-06-01;--:--;      2.000;      2.933; 100
+1978-07-01;--:--;     17.000;     17.226; 100
+1978-08-01;--:--;     25.000;     25.968; 100
+1978-09-01;--:--;     15.000;     16.300; 100
+1978-10-01;--:--;      7.000;      7.194; 100
+1978-11-01;--:--;      5.000;      6.100; 100
+1978-12-01;--:--;      4.000;      4.097; 100
+1979-01-01;--:--;      5.000;      5.194; 100
+1979-02-01;--:--;      4.000;      5.071; 100
+1979-03-01;--:--;      6.000;      6.806; 100
+1979-04-01;--:--;      4.000;      5.033; 100
+1979-05-01;--:--;      5.000;      5.387; 100
+1979-06-01;--:--;      4.000;      4.533; 100
+1979-07-01;--:--;      6.000;      6.065; 100
+1979-08-01;--:--;     11.000;     11.226; 100
+1979-09-01;--:--;      5.000;      5.267; 100
+1979-10-01;--:--;      3.000;      3.935; 100
+1979-11-01;--:--;      3.000;      3.267; 100
+1979-12-01;--:--;      3.000;      3.710; 100

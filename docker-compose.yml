@@ -11,7 +11,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ibcp-pgdata:/var/lib/postgresql/data
     networks:
       - scada-net
     healthcheck:
@@ -23,15 +23,19 @@ services:
 
   # ── AquaVision API (auto-setup: migrations + seed + ingest + train) ──
   aquavision:
+    image: ibcp-scada-aquavision:latest
     build:
-      context: ./services/aquavision-service
+      context: .
       dockerfile: Dockerfile
     container_name: ibcp-api
     restart: unless-stopped
     ports:
       - "8100:8100"
     environment:
-      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      # Plain psycopg2 format for seed scripts
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      # SQLAlchemy format for FastAPI ORM
+      SQLALCHEMY_DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
@@ -56,6 +60,33 @@ services:
       retries: 3
       start_period: 120s
 
+  # ── Scheduler (same image; runs scheduler.main instead of the API) ──
+  scheduler:
+    image: ibcp-scada-aquavision:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ibcp-scheduler
+    restart: unless-stopped
+    command: ["python", "-m", "scheduler.main"]
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      ML_PIPELINE_ROOT: /ml-pipeline
+    depends_on:
+      db:
+        condition: service_healthy
+      aquavision:
+        condition: service_started
+    networks:
+      - scada-net
+    # Scheduler does not serve HTTP; image healthcheck targets :8100.
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q scheduler.main"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   # ── Frontend ─────────────────────────────────────────────────────
   frontend:
     build:
@@ -73,7 +104,8 @@ services:
       - scada-net
 
 volumes:
-  pgdata:
+  ibcp-pgdata:
+    external: true
 
 networks:
   scada-net:

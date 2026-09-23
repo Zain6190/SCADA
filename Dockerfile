@@ -24,6 +24,8 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels -r /tmp/requi
     rm -rf /tmp/wheels
 
 COPY services/aquavision-service/ /app/
+# ml-pipeline scripts run by the in-service scheduler (WAI pipeline jobs)
+COPY services/ml-pipeline/ /ml-pipeline/
 
 EXPOSE 8100
 

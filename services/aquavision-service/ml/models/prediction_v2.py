@@ -726,6 +726,57 @@ class AquaVisionPredictionModel:
             return "physics_routing"
         return "ml_xgboost"
 
+    def _get_discharge_trend(self, asset_id: int) -> Optional[float]:
+        """Get daily discharge trend (% change per day) over the last 7 days.
+
+        Returns average daily % change. Positive = increasing, negative = decreasing.
+        Returns None if insufficient data.
+        """
+        if self.session is None:
+            return None
+
+        from sqlalchemy import text as sql_text
+
+        rows = self.session.execute(
+            sql_text("""
+                SELECT observed_at, discharge_cusecs
+                FROM aquavision.water_observations
+                WHERE asset_id = :aid
+                  AND discharge_cusecs IS NOT NULL
+                  AND discharge_cusecs > 0
+                ORDER BY observed_at DESC
+                LIMIT 14
+            """),
+            {"aid": asset_id},
+        ).mappings().all()
+
+        if len(rows) < 7:
+            return None
+
+        # Split into recent (last 7 days) and prior (7 days before that)
+        recent = [float(r["discharge_cusecs"]) for r in rows[:7]]
+        prior = [float(r["discharge_cusecs"]) for r in rows[7:14]] if len(rows) >= 14 else None
+
+        if prior and sum(prior) > 0:
+            recent_avg = sum(recent) / len(recent)
+            prior_avg = sum(prior) / len(prior)
+            # Daily % change (over 7-day gap)
+            total_change_pct = ((recent_avg - prior_avg) / prior_avg) * 100
+            return total_change_pct / 7  # daily rate
+        elif len(recent) >= 2:
+            # Use linear slope of recent data
+            import statistics
+            n = len(recent)
+            x_mean = (n - 1) / 2
+            y_mean = statistics.mean(recent)
+            numerator = sum((i - x_mean) * (recent[i] - y_mean) for i in range(n))
+            denominator = sum((i - x_mean) ** 2 for i in range(n))
+            if denominator > 0:
+                slope = numerator / denominator
+                # Convert to daily % change
+                return (slope / y_mean) * 100 if y_mean > 0 else None
+        return None
+
     def _build_lead_time_forecast(
         self,
         asset_id: int,
@@ -754,6 +805,13 @@ class AquaVisionPredictionModel:
             if current_discharge > 0 and predicted_cusecs > 0:
                 # Trend = percentage change
                 discharge_trend = ((predicted_cusecs - current_discharge) / current_discharge) * 100
+        else:
+            # For physics routing assets, use discharge trend projected over lead time
+            physics_trend = self._get_discharge_trend(asset_id)
+            if physics_trend is not None:
+                # Linear projection, capped at ±50%
+                total_change = physics_trend * lead_time
+                discharge_trend = max(-50, min(50, total_change))
 
         water_stress = _compute_water_stress_from_wai(
             wai_score=wai_score,
@@ -774,11 +832,27 @@ class AquaVisionPredictionModel:
         if current_discharge <= 0:
             current_discharge = 0
 
-        # For physics routing assets, use upstream discharge
+        # Get discharge trend for this asset (daily % change over last 7 days)
+        discharge_trend_pct = self._get_discharge_trend(asset_id)
+
+        # For physics routing assets, project upstream discharge with trend
         if upstream_discharge and upstream_discharge > 0:
-            predicted_cusecs = upstream_discharge
-            lower_cusecs = predicted_cusecs * 0.9
-            upper_cusecs = predicted_cusecs * 1.1
+            # Project upstream discharge forward using trend
+            if discharge_trend_pct is not None and current_discharge > 0:
+                # Dampened projection: short-term = full trend, long-term dampened
+                # 3-day: 60% of daily trend, 7-day: 25%, 14-day: 12%
+                dampening = {3: 0.6, 7: 0.25, 14: 0.12}.get(lead_time, 0.2)
+                effective_daily = discharge_trend_pct * dampening
+                total_change = effective_daily * lead_time
+                total_change = max(-40, min(40, total_change))
+                predicted_cusecs = upstream_discharge * (1 + total_change / 100)
+            else:
+                predicted_cusecs = upstream_discharge
+
+            # CI widens with lead time: ±10% at 3d, ±15% at 7d, ±22% at 14d
+            ci_factor = 0.10 + 0.02 * lead_time
+            lower_cusecs = predicted_cusecs * (1 - ci_factor)
+            upper_cusecs = predicted_cusecs * (1 + ci_factor)
         # If ML prediction available, use it directly as discharge
         elif lead_time in ml_predictions:
             pred = ml_predictions[lead_time]
