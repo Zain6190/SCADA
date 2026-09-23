@@ -37,7 +37,9 @@ export function AppShell({ children, className, navigationClassName }: {
   return (
     <div className={cn('min-h-screen bg-canvas text-ink', className)}>
       <div className="lg:grid lg:grid-cols-[240px_1fr]">
-        <aside className={cn('sticky top-0 hidden h-screen border-r border-line bg-surface backdrop-blur lg:block', navigationClassName)}>
+        {/* nav-surface re-declares the theme tokens in their inverted form,
+            so the rail is deep green on every portal without per-page CSS. */}
+        <aside className={cn('nav-surface sticky top-0 hidden h-screen border-r border-line lg:block', navigationClassName)}>
           <Sidebar />
         </aside>
 

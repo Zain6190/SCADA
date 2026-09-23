@@ -23,7 +23,14 @@ export function PageHeader({
   className?: string
 }) {
   return (
-    <div className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}>
+    <div
+      className={cn(
+        // A rule under the header separates it from the data below on every
+        // page, so pages stop adding their own divider.
+        'flex flex-col gap-3 border-b border-line pb-5 sm:flex-row sm:items-start sm:justify-between',
+        className
+      )}
+    >
       <div className="flex items-start gap-3">
         {icon && (
           <div className={cn('hidden h-10 w-10 shrink-0 items-center justify-center rounded sm:flex', accent)}>
@@ -32,7 +39,7 @@ export function PageHeader({
         )}
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-h2 font-semibold text-ink sm:text-h1">{title}</h1>
+            <h1 className="text-h2 font-semibold tracking-[-0.025em] text-ink sm:text-h1">{title}</h1>
             {badge}
           </div>
           {description && <p className="mt-1 max-w-[80ch] text-sm text-ink-muted">{description}</p>}

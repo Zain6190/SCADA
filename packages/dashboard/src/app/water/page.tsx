@@ -24,7 +24,6 @@ import { WaterMapDynamic } from '@/features/water/water-map-dynamic'
 import { useAuth } from '@/context/AuthContext'
 import { canSeeAnalysis } from '@/lib/permissions'
 import Link from 'next/link'
-import styles from './theme-preview.module.css'
 
 const AQUA = 'bg-brand-soft text-brand'
 
@@ -60,10 +59,9 @@ export default function WaterOverviewPage() {
     : 'National scope'
 
   return (
-    <AppShell className={styles.preview} navigationClassName={styles.navigation}>
+    <AppShell>
       <div className="space-y-6">
         <PageHeader
-          className={styles.heading}
           title="AquaVision Overview"
           description="Live weekly water availability (WAI) aggregated from GEE MODIS surface-water, CHIRPS rainfall, and MODIS ET."
           badge={

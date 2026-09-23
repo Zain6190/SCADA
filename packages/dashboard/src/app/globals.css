@@ -1,10 +1,14 @@
 /* packages/dashboard/src/app/globals.css
- * IBCP-SCADA design tokens — "Control Room": instrument blue on paper.
+ * IBCP-SCADA design tokens — "Indus Slate": river green on blue-grey paper.
  *
  * Every colour in the product comes from this file. Components reference the
  * semantic Tailwind names (bg-surface, text-ink-muted, border-line, bg-crit…),
  * never a raw palette class like bg-slate-900. Values are RGB triplets so
  * Tailwind's opacity modifiers keep working: bg-brand/10, border-crit/25.
+ *
+ * The palette was authored in oklch on the landing and login pages; the
+ * sRGB triplets below are those same colours, with the status ramp darkened
+ * where needed so every badge clears 4.5:1 on its own soft background.
  */
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -14,49 +18,87 @@
 
 :root {
   /* ── Surfaces ─────────────────────────────────────────────────────── */
-  --canvas: 245 246 248;        /* #F5F6F8  page background            */
-  --surface: 255 255 255;       /* #FFFFFF  cards, bars, menus         */
-  --surface-alt: 239 241 244;   /* #EFF1F4  hover rows, inset panels   */
-  --surface-sunken: 231 234 239; /* #E7EAEF  track, wells, disabled     */
+  --canvas: 220 227 232;        /* #DCE3E8  blue-grey page paper       */
+  --surface: 241 244 243;       /* #F1F4F3  cards, bars, menus         */
+  --surface-alt: 228 235 233;   /* #E4EBE9  hover rows, inset panels   */
+  --surface-sunken: 212 222 219; /* #D4DEDB  track, wells, disabled     */
 
   /* ── Lines ────────────────────────────────────────────────────────── */
-  --line: 220 224 230;          /* #DCE0E6  hairline borders           */
-  --line-strong: 195 201 210;   /* #C3C9D2  input & secondary button   */
+  --line: 193 205 206;          /* #C1CDCE  hairline borders           */
+  --line-strong: 157 177 175;   /* #9DB1AF  input & secondary button   */
 
   /* ── Text ─────────────────────────────────────────────────────────── */
-  --ink: 20 26 33;              /* #141A21  headings, values  15.2:1   */
-  --ink-muted: 74 84 98;        /* #4A5462  body copy          8.1:1   */
-  --ink-subtle: 114 124 138;    /* #727C8A  labels, captions   4.6:1   */
+  --ink: 36 52 49;              /* #243431  headings, values  11.8:1   */
+  --ink-muted: 70 91 87;        /* #465B57  body copy          6.6:1   */
+  --ink-subtle: 85 103 99;      /* #556763  labels, captions   5.4:1   */
 
   /* ── Brand ────────────────────────────────────────────────────────── */
-  --brand: 21 70 126;           /* #15467E  primary action     9.5:1   */
-  --brand-hover: 15 55 101;     /* #0F3765                             */
-  --brand-soft: 231 238 247;    /* #E7EEF7  selected nav, soft fills   */
-  --brand-on: 255 255 255;      /* text on a brand surface             */
+  --brand: 36 103 92;           /* #24675C  primary action     6.0:1   */
+  --brand-hover: 27 80 71;      /* #1B5047                             */
+  --brand-soft: 220 232 226;    /* #DCE8E2  selected nav, soft fills   */
+  --brand-on: 241 244 243;      /* text on a brand surface             */
 
   /* ── Status ───────────────────────────────────────────────────────────
    * Semantic only. Never used for decoration — if something is green it
    * means Normal, if it is red it means Critical. Always paired with text.
    */
-  --ok: 21 105 60;              /* #15693C */
-  --ok-soft: 228 241 233;       /* #E4F1E9 */
-  --warn: 154 91 6;             /* #9A5B06 */
-  --warn-soft: 251 240 222;     /* #FBF0DE */
-  --crit: 168 30 30;            /* #A81E1E */
-  --crit-soft: 250 231 231;     /* #FAE7E7 */
-  --info: 21 70 126;            /* #15467E */
-  --info-soft: 231 238 247;     /* #E7EEF7 */
+  --ok: 25 112 55;              /* #197037 */
+  --ok-soft: 196 229 202;       /* #C4E5CA */
+  --warn: 140 80 0;             /* #8C5000 */
+  --warn-soft: 249 220 186;     /* #F9DCBA */
+  --crit: 172 39 34;            /* #AC2722 */
+  --crit-soft: 254 210 204;     /* #FED2CC */
+  --info: 36 103 92;            /* #24675C */
+  --info-soft: 220 232 226;     /* #DCE8E2 */
 
   /* ── Severity ramp ────────────────────────────────────────────────────
-   * Six ordered levels shared by water, crop and geo. Each darker than the
-   * last; all meet 4.5:1 on their own soft background.
+   * Six ordered levels shared by water, crop and geo. Hue walks green →
+   * olive → amber → orange → red; all clear 4.5:1 on their own soft.
    */
-  --sev-normal: 21 105 60;        --sev-normal-soft: 228 241 233;
-  --sev-moderate: 77 124 15;      --sev-moderate-soft: 237 243 224;
-  --sev-stressed: 135 101 0;      --sev-stressed-soft: 247 240 217;
-  --sev-warning: 154 91 6;        --sev-warning-soft: 251 240 222;
-  --sev-severe: 168 71 14;        --sev-severe-soft: 251 235 224;
-  --sev-critical: 168 30 30;      --sev-critical-soft: 250 231 231;
+  --sev-normal: 25 112 55;        --sev-normal-soft: 196 229 202;
+  --sev-moderate: 75 108 33;      --sev-moderate-soft: 212 229 196;
+  --sev-stressed: 118 94 0;       --sev-stressed-soft: 232 222 185;
+  --sev-warning: 140 80 0;        --sev-warning-soft: 249 220 186;
+  --sev-severe: 159 61 0;         --sev-severe-soft: 252 212 195;
+  --sev-critical: 172 39 34;      --sev-critical-soft: 254 210 204;
+}
+
+/* ── Inverted navigation surface ──────────────────────────────────────
+ * The deep-green rail. Same token names, redefined — so every component
+ * inside it (cards, badges, buttons) themes itself with no extra classes.
+ * Radix portals the mobile drawer outside the page, so the class carries
+ * the tokens rather than inheriting them.
+ */
+.nav-surface {
+  --canvas: 24 62 56;           /* #183E38 */
+  --surface: 24 62 56;
+  --surface-alt: 33 76 68;      /* #214C44 */
+  --surface-sunken: 43 86 77;   /* #2B564D */
+  --line: 55 88 80;             /* #375850 */
+  --line-strong: 90 124 112;    /* #5A7C70 */
+  --ink: 237 244 240;           /* #EDF4F0  10.5:1 */
+  --ink-muted: 202 220 211;     /* #CADCD3   8.2:1 */
+  --ink-subtle: 162 190 177;    /* #A2BEB1   5.9:1 */
+  --brand: 195 225 209;         /* #C3E1D1   8.4:1 */
+  --brand-hover: 220 237 228;
+  --brand-soft: 46 88 76;       /* #2E584C */
+  --brand-on: 24 62 56;
+  background-color: rgb(var(--surface));
+  color: rgb(var(--ink));
+}
+
+.nav-surface ::selection {
+  background: rgb(var(--brand));
+  color: rgb(var(--brand-on));
+}
+
+.nav-surface ::-webkit-scrollbar-track {
+  background: rgb(var(--surface));
+}
+
+.nav-surface ::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border-color: rgb(var(--surface));
 }
 
 @layer base {

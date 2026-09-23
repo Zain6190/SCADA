@@ -54,7 +54,7 @@ module.exports = {
       },
       fontSize: {
         // One scale. Left column is the name used in components.
-        micro: ['0.625rem', { lineHeight: '1', letterSpacing: '0.14em' }], // 10px uppercase labels
+        micro: ['0.6875rem', { lineHeight: '1.4', letterSpacing: '0.09em' }], // uppercase labels
         caption: ['0.6875rem', { lineHeight: '1.4' }],                      // 11px helper text
         sm: ['0.8125rem', { lineHeight: '1.45' }],                          // 13px body / table
         base: ['0.875rem', { lineHeight: '1.6' }],                          // 14px prose
@@ -72,9 +72,11 @@ module.exports = {
         xl: '10px',
       },
       boxShadow: {
-        // Elevation is carried by borders; shadows stay almost invisible.
-        card: '0 1px 2px rgb(20 26 33 / 0.04)',
-        pop: '0 8px 24px rgb(20 26 33 / 0.10), 0 2px 6px rgb(20 26 33 / 0.06)',
+        // On the tinted canvas a hairline border carries elevation on its
+        // own; cards stay flat. Only detached surfaces (menus, popovers)
+        // get a shadow.
+        card: 'none',
+        pop: '0 8px 24px rgb(36 52 49 / 0.14), 0 2px 6px rgb(36 52 49 / 0.08)',
       },
       transitionDuration: {
         DEFAULT: '150ms',
