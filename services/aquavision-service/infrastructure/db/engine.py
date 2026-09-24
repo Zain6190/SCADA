@@ -10,7 +10,9 @@ class Base(DeclarativeBase):
     pass
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+from config.settings import settings
+
+DATABASE_URL = os.environ.get("DATABASE_URL") or settings.DATABASE_URL
 
 if DATABASE_URL:
     engine = create_engine(
