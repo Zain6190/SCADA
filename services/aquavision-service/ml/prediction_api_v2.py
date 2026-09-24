@@ -32,6 +32,9 @@ class DischargeResponse(BaseModel):
     confidence_lower_cusecs: float
     confidence_upper_cusecs: float
     unit: str = "m3/s"
+    # Interval provenance: "quantile_q10_q90" | "residual_p90" | "r2_band" |
+    # "physics_band" | "pct_heuristic"
+    ci_method: Optional[str] = None
 
 
 class WaterStressResponse(BaseModel):
@@ -44,7 +47,7 @@ class WaterStressResponse(BaseModel):
 class FloodRiskResponse(BaseModel):
     value: int
     category: str
-    confidence: float
+    confidence: Optional[float] = None
     drivers: List[Dict[str, str]]
 
 
@@ -60,7 +63,7 @@ class LeadTimeResponse(BaseModel):
     flood_risk: FloodRiskResponse
     discharge: DischargeResponse
     rainfall: RainfallResponse
-    confidence: float
+    confidence: Optional[float] = None
 
 
 class AlertResponse(BaseModel):
@@ -353,12 +356,13 @@ async def get_forecast_chart_data(
         idx = dates.index(date_str)
         if lt == 3:
             forecast_3d[idx] = forecast.discharge.value_cusecs
-            conf_lower[idx] = forecast.discharge.confidence_lower_cusecs
-            conf_upper[idx] = forecast.discharge.confidence_upper_cusecs
         elif lt == 7:
             forecast_7d[idx] = forecast.discharge.value_cusecs
         elif lt == 14:
             forecast_14d[idx] = forecast.discharge.value_cusecs
+        # Interval belongs to this lead time's forecast point (all lead times)
+        conf_lower[idx] = forecast.discharge.confidence_lower_cusecs
+        conf_upper[idx] = forecast.discharge.confidence_upper_cusecs
 
     # Sort by date
     sorted_indices = sorted(range(len(dates)), key=lambda i: dates[i])
@@ -378,6 +382,8 @@ async def get_forecast_chart_data(
         forecast_14d=forecast_14d,
         confidence_lower=conf_lower,
         confidence_upper=conf_upper,
-        warning_level=float(asset.warning_level_ft) if asset.warning_level_ft else None,
-        danger_level=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+        # warning_level_ft / critical_level_ft are ELEVATION in feet — plotting
+        # them against a cusecs axis would mix units. No rating curve ⇒ None.
+        warning_level=None,
+        danger_level=None,
     )

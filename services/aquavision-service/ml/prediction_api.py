@@ -56,6 +56,7 @@ class PredictionResponse(BaseModel):
     model_status: str
     feature_importance: dict
     target_field: str = "level"  # "level", "inflow", or "discharge"
+    ci_method: Optional[str] = None  # interval provenance (quantile/residual/r2 band)
 
 
 class TrainRequest(BaseModel):
@@ -181,6 +182,7 @@ async def get_predictions(
                     model_status=pred.model_status,
                     feature_importance=pred.feature_importance,
                     target_field=target_field,
+                    ci_method=pred.ci_method,
                 ))
 
         return predictions
@@ -401,15 +403,68 @@ class ModelPerformance(BaseModel):
 
 @router.get("/ml/model-performance", response_model=List[ModelPerformance])
 async def get_model_performance():
-    """Read model performance metadata from pre-generated JSON."""
+    """Read model performance from the single canonical metadata file."""
     import json
     from pathlib import Path
 
-    metadata_path = Path(__file__).parent.parent / "data" / "model_metadata.json"
+    metadata_path = Path(__file__).parent.parent / "data" / "models" / "model_metadata.json"
     if not metadata_path.exists():
         return []
 
     with open(metadata_path) as f:
         raw = json.load(f)
 
-    return [ModelPerformance(**item) for item in raw]
+    if isinstance(raw, list):
+        return [ModelPerformance(**item) for item in raw]
+
+    results: List[ModelPerformance] = []
+    for aid, asset in (raw.get("assets") or {}).items():
+        raw_aid = asset.get("asset_id")
+        if raw_aid is None:
+            try:
+                asset_id = int(aid)
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                asset_id = int(raw_aid)
+            except (TypeError, ValueError):
+                continue
+        asset_name = asset.get("asset_name") or f"Asset {asset_id}"
+        for key, m in (asset.get("models") or {}).items():
+            results.append(
+                ModelPerformance(
+                    asset_id=asset_id,
+                    asset_name=asset_name,
+                    model_type=m.get("model_type") or key,
+                    model_status=m.get("status") or m.get("model_status") or "UNKNOWN",
+                    trained_at=m.get("trained_at"),
+                    saved_at=m.get("saved_at"),
+                    samples=m.get("samples"),
+                    train_samples=m.get("train_samples"),
+                    test_samples=m.get("test_samples"),
+                    r2=_opt_float(m.get("r2")),
+                    mae=_opt_float(m.get("mae")),
+                    rmse=_opt_float(m.get("rmse")),
+                    mape=_opt_float(m.get("mape")),
+                    accuracy=_opt_float(m.get("accuracy")),
+                    auc=_opt_float(m.get("auc")),
+                    f1=_opt_float(m.get("f1")),
+                    precision=_opt_float(m.get("precision")),
+                    recall=_opt_float(m.get("recall")),
+                    feature_importance=m.get("feature_importance") or m.get("top_features") or {},
+                    horizon_days=m.get("horizon") or m.get("horizon_days"),
+                    model_version=raw.get("model_version") or m.get("model_version"),
+                    model_file=m.get("model_file", ""),
+                )
+            )
+    return results
+
+
+def _opt_float(v):
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None

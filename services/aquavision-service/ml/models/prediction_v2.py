@@ -48,12 +48,11 @@ FLOOD_RISK_CATEGORIES = {
     (0, 30): "No Risk",
 }
 
-# Confidence by lead time (empirical from walk-forward validation)
-LEAD_TIME_CONFIDENCE = {
-    3: 0.88,
-    7: 0.78,
-    14: 0.68,
-}
+# Minimum prediction_errors rows before a horizon is considered validated
+ACCURACY_MIN_SAMPLES = 5
+
+# Assets whose discharge path is upstream physics routing (not the ML target)
+PHYSICS_ASSETS = frozenset({3, 4, 5, 6, 7, 8, 11})
 
 # WAI severity thresholds (from domain/water_classifier.py)
 WAI_THRESHOLDS = {
@@ -76,6 +75,9 @@ class DischargePrediction:
     confidence_lower_cusecs: float
     confidence_upper_cusecs: float
     unit: str = "m3/s"
+    # How the interval was produced: "quantile_q10_q90" | "residual_p90" |
+    # "r2_band" | "physics_band" | "pct_heuristic"
+    ci_method: Optional[str] = None
 
 
 @dataclass
@@ -92,7 +94,7 @@ class FloodRiskPrediction:
     """Flood risk score prediction."""
     value: int  # 0-100
     category: str
-    confidence: float  # 0-1
+    confidence: Optional[float]  # 0-1, or None until validated
     drivers: List[Dict[str, str]] = field(default_factory=list)
 
 
@@ -112,7 +114,7 @@ class LeadTimeForecast:
     flood_risk: FloodRiskPrediction
     discharge: DischargePrediction
     rainfall: RainfallPrediction
-    confidence: float
+    confidence: Optional[float]  # None until walk-forward validation fills it
 
 
 @dataclass
@@ -158,8 +160,14 @@ def _compute_water_stress_from_wai(
 ) -> WaterStressPrediction:
     """Compute water stress prediction from WAI and contributing factors."""
     if wai_score is None:
-        # Fallback: estimate from available data
-        wai_score = 50.0  # Default moderate
+        # No real-time or weekly WAI available — leave stress unscored
+        # rather than inventing a moderate default.
+        return WaterStressPrediction(
+            value=0,
+            category="No Data",
+            trend=0,
+            components={},
+        )
 
     value = int(round(wai_score))
     category = _classify_water_stress(value)
@@ -230,8 +238,8 @@ def _compute_flood_risk(
 
     category = _classify_flood_risk(score)
 
-    # Confidence from lead time
-    confidence = 0.78  # Default
+    # Flood-risk confidence stays None unless a caller supplies validated accuracy.
+    confidence: Optional[float] = None
 
     # Risk drivers
     drivers = []
@@ -267,6 +275,7 @@ def _compute_discharge_prediction(
     predicted_cusecs: float,
     lower_cusecs: float,
     upper_cusecs: float,
+    ci_method: Optional[str] = None,
 ) -> DischargePrediction:
     """Convert discharge prediction from cusecs to m3/s with CI."""
     return DischargePrediction(
@@ -276,6 +285,7 @@ def _compute_discharge_prediction(
         value_cusecs=round(predicted_cusecs, 0),
         confidence_lower_cusecs=round(lower_cusecs, 0),
         confidence_upper_cusecs=round(upper_cusecs, 0),
+        ci_method=ci_method,
     )
 
 
@@ -316,6 +326,10 @@ class AquaVisionPredictionModel:
 
     def __init__(self, session=None):
         self.session = session
+        # asset_id -> target_field seen from its loaded ML model(s)
+        self._ml_target_fields: Dict[int, str] = {}
+        # asset_id -> {horizon: holdout ci_coverage_80 from training metadata}
+        self._ml_ci_coverage: Dict[int, Dict[int, Optional[float]]] = {}
 
     def predict(
         self,
@@ -366,6 +380,9 @@ class AquaVisionPredictionModel:
         # Get upstream discharge for physics routing
         upstream_discharge = self._get_upstream_discharge(asset_id)
 
+        # Real accuracy from prediction_errors (holdout seed + daily scorer)
+        accuracy_by_lead = self._get_accuracy_by_lead(asset_id)
+
         for lead_time in lead_times:
             forecast = self._build_lead_time_forecast(
                 asset_id=asset_id,
@@ -381,6 +398,7 @@ class AquaVisionPredictionModel:
                 danger_level=danger_level,
                 ml_predictions=ml_predictions,
                 upstream_discharge=upstream_discharge,
+                confidence=accuracy_by_lead.get(lead_time),
             )
             predictions[f"{lead_time}_day"] = forecast
 
@@ -393,15 +411,22 @@ class AquaVisionPredictionModel:
             )
             alerts.extend(lead_alerts)
 
-        # Model metadata
+        acc3 = accuracy_by_lead.get(3)
+        acc7 = accuracy_by_lead.get(7)
+        acc14 = accuracy_by_lead.get(14)
+        validated = any(v is not None for v in (acc3, acc7, acc14))
         metadata = {
             "model_version": "2.0",
-            "last_training": "2026-09-20",
-            "accuracy_3day": LEAD_TIME_CONFIDENCE.get(3, 0.85),
-            "accuracy_7day": LEAD_TIME_CONFIDENCE.get(7, 0.78),
-            "accuracy_14day": LEAD_TIME_CONFIDENCE.get(14, 0.68),
-            "features_used": 49,
+            "last_training": None,
+            "accuracy_3day": acc3,
+            "accuracy_7day": acc7,
+            "accuracy_14day": acc14,
+            "features_used": None,
             "prediction_method": self._get_prediction_method(asset_id),
+            "accuracy_status": "VALIDATED" if validated else "NOT_VALIDATED",
+            # Holdout coverage of the q10-q90 interval (honest, measured;
+            # None for physics assets / models without quantile intervals)
+            "ci_coverage_80": self._ml_ci_coverage.get(asset_id),
         }
 
         return AssetPrediction(
@@ -413,6 +438,43 @@ class AquaVisionPredictionModel:
             alerts=alerts,
             model_metadata=metadata,
         )
+
+    def _get_accuracy_by_lead(self, asset_id: int) -> Dict[int, Optional[float]]:
+        """Accuracy 0-1 per lead time from prediction_errors (REAL, n>=ACCURACY_MIN_SAMPLES).
+
+        accuracy = max(0, 1 - MAPE/100). Horizons with fewer samples return None
+        so the UI shows "Not validated" instead of a fake score.
+        """
+        if self.session is None:
+            return {}
+
+        from sqlalchemy import text as sql_text
+
+        try:
+            rows = self.session.execute(
+                sql_text("""
+                    SELECT horizon, COUNT(*) AS n, AVG(error_pct) AS mape
+                    FROM aquavision.prediction_errors
+                    WHERE asset_id = :aid
+                      AND data_origin = 'REAL'
+                      AND horizon IN (3, 7, 14)
+                    GROUP BY horizon
+                """),
+                {"aid": asset_id},
+            ).mappings().all()
+        except Exception as e:
+            logger.debug("prediction_errors unavailable for asset %s: %s", asset_id, e)
+            return {}
+
+        out: Dict[int, Optional[float]] = {}
+        for row in rows:
+            n = int(row["n"] or 0)
+            if n < ACCURACY_MIN_SAMPLES:
+                out[int(row["horizon"])] = None
+                continue
+            mape = float(row["mape"] or 0.0)
+            out[int(row["horizon"])] = max(0.0, min(1.0, 1.0 - mape / 100.0))
+        return out
 
     def _get_current_observation(self, asset_id: int) -> Optional[Dict]:
         """Get latest observation for an asset."""
@@ -445,66 +507,62 @@ class AquaVisionPredictionModel:
         }
 
     def _get_wai_data(self, asset_id: int) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-        """Get WAI score and anomalies for the asset's region."""
+        """WAI + anomalies for the asset.
+
+        Prefer real-time composite from REAL observations (ml/models/wai_computer).
+        Fall back to the latest weekly indicator only when real-time scoring is
+        impossible (empty history). Never invent a default score.
+        """
         if self.session is None:
             return None, None, None
 
+        from ml.models.wai_computer import get_wai_for_prediction
+
+        # Stale weekly indicator (GEE sync) — last resort only
+        stale_wai = stale_rain = stale_et = None
         from sqlalchemy import text as sql_text
 
-        # Get province from asset
         asset_row = self.session.execute(
             sql_text("SELECT province FROM aquavision.water_assets WHERE id = :aid"),
             {"aid": asset_id},
         ).mappings().first()
+        if asset_row is not None and asset_row["province"]:
+            PROVINCE_TO_REGION = {
+                "KPK": "Khyber Pakhtunkhwa",
+                "Punjab": "Punjab",
+                "Sindh": "Sindh",
+                "Balochistan": "Balochistan",
+                "AJK": "Azad Jammu and Kashmir",
+            }
+            region_name = PROVINCE_TO_REGION.get(asset_row["province"], asset_row["province"])
+            region_row = self.session.execute(
+                sql_text("SELECT id FROM shared.regions WHERE name = :name LIMIT 1"),
+                {"name": region_name},
+            ).mappings().first()
+            if region_row is not None:
+                wai_row = self.session.execute(
+                    sql_text(
+                        """
+                        SELECT wai_score, rainfall_anomaly, et_anomaly
+                        FROM aquavision.water_indicators_weekly
+                        WHERE region_id = :rid
+                        ORDER BY week_start_date DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"rid": region_row["id"]},
+                ).mappings().first()
+                if wai_row is not None:
+                    stale_wai = float(wai_row["wai_score"]) if wai_row["wai_score"] else None
+                    stale_rain = float(wai_row["rainfall_anomaly"]) if wai_row["rainfall_anomaly"] else None
+                    stale_et = float(wai_row["et_anomaly"]) if wai_row["et_anomaly"] else None
 
-        if asset_row is None:
-            return None, None, None
-
-        province = asset_row["province"]
-
-        # Map asset province to region_id via shared.regions
-        # Asset provinces: KPK, Sindh, Punjab, AJK, Balochistan
-        # Region names: Khyber Pakhtunkhwa, Sindh, Punjab, etc.
-        PROVINCE_TO_REGION = {
-            "KPK": "Khyber Pakhtunkhwa",
-            "Punjab": "Punjab",
-            "Sindh": "Sindh",
-            "Balochistan": "Balochistan",
-            "AJK": "Azad Jammu and Kashmir",
-        }
-
-        region_name = PROVINCE_TO_REGION.get(province, province)
-
-        region_row = self.session.execute(
-            sql_text("SELECT id FROM shared.regions WHERE name = :name LIMIT 1"),
-            {"name": region_name},
-        ).mappings().first()
-
-        if region_row is None:
-            return None, None, None
-
-        region_id = region_row["id"]
-
-        # Get latest WAI for region_id
-        wai_row = self.session.execute(
-            sql_text("""
-                SELECT wai_score, rainfall_anomaly, et_anomaly
-                FROM aquavision.water_indicators_weekly
-                WHERE region_id = :rid
-                ORDER BY week_start_date DESC
-                LIMIT 1
-            """),
-            {"rid": region_id},
-        ).mappings().first()
-
-        if wai_row is None:
-            return None, None, None
-
-        return (
-            float(wai_row["wai_score"]) if wai_row["wai_score"] else None,
-            float(wai_row["rainfall_anomaly"]) if wai_row["rainfall_anomaly"] else None,
-            float(wai_row["et_anomaly"]) if wai_row["et_anomaly"] else None,
-        )
+        wai, rain, et = get_wai_for_prediction(self.session, asset_id, stale_indicator_wai=stale_wai)
+        if rain is None:
+            rain = stale_rain
+        if et is None:
+            et = stale_et
+        return wai, rain, et
 
     def _get_weather_forecast(self, asset_id: int) -> Optional[Dict]:
         """Get weather forecast for an asset."""
@@ -592,30 +650,13 @@ class AquaVisionPredictionModel:
             return None
 
     def _get_thresholds(self, asset_id: int) -> Tuple[Optional[float], Optional[float]]:
-        """Get warning and danger thresholds in cusecs."""
-        if self.session is None:
-            return None, None
+        """Discharge warning/danger thresholds in m3/s (or None if unknown).
 
-        from sqlalchemy import text as sql_text
-
-        row = self.session.execute(
-            sql_text("""
-                SELECT warning_level_ft, critical_level_ft
-                FROM aquavision.water_assets
-                WHERE id = :aid
-            """),
-            {"aid": asset_id},
-        ).mappings().first()
-
-        if row is None:
-            return None, None
-
-        # Convert levels to approximate cusecs (rough heuristic)
-        # This is simplified; in production, use rating curves
-        warn = float(row["warning_level_ft"]) if row["warning_level_ft"] else None
-        danger = float(row["critical_level_ft"]) if row["critical_level_ft"] else None
-
-        return warn, danger
+        water_assets.warning_level_ft / critical_level_ft are ELEVATION in feet,
+        not discharge. Comparing them to predicted m3/s is a unit bug. Without a
+        rating curve we return None so flood risk never mixes ft with m3/s.
+        """
+        return None, None
 
     def _get_ml_predictions(self, asset_id: int) -> Dict[int, Dict]:
         """Get ML predictions from existing FloodPredictor."""
@@ -646,17 +687,30 @@ class AquaVisionPredictionModel:
                 )
 
                 if pred:
-                    # Use the actual predicted value based on target_field
+                    # Map the model's actual target to a flow value in cusecs.
+                    # A level-target value is FEET — never treat it as cusecs
+                    # (that was a unit bug); such models simply don't contribute
+                    # to the discharge forecast and the caller falls back.
                     if pred.predicted_discharge is not None:
                         predicted_cusecs = pred.predicted_discharge
+                    elif pred.predicted_outflow is not None:
+                        predicted_cusecs = pred.predicted_outflow
                     elif pred.predicted_inflow is not None:
                         predicted_cusecs = pred.predicted_inflow
-                    elif pred.predicted_level_ft is not None:
-                        # Legacy: treat level as discharge (old models)
-                        predicted_cusecs = pred.predicted_level_ft
                     else:
-                        predicted_cusecs = 0
+                        logger.debug(
+                            "asset %s horizon %ds: target_field=%s has no flow "
+                            "output — skipping discharge contribution",
+                            asset_id, horizon, pred.target_field,
+                        )
+                        continue
 
+                    self._ml_target_fields[asset_id] = pred.target_field
+                    cov = predictor.training_metrics.get(
+                        f"{asset_id}_{horizon}", {}
+                    ).get("ci_coverage_80")
+                    if cov is not None:
+                        self._ml_ci_coverage.setdefault(asset_id, {})[horizon] = cov
                     predictions[horizon] = {
                         "predicted_cusecs": predicted_cusecs,
                         "lower_bound": pred.lower_bound,
@@ -664,6 +718,7 @@ class AquaVisionPredictionModel:
                         "risk_score": pred.risk_score,
                         "risk_level": pred.risk_level,
                         "target_field": pred.target_field,
+                        "ci_method": pred.ci_method,
                     }
 
         except Exception as e:
@@ -720,14 +775,20 @@ class AquaVisionPredictionModel:
         return sum(latest.values())
 
     def _get_prediction_method(self, asset_id: int) -> str:
-        """Determine prediction method for this asset."""
-        PHYSICS_ASSETS = {3, 4, 5, 6, 7, 8, 11}
+        """Human-readable prediction method for metadata (honest provenance)."""
         if asset_id in PHYSICS_ASSETS:
             return "physics_routing"
+        target = self._ml_target_fields.get(asset_id)
+        if target in ("discharge", "outflow", "inflow"):
+            return f"ml_xgboost_{target}"
         return "ml_xgboost"
 
     def _get_discharge_trend(self, asset_id: int) -> Optional[float]:
         """Get daily discharge trend (% change per day) over the last 7 days.
+
+        Uses whatever flow series the asset actually has — discharge, outflow
+        (reservoir release), or inflow — in that priority order. Reservoirs
+        rarely populate discharge_cusecs, so COALESCE matters here.
 
         Returns average daily % change. Positive = increasing, negative = decreasing.
         Returns None if insufficient data.
@@ -739,11 +800,12 @@ class AquaVisionPredictionModel:
 
         rows = self.session.execute(
             sql_text("""
-                SELECT observed_at, discharge_cusecs
+                SELECT observed_at,
+                       COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs) AS flow_cusecs
                 FROM aquavision.water_observations
                 WHERE asset_id = :aid
-                  AND discharge_cusecs IS NOT NULL
-                  AND discharge_cusecs > 0
+                  AND COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs) IS NOT NULL
+                  AND COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs) > 0
                 ORDER BY observed_at DESC
                 LIMIT 14
             """),
@@ -754,8 +816,8 @@ class AquaVisionPredictionModel:
             return None
 
         # Split into recent (last 7 days) and prior (7 days before that)
-        recent = [float(r["discharge_cusecs"]) for r in rows[:7]]
-        prior = [float(r["discharge_cusecs"]) for r in rows[7:14]] if len(rows) >= 14 else None
+        recent = [float(r["flow_cusecs"]) for r in rows[:7]]
+        prior = [float(r["flow_cusecs"]) for r in rows[7:14]] if len(rows) >= 14 else None
 
         if prior and sum(prior) > 0:
             recent_avg = sum(recent) / len(recent)
@@ -792,15 +854,22 @@ class AquaVisionPredictionModel:
         danger_level: Optional[float],
         ml_predictions: Dict,
         upstream_discharge: Optional[float],
+        confidence: Optional[float] = None,
     ) -> LeadTimeForecast:
         """Build complete forecast for a single lead time."""
 
         # 1. Water Stress
         discharge_trend = None
         if lead_time in ml_predictions:
-            # Estimate trend from ML prediction vs current
+            # Estimate trend from ML prediction vs current — baseline must match
+            # the model's target (an outflow model compares against outflow, not
+            # inflow, or the trend sign/magnitude is nonsense).
+            from ml.targets import flow_baseline_cusecs
+
             pred = ml_predictions[lead_time]
-            current_discharge = current_obs.get("discharge_cusecs") or current_obs.get("inflow_cusecs") or 0
+            current_discharge = flow_baseline_cusecs(
+                current_obs, pred.get("target_field")
+            )
             predicted_cusecs = pred.get("predicted_cusecs", 0)
             if current_discharge > 0 and predicted_cusecs > 0:
                 # Trend = percentage change
@@ -821,12 +890,13 @@ class AquaVisionPredictionModel:
         )
 
         # 2. Discharge prediction
-        # Use actual observation as baseline
-        current_discharge = (
-            current_obs.get("discharge_cusecs")
-            or current_obs.get("inflow_cusecs")
-            or current_obs.get("outflow_cusecs")
-            or 0
+        # Baseline = current flow matching the ML target when available
+        # (reservoir outflow models must be compared against outflow).
+        from ml.targets import flow_baseline_cusecs as _flow_baseline
+
+        ml_pred = ml_predictions.get(lead_time)
+        current_discharge = _flow_baseline(
+            current_obs, ml_pred.get("target_field") if ml_pred else None
         )
 
         if current_discharge <= 0:
@@ -853,24 +923,30 @@ class AquaVisionPredictionModel:
             ci_factor = 0.10 + 0.02 * lead_time
             lower_cusecs = predicted_cusecs * (1 - ci_factor)
             upper_cusecs = predicted_cusecs * (1 + ci_factor)
+            ci_method = "physics_band"
         # If ML prediction available, use it directly as discharge
         elif lead_time in ml_predictions:
             pred = ml_predictions[lead_time]
             predicted_cusecs = pred.get("predicted_cusecs", current_discharge)
-            # Use CI from flood_predictor (now percentage-based)
+            # Use CI from flood_predictor (quantile / residual / r2 band)
             lower_bound = pred.get("lower_bound")
             upper_bound = pred.get("upper_bound")
+            ci_method = pred.get("ci_method")
             if lower_bound is not None and upper_bound is not None:
                 lower_cusecs = lower_bound
                 upper_cusecs = upper_bound
+                if ci_method is None:
+                    ci_method = "r2_band"
             else:
                 # Fallback: ±15%
                 lower_cusecs = predicted_cusecs * 0.85
                 upper_cusecs = predicted_cusecs * 1.15
+                ci_method = "pct_heuristic"
         else:
             predicted_cusecs = current_discharge
             lower_cusecs = predicted_cusecs * 0.9
             upper_cusecs = predicted_cusecs * 1.1
+            ci_method = "pct_heuristic"
 
         # Ensure non-negative
         lower_cusecs = max(0, lower_cusecs)
@@ -879,6 +955,7 @@ class AquaVisionPredictionModel:
             predicted_cusecs=predicted_cusecs,
             lower_cusecs=lower_cusecs,
             upper_cusecs=upper_cusecs,
+            ci_method=ci_method,
         )
 
         # 3. Flood Risk
@@ -901,9 +978,7 @@ class AquaVisionPredictionModel:
             normal_precip_mm=30.0 * (lead_time / 7),
         )
 
-        # Confidence
-        confidence = LEAD_TIME_CONFIDENCE.get(lead_time, 0.65)
-
+        # Real accuracy from prediction_errors for this lead time (None until validated)
         return LeadTimeForecast(
             lead_time_days=lead_time,
             water_stress=water_stress,
