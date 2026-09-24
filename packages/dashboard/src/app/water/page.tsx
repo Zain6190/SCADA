@@ -9,7 +9,6 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { SeverityBadge, Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
-import { DataFreshness } from '@/components/ui/data-freshness'
 import {
   useWaterOverview,
   useWaterAlerts,
@@ -71,12 +70,7 @@ export default function WaterOverviewPage() {
           }
           icon={<Droplets className="h-6 w-6" />}
           updatedAt={overview.data?.week_start_date}
-          action={
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/25 bg-brand-soft px-3 py-1 text-[11px] font-medium text-brand">
-              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
-              Scope: {scopeBadge}
-            </span>
-          }
+          action={<Badge tone="brand">{scopeBadge}</Badge>}
         />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -174,13 +168,17 @@ export default function WaterOverviewPage() {
           />
         </div>
 
-        {/* Data freshness + source / quality strip */}
+        {/* Provenance of the latest indicator row. Freshness itself lives in
+            the page header, so this strip only appears when there is a row to
+            describe — otherwise it rendered as a lone "Live" pill. */}
+        {latestRow && (
         <Card>
-          <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-3 py-3">
-            <DataFreshness
-              updatedAt={overview.data?.week_start_date}
-              source={latestRow?.dataSourceVersion}
-            />
+          <CardBody className="flex flex-wrap items-center gap-x-5 gap-y-2 py-2.5">
+            {latestRow.dataSourceVersion && (
+              <span className="text-caption text-ink-subtle">
+                Source {latestRow.dataSourceVersion}
+              </span>
+            )}
             {latestRow?.dataProvider && (
               <span className="flex items-center gap-1.5 text-[11px] text-ink-subtle">
                 <Database className="h-3 w-3 text-ink-subtle" /> Provider: {latestRow.dataProvider}
@@ -193,10 +191,11 @@ export default function WaterOverviewPage() {
               <Badge tone={qualBadgeTone}>Quality: {latestRow.dataQuality}</Badge>
             )}
             {latestRow?.waiModelVersion && (
-              <Badge tone="violet">WAI {latestRow.waiModelVersion}</Badge>
+              <Badge tone="brand">WAI {latestRow.waiModelVersion}</Badge>
             )}
           </CardBody>
         </Card>
+        )}
 
         {/* Map */}
         <Card className="overflow-hidden">
