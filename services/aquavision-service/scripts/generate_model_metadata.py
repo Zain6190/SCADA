@@ -1,15 +1,21 @@
 """Generate model_metadata.json from trained model files.
+
+Writes the canonical nested format to data/models/model_metadata.json
+(same path as retrain_all_models.py and /ml/model-metadata).
 Run locally (where sklearn/xgboost are installed), then copy the JSON to the container.
 """
 import pickle
 import joblib
 import json
+from datetime import datetime
 from pathlib import Path
 
 results = []
 
+_BASE = Path(__file__).resolve().parent.parent
+
 # Flood classifiers (.pkl)
-clf_dir = Path("services/aquavision-service/data/models")
+clf_dir = _BASE / "data" / "models"
 for f in sorted(clf_dir.glob("flood_classifier_asset_*.pkl")):
     with open(f, "rb") as fh:
         data = pickle.load(fh)
@@ -37,7 +43,7 @@ for f in sorted(clf_dir.glob("flood_classifier_asset_*.pkl")):
     })
 
 # Flood predictors (.joblib) — standard
-pred_dir = Path("services/aquavision-service/models/flood_xgb")
+pred_dir = _BASE / "models" / "flood_xgb"
 for f in sorted(pred_dir.glob("*.joblib")):
     if "_hf" in f.name:
         continue
@@ -106,7 +112,7 @@ for f in sorted(pred_dir.glob("*_hf.joblib")):
         print(f"WARN: {f.name}: {e}")
 
 # Anomaly detectors
-anom_dir = Path("services/aquavision-service/models/anomaly_if")
+anom_dir = _BASE / "models" / "anomaly_if"
 for f in sorted(anom_dir.glob("*.joblib")):
     try:
         data = joblib.load(f)
@@ -124,11 +130,41 @@ for f in sorted(anom_dir.glob("*.joblib")):
     except Exception as e:
         print(f"WARN: {f.name}: {e}")
 
+results = [r for r in results if r.get("asset_id") is not None]
 results.sort(key=lambda r: (r["asset_id"], {"flood_predictor": 0, "flood_classifier": 1, "anomaly_detector": 2}.get(r["model_type"], 9)))
 
-out_path = Path("services/aquavision-service/data/model_metadata.json")
+# Nest into the canonical single-file format used by /ml/model-metadata and /ml/model-performance
+assets: dict = {}
+for r in results:
+    aid = r["asset_id"]
+    if aid not in assets:
+        assets[aid] = {
+            "asset_id": aid,
+            "asset_name": r.get("asset_name", ""),
+            "models": {},
+        }
+    horizon = r.get("horizon_days")
+    model_type = r.get("model_type", "model")
+    key = f"{model_type}_{horizon}" if horizon else model_type
+    entry = dict(r)
+    entry["status"] = r.get("model_status", "EXPERIMENTAL")
+    entry["horizon"] = horizon
+    assets[aid]["models"][key] = entry
+
+nested = {
+    "generated_at": datetime.utcnow().isoformat(),
+    "model_version": "xgb-flood-v1.2",
+    "features_enriched": True,
+    "weather_features": True,
+    "log_transform": True,
+    "smote_classifier": True,
+    "assets": assets,
+}
+
+out_path = _BASE / "data" / "models" / "model_metadata.json"
+out_path.parent.mkdir(parents=True, exist_ok=True)
 with open(out_path, "w") as f:
-    json.dump(results, f, indent=2, default=str)
+    json.dump(nested, f, indent=2, default=str)
 
 print(f"Generated metadata for {len(results)} models -> {out_path}")
 for r in results[:10]:

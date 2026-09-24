@@ -64,36 +64,15 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[3, 7, 14, 30
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
 
-        # Detect best target field for this asset
-        # Assets 9,10: predict discharge directly (have discharge data)
-        # Assets 1,2: predict inflow (mass balance: inflow = outflow + dS/dt)
-        # Assets 3-8,11: physics routing (not trained via ML)
-        DISCHARGE_ASSETS = {9, 10}  # Kabul, Chenab
-        INFLOW_ASSETS = {1, 2}  # Tarbela, Mangla (mass balance)
-
-        if asset_id in DISCHARGE_ASSETS:
-            target_field = "discharge"
-            logger.info(f"Asset {asset_name}: forced target_field='discharge'")
-        elif asset_id in INFLOW_ASSETS:
-            target_field = "auto"  # prefers inflow
-            logger.info(f"Asset {asset_name}: using target_field='auto' (inflow)")
-        else:
-            # Fallback: detect from data
-            from sqlalchemy import text as sql_text
-            has_inflow = session.execute(
-                sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
-                {"aid": asset_id}
-            ).scalar()
-            total = session.execute(
-                sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
-                {"aid": asset_id}
-            ).scalar()
-            
-            if has_inflow > total * 0.3:
-                target_field = "auto"
-            else:
-                target_field = "discharge"
-                logger.info(f"Asset {asset_name}: no inflow data, using target_field='discharge'")
+        # Concrete per-asset target (ml/targets.py is the single source of truth):
+        #   1,2 (Tarbela, Mangla): outflow  — reservoir release; discharge column
+        #        is empty and storage_volume is empty so mass-balance dS/dt is
+        #        impossible; outflow IS the reservoir's discharge.
+        #   9,10 (Kabul, Chenab):  discharge — direct flow observations.
+        #   3-8,11 (barrages):     inflow fallback; inference uses physics routing.
+        from ml.targets import resolve_target_field
+        target_field = resolve_target_field(session, asset_id)
+        logger.info(f"Asset {asset_name}: target_field='{target_field}'")
 
         for horizon in horizons:
             end_date = datetime.utcnow()
@@ -153,21 +132,9 @@ def train_highflow_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
 
-        # Detect best target field for this asset
-        from sqlalchemy import text as sql_text
-        has_inflow = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
-            {"aid": asset_id}
-        ).scalar()
-        total = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
-            {"aid": asset_id}
-        ).scalar()
-        
-        if has_inflow > total * 0.3:
-            target_field = "auto"
-        else:
-            target_field = "discharge"
+        # Same concrete target map as FloodPredictor — never 'auto'.
+        from ml.targets import resolve_target_field
+        target_field = resolve_target_field(session, asset_id)
 
         for horizon in horizons:
             end_date = datetime.utcnow()
@@ -194,6 +161,7 @@ def train_highflow_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30
                 asset_id=asset_id, X=X, y=y,
                 feature_names=feature_names, horizon=horizon,
                 sample_weights=weights,
+                target_field=target_field,
             )
 
             if "error" not in metrics:
@@ -268,6 +236,8 @@ def generate_model_metadata(all_results: list) -> dict:
 
     for r in all_results:
         aid = r.get("asset_id")
+        if aid is None:
+            continue
         if aid not in metadata["assets"]:
             metadata["assets"][aid] = {
                 "asset_id": aid,

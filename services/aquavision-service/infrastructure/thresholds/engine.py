@@ -1204,30 +1204,8 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                 
                 if len(X) == 0:
                     continue
-                
-                # Detect target field for this asset (same logic as retrain)
-                has_inflow_count = db.execute(
-                    text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
-                    {"aid": asset.id},
-                ).scalar()
-                total_count = db.execute(
-                    text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
-                    {"aid": asset.id},
-                ).scalar()
-                # "inflow" if asset has inflow data (Tarbela, Mangla)
-                # "discharge" if no inflow but has discharge (Kabul, Chenab)
-                # "level" as fallback
-                if has_inflow_count > total_count * 0.3:
-                    target_field = "inflow"
-                elif db.execute(
-                    text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND discharge_cusecs IS NOT NULL"),
-                    {"aid": asset.id},
-                ).scalar() > total_count * 0.3:
-                    target_field = "discharge"
-                else:
-                    target_field = "level"
 
-                for horizon in [7, 14, 30]:
+                for horizon in [3, 7, 14, 30]:
                     key = f"{asset.id}_{horizon}"
                     model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{key}.joblib"
                     if not model_path.exists():
@@ -1236,9 +1214,11 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                     if key not in predictor.models:
                         if not predictor._load_model(key):
                             continue
-                    
-                    # Get threshold for risk assessment
-                    threshold = _get_threshold(db, asset.id)
+
+                    # ft warning/danger levels are only meaningful against a
+                    # level-target model — comparing them to cusecs is a unit bug.
+                    model_target = predictor.training_metrics.get(key, {}).get("target_field", "auto")
+                    threshold = _get_threshold(db, asset.id) if model_target == "level" else None
                     result = predictor.predict(
                         asset_id=asset.id,
                         asset_name=asset.canonical_name,
@@ -1251,19 +1231,37 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                     if not result:
                         continue
                     
-                    # Store prediction in correct column based on what model predicts
-                    predicted_value = result.predicted_level_ft
-                    store_prediction(
-                        db=db,
-                        asset_id=asset.id,
-                        predicted_level_ft=predicted_value if target_field == "level" else None,
-                        predicted_inflow=predicted_value if target_field == "inflow" else None,
-                        predicted_discharge=predicted_value if target_field == "discharge" else None,
-                        predicted_outflow=result.predicted_outflow,
-                        confidence=100.0 - result.risk_score,
-                        model_version=f"xgb_{asset.id}_{horizon}d",
-                        horizon_days=horizon,
-                    )
+                    # Store the field the model actually predicts — a level-target
+                    # model must never land in the flow columns and vice versa.
+                    # (Legacy 'auto' models put their value in predicted_level_ft
+                    # even when trained on cusecs; route those by data detection.)
+                    if result.target_field in ("level", "inflow", "outflow", "discharge"):
+                        store_prediction(
+                            db=db,
+                            asset_id=asset.id,
+                            predicted_level_ft=result.predicted_level_ft,
+                            predicted_inflow=result.predicted_inflow,
+                            predicted_outflow=result.predicted_outflow,
+                            predicted_discharge=result.predicted_discharge,
+                            confidence=100.0 - result.risk_score,
+                            model_version=f"xgb_{asset.id}_{horizon}d",
+                            horizon_days=horizon,
+                        )
+                    else:
+                        from ml.targets import resolve_target_field
+                        legacy_tf = resolve_target_field(db, asset.id)
+                        value = result.predicted_level_ft
+                        store_prediction(
+                            db=db,
+                            asset_id=asset.id,
+                            predicted_level_ft=value if legacy_tf == "level" else None,
+                            predicted_inflow=value if legacy_tf == "inflow" else None,
+                            predicted_outflow=value if legacy_tf == "outflow" else None,
+                            predicted_discharge=value if legacy_tf == "discharge" else None,
+                            confidence=100.0 - result.risk_score,
+                            model_version=f"xgb_{asset.id}_{horizon}d",
+                            horizon_days=horizon,
+                        )
                     total_stored += 1
                 
                 # Check for alerts (7-day)
