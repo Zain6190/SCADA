@@ -476,6 +476,9 @@ export interface V2DischargePrediction {
   confidence_lower_cusecs: number
   confidence_upper_cusecs: number
   unit: string
+  // Interval provenance: quantile_q10_q90 | residual_p90 | r2_band |
+  // physics_band | pct_heuristic (null = no prediction)
+  ci_method?: string | null
 }
 
 export interface V2WaterStressPrediction {
@@ -488,7 +491,7 @@ export interface V2WaterStressPrediction {
 export interface V2FloodRiskPrediction {
   value: number
   category: string
-  confidence: number
+  confidence: number | null
   drivers: Array<{ name: string; value: string; impact: string }>
 }
 
@@ -504,7 +507,7 @@ export interface V2LeadTimeForecast {
   flood_risk: V2FloodRiskPrediction
   discharge: V2DischargePrediction
   rainfall: V2RainfallPrediction
-  confidence: number
+  confidence: number | null
 }
 
 export interface V2AssetPrediction {
@@ -523,12 +526,16 @@ export interface V2AssetPrediction {
   }>
   model_metadata: {
     model_version: string
-    last_training: string
-    accuracy_3day: number
-    accuracy_7day: number
-    accuracy_14day: number
-    features_used: number
+    last_training: string | null
+    accuracy_3day: number | null
+    accuracy_7day: number | null
+    accuracy_14day: number | null
+    features_used: number | null
     prediction_method: string
+    accuracy_status?: string
+    // holdout coverage of the q10-q90 interval per horizon (3/7/14);
+    // null for physics assets / models without quantile intervals
+    ci_coverage_80?: Record<string, number> | null
   }
 }
 
@@ -551,4 +558,17 @@ export interface V2NationalOverview {
     timestamp: string
   }>
   assets_monitored: number
+}
+
+// GET /water/v2/asset/{id}/forecast-chart — 30d actual + 3/7/14 forecast points
+export interface V2ForecastChart {
+  dates: string[]
+  actual: Array<number | null>
+  forecast_3d: Array<number | null>
+  forecast_7d: Array<number | null>
+  forecast_14d: Array<number | null>
+  confidence_lower: Array<number | null>
+  confidence_upper: Array<number | null>
+  warning_level: number | null
+  danger_level: number | null
 }

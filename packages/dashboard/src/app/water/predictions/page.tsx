@@ -47,7 +47,7 @@ interface WAIPrediction {
   model_version: string
   predicted_severity: string
   predicted_wai_score: number
-  confidence: number
+  confidence: number | null
 }
 
 export default function PredictionsPage() {
@@ -481,7 +481,9 @@ function WAIPredictionCard({ pred }: { pred: WAIPrediction }) {
           </div>
           <div className="flex justify-between">
             <span className="text-ink-subtle">Confidence</span>
-            <span className="font-mono text-ink-muted">{(pred.confidence * 100).toFixed(0)}%</span>
+            <span className="font-mono text-ink-muted">
+              {pred.confidence != null ? `${(pred.confidence * 100).toFixed(0)}%` : '—'}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-ink-subtle">Target</span>
