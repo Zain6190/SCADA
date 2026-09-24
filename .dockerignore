@@ -16,3 +16,15 @@
 packages/dashboard/out
 services/aquavision-service/data/raw/real/irsa/*.pdf
 services/aquavision-service/infrastructure/ingestion/raw_archive
+
+# shrink frontend build context
+*.pdf
+*.zip
+*.csv
+docs
+session-log.md
+data
+**/*.joblib
+**/*.pkl
+**/*.png
+**/*.jpg

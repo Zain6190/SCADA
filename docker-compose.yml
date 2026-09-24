@@ -48,6 +48,10 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
+    volumes:
+      # Host is source of truth for trained models — container recreates
+      # must not wipe them (retrain writes land here directly).
+      - ./services/aquavision-service/models:/app/models
     depends_on:
       db:
         condition: service_healthy
@@ -72,6 +76,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
       ML_PIPELINE_ROOT: /ml-pipeline
+    volumes:
+      - ./services/aquavision-service/models:/app/models
     depends_on:
       db:
         condition: service_healthy
