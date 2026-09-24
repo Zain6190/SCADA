@@ -73,7 +73,11 @@ export default function WaterOverviewPage() {
           action={<Badge tone="brand">{scopeBadge}</Badge>}
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Two bands: what the basin is doing right now, then the inputs the
+            index is derived from. Four and three fill their rows exactly. */}
+        <section className="space-y-2.5">
+          <h2 className="text-micro font-semibold uppercase text-ink-subtle">Basin status</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             label="Regions Monitored"
             value={overview.data?.regions_monitored ?? '—'}
@@ -112,6 +116,12 @@ export default function WaterOverviewPage() {
             accent="bg-warn-soft text-warn"
             onClick={() => (window.location.href = '/water/alerts')}
           />
+          </div>
+        </section>
+
+        <section className="space-y-2.5">
+          <h2 className="text-micro font-semibold uppercase text-ink-subtle">Observed inputs</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <KpiCard
             label="Reservoir / Storage"
             value={
@@ -166,7 +176,8 @@ export default function WaterOverviewPage() {
             icon={Wind}
             accent="bg-brand-soft text-brand"
           />
-        </div>
+          </div>
+        </section>
 
         {/* Provenance of the latest indicator row. Freshness itself lives in
             the page header, so this strip only appears when there is a row to
