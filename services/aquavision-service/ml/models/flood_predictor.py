@@ -44,6 +44,10 @@ class FloodPrediction:
     # Prediction interval (residual-based, NOT a statistical confidence interval)
     lower_bound: Optional[float] = None
     upper_bound: Optional[float] = None
+    # How the interval was produced: "quantile_q10_q90" (XGBoost quantile
+    # regression), "residual_p90" (holdout |residual| percentile band), or
+    # "r2_band" (legacy quality heuristic, last resort).
+    ci_method: str = "r2_band"
 
     # Risk assessment
     risk_score: float = 0.0  # 0-100
@@ -74,6 +78,8 @@ class FloodPredictor:
         self.training_mae = {}  # key -> MAE from training (for prediction interval)
         self.training_metrics = {}  # key -> full metrics dict
         self.log_transform = {}  # key -> bool (whether log1p was applied)
+        self.residual_p90 = {}  # key -> 90th pct of |holdout residuals| (interval width)
+        self.quantile_models = {}  # key -> {"q10": model, "q90": model} (in-memory only)
         self.model_version = "xgb-flood-v1.2"
         os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -86,8 +92,13 @@ class FloodPredictor:
         horizon: int = 7,
         sample_weights: Optional[np.ndarray] = None,
         target_field: str = "auto",  # NEW: what we're predicting
+        persist: bool = True,
     ) -> Dict:
-        """Train XGBoost model for a specific asset and horizon."""
+        """Train XGBoost model for a specific asset and horizon.
+
+        persist=False keeps the model in memory only (holdout backtests /
+        seed scripts must not overwrite production .joblib files).
+        """
         from sklearn.model_selection import train_test_split
         from sklearn.preprocessing import StandardScaler
         from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -176,6 +187,37 @@ class FloodPredictor:
         self.feature_names[key] = feature_names
         self.training_mae[key] = mae
         self.log_transform[key] = use_log_transform
+        self.residual_p90[key] = residual_p90
+
+        # Step 4: quantile q10/q90 interval models for production models with
+        # enough data (>=100 samples; barrages train on ~30-60 and stay on
+        # the residual band). persist=False (holdout seeds) skips them so
+        # backtests stay fast and never write model files.
+        # Rec 1: bands are conformal-calibrated on the holdout so measured
+        # coverage reaches the 0.80 target (raw quantiles under-covered).
+        ci_method = "residual_p90"
+        ci_coverage_80 = None
+        ci_coverage_80_raw = None
+        ci_inflation = None
+        if persist and len(X) >= 100:
+            ci = self._train_interval_models(
+                key=key,
+                X_train_scaled=X_train_scaled,
+                y_train=y_train,
+                X_test_scaled=X_test_scaled,
+                y_test=y_test,
+                y_test_orig=y_test_orig,
+                use_log_transform=use_log_transform,
+                feature_names=feature_names,
+                target_field=target_field,
+                sample_weight=w_train,
+            )
+            if ci is not None:
+                ci_method = "quantile_q10_q90"
+                ci_coverage_80 = ci["calibrated"]
+                ci_coverage_80_raw = ci["raw"]
+                ci_inflation = ci["inflation"]
+
         self.training_metrics[key] = {
             "asset_id": asset_id,
             "horizon": horizon,
@@ -199,9 +241,22 @@ class FloodPredictor:
             "weighted": w_train is not None,
             "log_transform": use_log_transform,
             "target_field": target_field,  # NEW: save what we're predicting
+            "ci_method": ci_method,
+            "ci_coverage_80": round(ci_coverage_80, 4) if ci_coverage_80 is not None else None,
+            # honest record: coverage of the RAW q10-q90 band before conformal
+            # inflation (typically well below 0.80), and the additive inflation
+            # (original units) applied to reach the target
+            "ci_coverage_80_raw": round(ci_coverage_80_raw, 4) if ci_coverage_80_raw is not None else None,
+            "ci_inflation": round(ci_inflation, 2) if ci_inflation is not None else None,
+            # residual_p90 is the 90th pct of |holdout residuals|, so holdout
+            # coverage of ±p90 is ~0.90 by construction — recorded as metadata
+            "ci_coverage_90": round(float(np.mean(np.abs(residuals_orig) <= residual_p90)), 4),
         }
 
-        self._save_model(key, model, scaler, feature_names, mae, residual_p90, residual_std, self.training_metrics[key])
+        if persist:
+            self._save_model(key, model, scaler, feature_names, mae, residual_p90, residual_std, self.training_metrics[key])
+        else:
+            logger.info(f"Model trained in-memory (not saved): asset={asset_id}, horizon={horizon}d")
 
         logger.info(f"Trained model: asset={asset_id}, horizon={horizon}d, MAE={mae:.2f}, R2={r2:.4f}")
         return self.training_metrics[key]
@@ -229,7 +284,7 @@ class FloodPredictor:
             scaler = self.scalers[key]
             feature_names_loaded = self.feature_names.get(key, feature_names)
             mae_orig = self.training_mae.get(key, 0)
-            residual_p90 = self.training_mae.get(key, 0)
+            residual_p90 = self.residual_p90.get(key, 0)
             target_field = self.training_metrics.get(key, {}).get("target_field", "auto")
 
         X_scaled = scaler.transform(X)
@@ -242,27 +297,42 @@ class FloodPredictor:
         else:
             prediction = float(prediction_log)
 
-        # Confidence interval based on model R² quality
-        # Better R² = tighter CI. Worse R² = wider CI.
-        metrics = self.training_metrics.get(key, {})
-        r2 = metrics.get("r2", 0.5)
-
-        if r2 >= 0.7:
-            ci_pct = 0.12  # Excellent model: ±12%
-        elif r2 >= 0.5:
-            ci_pct = 0.18  # Good model: ±18%
-        elif r2 >= 0.3:
-            ci_pct = 0.28  # Fair model: ±28%
+        # Step 4: confidence interval chain — use the tightest calibrated
+        # method available, worst case falls back to the legacy R² band.
+        interval = self._load_interval_models(key)
+        if interval is not None:
+            q10_model, q90_model, inflation = interval
+            q10_pred = float(q10_model.predict(X_scaled)[0])
+            q90_pred = float(q90_model.predict(X_scaled)[0])
+            if use_log:
+                q10_pred = float(np.expm1(q10_pred))
+                q90_pred = float(np.expm1(q90_pred))
+            lo = min(q10_pred, q90_pred) - inflation
+            hi = max(q10_pred, q90_pred) + inflation
+            lower_bound = max(0.0, lo)
+            upper_bound = hi
+            ci_method = "quantile_q10_q90"
+        elif residual_p90 and residual_p90 > 0:
+            lower_bound = max(0.0, prediction - residual_p90)
+            upper_bound = prediction + residual_p90
+            ci_method = "residual_p90"
         else:
-            ci_pct = 0.45  # Poor model: ±45%
-
-        # Widen CI for longer horizons (3% per day beyond 3)
-        horizon_days = horizon
-        horizon_factor = 1.0 + max(0, horizon_days - 3) * 0.03
-
-        margin = prediction * ci_pct * horizon_factor
-        lower_bound = max(0, prediction - margin)
-        upper_bound = prediction + margin
+            # Legacy heuristic: better R² = tighter CI (last resort only)
+            metrics = self.training_metrics.get(key, {})
+            r2 = metrics.get("r2", 0.5)
+            if r2 >= 0.7:
+                ci_pct = 0.12  # Excellent model: ±12%
+            elif r2 >= 0.5:
+                ci_pct = 0.18  # Good model: ±18%
+            elif r2 >= 0.3:
+                ci_pct = 0.28  # Fair model: ±28%
+            else:
+                ci_pct = 0.45  # Poor model: ±45%
+            horizon_factor = 1.0 + max(0, horizon - 3) * 0.03
+            margin = prediction * ci_pct * horizon_factor
+            lower_bound = max(0, prediction - margin)
+            upper_bound = prediction + margin
+            ci_method = "r2_band"
 
         risk_score = self._calculate_risk_score(prediction, warning_level, danger_level)
         risk_level = self._risk_level_from_score(risk_score)
@@ -301,6 +371,7 @@ class FloodPredictor:
             predicted_discharge=predicted_discharge,
             lower_bound=round(float(lower_bound), 2),
             upper_bound=round(float(upper_bound), 2),
+            ci_method=ci_method,
             risk_score=round(float(risk_score), 1),
             risk_level=risk_level,
             exceeds_warning=bool(exceeds_warning),
@@ -310,6 +381,112 @@ class FloodPredictor:
             target_field=target_field,
             feature_importance=top_features,
         )
+
+    def _train_interval_models(
+        self,
+        key: str,
+        X_train_scaled: np.ndarray,
+        y_train: np.ndarray,
+        X_test_scaled: np.ndarray,
+        y_test: np.ndarray,
+        y_test_orig: np.ndarray,
+        use_log_transform: bool,
+        feature_names: List[str],
+        target_field: str,
+        sample_weight: Optional[np.ndarray] = None,
+    ) -> Optional[float]:
+        """Train q10/q90 XGBoost quantile models for prediction intervals.
+
+        Returns {"raw", "calibrated", "inflation"} holdout coverage figures
+        (calibrated targets ~0.80), or None if training failed (caller then
+        keeps the residual_p90 band).
+        """
+        import xgboost as xgb
+
+        fitted = {}
+        try:
+            for alpha, name in ((0.1, "q10"), (0.9, "q90")):
+                q_model = xgb.XGBRegressor(
+                    objective="reg:quantileerror",
+                    quantile_alpha=alpha,
+                    n_estimators=300,
+                    max_depth=4,
+                    learning_rate=0.03,
+                    subsample=0.8,
+                    colsample_bytree=0.7,
+                    reg_alpha=0.5,
+                    reg_lambda=2.0,
+                    min_child_weight=5,
+                    random_state=42,
+                    n_jobs=-1,
+                )
+                # Fixed rounds (no early stopping): avoids eval-metric
+                # differences for reg:quantileerror across XGBoost versions.
+                if sample_weight is not None:
+                    q_model.fit(X_train_scaled, y_train, sample_weight=sample_weight)
+                else:
+                    q_model.fit(X_train_scaled, y_train)
+                fitted[name] = q_model
+        except Exception as exc:  # noqa: BLE001 — quantile must never break main model
+            logger.warning(f"Quantile interval training failed for {key}: {exc}")
+            return None
+
+        q10_pred = fitted["q10"].predict(X_test_scaled)
+        q90_pred = fitted["q90"].predict(X_test_scaled)
+        if use_log_transform:
+            q10_pred = np.expm1(q10_pred)
+            q90_pred = np.expm1(q90_pred)
+        coverage_raw = float(np.mean((y_test_orig >= q10_pred) & (y_test_orig <= q90_pred)))
+
+        # Split-conformal calibration on the holdout (quantile models never
+        # saw it — no early stopping). Nonconformity score = distance outside
+        # the raw band; inflate by the 80th percentile so holdout coverage
+        # reaches the 0.80 target. Additive, original units — a fixed offset,
+        # so coverage under flow-regime shift is not guaranteed (standard
+        # conformal caveat, documented rather than hidden).
+        scores = np.maximum(q10_pred - y_test_orig, y_test_orig - q90_pred)
+        inflation = max(0.0, float(np.percentile(scores, 80)))
+        coverage_cal = float(np.mean(
+            (y_test_orig >= q10_pred - inflation) & (y_test_orig <= q90_pred + inflation)
+        ))
+
+        path = os.path.join(MODEL_DIR, f"{key}_interval.joblib")
+        joblib.dump({
+            "q10": fitted["q10"],
+            "q90": fitted["q90"],
+            "feature_names": feature_names,
+            "log_transform": use_log_transform,
+            "target_field": target_field,
+            "coverage_80_holdout": coverage_raw,
+            "coverage_80_calibrated": coverage_cal,
+            "conformal_inflation": inflation,
+            "saved_at": datetime.utcnow().isoformat(),
+        }, path)
+        self.quantile_models[key] = {**fitted, "inflation": inflation}
+        logger.info(
+            f"Saved interval models: {path} (holdout coverage raw={coverage_raw:.3f} "
+            f"-> calibrated={coverage_cal:.3f}, inflation={inflation:.1f}, target=0.80)"
+        )
+        return {"raw": coverage_raw, "calibrated": coverage_cal, "inflation": inflation}
+
+    def _load_interval_models(self, key: str):
+        """Return (q10_model, q90_model, conformal_inflation) for key.
+
+        Inflation defaults to 0.0 for legacy interval files saved before
+        conformal calibration existed.
+        """
+        if key in self.quantile_models:
+            m = self.quantile_models[key]
+            return m["q10"], m["q90"], m.get("inflation", 0.0)
+        path = os.path.join(MODEL_DIR, f"{key}_interval.joblib")
+        if os.path.exists(path):
+            data = joblib.load(path)
+            inflation = float(data.get("conformal_inflation", 0.0))
+            self.quantile_models[key] = {
+                "q10": data["q10"], "q90": data["q90"], "inflation": inflation,
+            }
+            return data["q10"], data["q90"], inflation
+        return None
 
     def _calculate_risk_score(self, predicted_level, warning_level, danger_level):
         if not warning_level or warning_level == 0:
@@ -362,7 +539,8 @@ class FloodPredictor:
             self.models[key] = data["model"]
             self.scalers[key] = data["scaler"]
             self.feature_names[key] = data["feature_names"]
-            self.training_mae[key] = data.get("residual_p90_original", data.get("training_mae", 0))
+            self.training_mae[key] = data.get("training_mae_original", data.get("training_mae", 0))
+            self.residual_p90[key] = data.get("residual_p90_original", data.get("residual_std", 0))
             self.training_metrics[key] = data.get("metrics", {})
             self.log_transform[key] = data.get("log_transform", False)
             # Store target_field in metrics so predict() can access it
@@ -399,6 +577,7 @@ class HighFlowPredictor:
         self.feature_names = {}
         self.training_mae = {}
         self.training_metrics = {}
+        self.residual_p90 = {}
         self.model_version = "xgb-highflow-v1.0"
         self.percentile_threshold = 75
         os.makedirs(MODEL_DIR, exist_ok=True)
@@ -411,6 +590,7 @@ class HighFlowPredictor:
         feature_names: List[str],
         horizon: int = 7,
         sample_weights: Optional[np.ndarray] = None,
+        target_field: str = "discharge",
     ) -> Dict:
         """Train high-flow specific XGBoost model."""
         from sklearn.model_selection import train_test_split
@@ -495,6 +675,7 @@ class HighFlowPredictor:
         self.scalers[key] = scaler
         self.feature_names[key] = feature_names
         self.training_mae[key] = mae
+        self.residual_p90[key] = residual_p90
         self.training_metrics[key] = {
             "asset_id": asset_id,
             "horizon": horizon,
@@ -516,6 +697,7 @@ class HighFlowPredictor:
             "trained_at": datetime.utcnow().isoformat(),
             "model_version": self.model_version,
             "model_status": MODEL_STATUS,
+            "target_field": target_field,
         }
 
         self._save_model(key, model, scaler, feature_names, mae, residual_p90, residual_std, self.training_metrics[key])
@@ -546,12 +728,21 @@ class HighFlowPredictor:
             scaler = self.scalers[key]
             feature_names_loaded = self.feature_names.get(key, feature_names)
             mae_orig = self.training_mae.get(key, 0)
-            residual_p90 = self.training_mae.get(key, 0)
+            residual_p90 = self.residual_p90.get(key, 0)
 
         X_scaled = scaler.transform(X)
+        # HighFlowPredictor trains in original space (no log transform)
         prediction = float(model.predict(X_scaled)[0])
 
-        margin = residual_p90 if residual_p90 > 0 else mae_orig if mae_orig > 0 else prediction * 0.05
+        if residual_p90 and residual_p90 > 0:
+            margin = residual_p90
+            ci_method = "residual_p90"
+        elif mae_orig and mae_orig > 0:
+            margin = mae_orig
+            ci_method = "residual_p90"
+        else:
+            margin = prediction * 0.05
+            ci_method = "r2_band"
         lower_bound = prediction - margin
         upper_bound = prediction + margin
 
@@ -563,22 +754,39 @@ class HighFlowPredictor:
         importance = dict(zip(feature_names_loaded, [float(v) for v in model.feature_importances_]))
         top_features = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:5])
 
+        target_field = self.training_metrics.get(key, {}).get("target_field", "discharge")
+        predicted_level_ft = None
+        predicted_inflow = None
+        predicted_outflow = None
+        predicted_discharge = None
+        if target_field == "level":
+            predicted_level_ft = round(float(prediction), 2)
+        elif target_field == "inflow":
+            predicted_inflow = round(float(prediction), 2)
+        elif target_field == "outflow":
+            predicted_outflow = round(float(prediction), 2)
+        else:
+            predicted_discharge = round(float(prediction), 2)
+
         return FloodPrediction(
             asset_id=asset_id,
             asset_name=asset_name,
             prediction_date=datetime.utcnow().isoformat(),
             horizon_days=horizon,
-            predicted_level_ft=round(float(prediction), 2),
-            predicted_inflow=None,
-            predicted_outflow=None,
+            predicted_level_ft=predicted_level_ft,
+            predicted_inflow=predicted_inflow,
+            predicted_outflow=predicted_outflow,
+            predicted_discharge=predicted_discharge,
             lower_bound=round(float(lower_bound), 2),
             upper_bound=round(float(upper_bound), 2),
+            ci_method=ci_method,
             risk_score=round(float(risk_score), 1),
             risk_level=risk_level,
             exceeds_warning=bool(exceeds_warning),
             exceeds_danger=bool(exceeds_danger),
             model_version=self.model_version,
             model_status=MODEL_STATUS,
+            target_field=target_field,
             feature_importance=top_features,
         )
 
@@ -629,7 +837,8 @@ class HighFlowPredictor:
             self.models[key] = data["model"]
             self.scalers[key] = data["scaler"]
             self.feature_names[key] = data["feature_names"]
-            self.training_mae[key] = data.get("residual_p90_original", data.get("training_mae", 0))
+            self.training_mae[key] = data.get("training_mae_original", data.get("training_mae", 0))
+            self.residual_p90[key] = data.get("residual_p90_original", data.get("residual_std", 0))
             self.training_metrics[key] = data.get("metrics", {})
             return (
                 data["model"],
