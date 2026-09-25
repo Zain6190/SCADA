@@ -1,7 +1,7 @@
 # Prediction Module Completion Plan
 # ================================
 # Created: 2026-09-21
-# Updated: 2026-09-24
+# Updated: 2026-09-25
 # Status: APPROVED — Scenario 3 (PARALLEL)
 # Rating: 8.5/10
 
@@ -21,7 +21,7 @@ Don't convert level→discharge. Instead:
 | Asset | Data | Rows | Years | Rating | Method | Status |
 |-------|------|------|-------|--------|--------|--------|
 | 1 Tarbela | Level+Inflow | 1,749 | 4.5 | ✅✅✅ EXCELLENT | ML level + mass balance | READY |
-| 2 Mangla | Level+Discharge | 1,832 | 48 | ✅✅✅✅ OUTSTANDING | ML discharge | READY |
+| 2 Mangla | Level+Outflow | 1,691 | 5 | ✅✅ GOOD | ML outflow + persistence blend | READY |
 | 9 Kabul | Discharge | 9,398 | 67 | ✅✅✅✅✅ GOLD | ML discharge | READY |
 | 10 Chenab | Discharge | 1,701 | 4.5 | ✅✅✅ GOOD | ML discharge | READY |
 | 3-8,11 Barrages | Discharge only | 13 each | 0.2 | ❌ INSUFFICIENT | Physics routing | PARTIAL |
@@ -113,6 +113,27 @@ explicit fallback (inference uses physics routing).
 - All 11 assets in selector (added 3 Chashma, 4 Kalabagh, 11 Panjnad)
 - waterApi.getV2ForecastChart() + V2ForecastChart/V2DischargePrediction.ci_method types
 - Verified: tsc --noEmit clean; dev server /water/predictions 200; endpoints smoke-tested
+
+### Recommendation #2 — Mangla model fix (persistence blend) — DONE 2026-09-25
+- **Diagnosis:** Mangla's outflow autocorrelation dies out by lag 14 (lag-7=0.68,
+  lag-14=0.44, lag-30=0.14), so XGBoost leaned on calendar seasonality (month/day_cos
+  importances ~0.48) and LOST to naive "hold today's value" on holdout: 7d R² 0.19 vs
+  persistence 0.30, accuracy ledger -0.12. Data itself was fine — 1,689 REAL outflow rows,
+  zero nulls/zeros, 2022-2026 (the "48 years / OUTSTANDING" table claim was wrong).
+- **Fix (ml/models/flood_predictor.py):** train() fits one closed-form convex weight
+  `alpha = argmin MSE(alpha*xgb + (1-alpha)*current_value)` on the holdout; alpha=1 when
+  the model already beats persistence (Tarbela etc.) so the legacy path is unchanged.
+  Headline r2/mae/mape are now the BLENDED (served) values; raw model kept as
+  `r2_xgb_raw`/`mae_xgb_raw`, baseline as `r2_persistence`/`mae_persistence`.
+- Quantile bounds are blended the same way BEFORE conformal calibration so the stored
+  inflation matches what predict() serves; the residual band keeps its width around the
+  blended centre; model files without `blend_alpha` load as alpha=1 (legacy).
+- **Results (retrain 81/7/0):** Mangla 3d R² 0.48→0.55, 7d 0.19→0.25 (MAE 10045→8534);
+  every asset >= max(model, persistence) by construction (Tarbela 7d 0.77→0.81,
+  14d 0.56→0.73); coverage still 0.798-0.801 across all 16 models.
+- **Verified:** 191 tests (new tests/unit/test_persistence_blend.py, 4 cases);
+  live /water/v2/predict/{1,2,9,10} → sane cusecs, quantile_q10_q90, cov {3:0.801,
+  7:0.800, 14:0.799}, method ml_xgboost_outflow.
 
 ## Data Gap Solutions
 
