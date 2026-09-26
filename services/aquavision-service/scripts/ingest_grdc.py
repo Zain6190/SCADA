@@ -1,296 +1,276 @@
 """
-ingest_grdc.py - Ingest GRDC discharge data into water_observations.
+ingest_grdc.py - Ingest the GRDC archives in data/raw/grdc.
 
-GRDC Export Format (semicolon-delimited ASCII):
-  - Header lines start with #
-  - Contains metadata: GRDC-No, River, Station, Country, Latitude, Longitude
-  - Data lines: YYYY-MM-DD;--:--;value
-  - Value: discharge in m3/s (multiply by 35.3147 to get cusecs)
-  - Missing values: -999.000
+Stores into aquavision.grdc_stations / aquavision.grdc_observations (migration
+007), NEVER into water_observations: of the 41 stations on disk almost none is
+the gauge of an asset (the Kabul entries are upstream tributaries, not the
+Nowshera gauge), and the intended uses - routing validation against
+physics-routed reaches and long-history upstream features - need station
+identity preserved.
 
-GRDC Station-to-Asset Mapping (auto-detected from header or filename):
-  - Indus @ Sukkur       -> Asset 7
-  - Indus @ Attock       -> Asset 4
-  - Jhelum @ Mangla      -> Asset 2
-  - Chenab @ Marala      -> Asset 10
-  - Kabul @ Nowshera     -> Asset 9
-  - Indus @ Chashma      -> Asset 3
-  - Indus @ Taunsa       -> Asset 5
-  - Indus @ Guddu        -> Asset 6
-  - Indus @ Kotri        -> Asset 8
-  - Panjnad              -> Asset 11
-  - Tarbela              -> Asset 1
+GRDC export format (identical for *_Q_Day.Cmd.txt and *_Q_Month.txt):
+  # header metadata lines (GRDC-No., River, Station, Country, Lat, Lon, ...)
+      YYYY-MM-DD;hh:mm;value;flag;...
+  missing values: -999.000
+  monthly files are dated day 01 by convention ("Date (DD=00)" header note)
 
-Usage:
-  python ingest_grdc.py --file grdc_sukkur.txt --asset 7
-  python ingest_grdc.py --dir ./grdc_data/   (batch mode)
-  python ingest_grdc.py --dir ./grdc_data/ --source-id 1  (specify source_id)
+The 8 mainstem gauges with EMPTY daily files (Indus @ Attock/Kotri, Chenab @
+Panjnad, ...) have populated monthly series - hence freq 'D'/'M' in the key.
+
+Idempotent: re-running upserts metadata and updates values.
+
+Run inside the api container:
+    docker exec -w /app ibcp-api python -m scripts.ingest_grdc
 """
-import argparse
 import os
-import re
-import sys
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-M3S_TO_CUSECS = 35.3147
 MISSING_VALUE = -999.0
-
-# Keyword -> asset_id mapping for filename/header detection
-STATION_KEYWORDS = {
-    "sukkur": 7, "attock": 4, "mangla": 2, "marala": 10,
-    "nowshera": 9, "chashma": 3, "taunsa": 5, "guddu": 6,
-    "kotri": 8, "panjnad": 11, "tarbela": 1, "rasul": 2,
-}
+DEFAULT_GRDC_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'grdc')
+INSERT_CHUNK = 1000
 
 
-def parse_grdc_header(filepath):
-    """Parse GRDC ASCII header to extract metadata.
-    
-    Returns dict with: station_name, river_name, grdc_no, country, lat, lon, catchment_area
-    """
-    metadata = {}
-    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-        for line in f:
-            line = line.strip()
-            if not line.startswith('#'):
-                break
-            line = line.lstrip('#').strip()
-            if ':' in line:
-                key, val = line.split(':', 1)
-                key = key.strip().lower()
-                val = val.strip()
-                if key == 'grdc-no.':
-                    metadata['grdc_no'] = val
-                elif key == 'river':
-                    metadata['river_name'] = val
-                elif key == 'station':
-                    metadata['station_name'] = val
-                elif key == 'country':
-                    metadata['country'] = val
-                elif key == 'latitude (dd)':
-                    try: metadata['latitude'] = float(val)
-                    except: pass
-                elif key == 'longitude (dd)':
-                    try: metadata['longitude'] = float(val)
-                    except: pass
-                elif key == 'catchment area (km)':
-                    try: metadata['catchment_area'] = float(val)
-                    except: pass
-    return metadata
+def _header_value(key, val, meta):
+    """Map one header key (already lowercased) to metadata."""
+    if key == 'grdc-no.':
+        meta['grdc_no'] = val
+    elif key == 'river':
+        meta['river'] = val
+    elif key == 'station':
+        meta['station'] = val
+    elif key == 'country':
+        meta['country'] = val
+    elif key == 'latitude (dd)':
+        meta['latitude'] = _to_float(val)
+    elif key == 'longitude (dd)':
+        meta['longitude'] = _to_float(val)
+    elif key.startswith('catchment'):
+        # key is "catchment area (km<sup>2</sup>)" - the superscript byte varies with encoding
+        meta['catchment_km2'] = _to_float(val)
+    elif key.startswith('altitude'):
+        alt = _to_float(val)
+        meta['altitude_m'] = alt if alt is not None and alt > -900 else None
+    elif key == 'next downstream station':
+        meta['next_downstream_grdc_no'] = val if val and val != '-' else None
+    elif key.startswith('owner of original data'):
+        meta['owner'] = val
+    elif key == 'file generation date':
+        try:
+            meta['file_generated'] = datetime.strptime(val, '%Y-%m-%d').date()
+        except ValueError:
+            pass
 
 
-def detect_asset_from_metadata(metadata, filepath):
-    """Detect asset_id from GRDC header metadata or filename."""
-    # Try station name
-    station = metadata.get('station_name', '').lower()
-    river = metadata.get('river_name', '').lower()
-    
-    for keyword, asset_id in STATION_KEYWORDS.items():
-        if keyword in station or keyword in river:
-            return asset_id
-    
-    # Try filename
-    basename = os.path.basename(filepath).lower()
-    for keyword, asset_id in STATION_KEYWORDS.items():
-        if keyword in basename:
-            return asset_id
-    
-    return None
+def _to_float(val):
+    try:
+        f = float(val)
+        return None if abs(f - MISSING_VALUE) < 0.01 else f
+    except (TypeError, ValueError):
+        return None
 
 
-def parse_grdc_file(filepath):
-    """Parse GRDC Export format (semicolon-delimited).
-    
-    GRDC format:
-      YYYY-MM-DD;--:--;     65.470
-      
-    Returns list of (date, discharge_m3s, quality_flag) tuples.
+def parse_header(lines):
+    """Parse GRDC '#' header lines into a metadata dict."""
+    meta = {}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if not line.startswith('#'):
+            break
+        line = line.lstrip('#').strip()
+        if ':' not in line:
+            continue
+        key, val = line.split(':', 1)
+        _header_value(key.strip().lower(), val.strip(), meta)
+    return meta
+
+
+def parse_series(lines):
+    """Parse data lines into [(date, discharge_m3s), ...].
+
+    Format: YYYY-MM-DD;hh:mm;value;...  - missing (-999) and unparseable
+    lines are skipped. No table-header gate: any non-comment line that
+    parses as date;time;value is data.
     """
     observations = []
-    in_data = False
-    
-    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-        for line in f:
-            line = line.strip()
-            
-            # Skip empty lines and headers
-            if not line or line.startswith('#'):
-                continue
-            
-            # Check if this is the data header
-            if 'YYYY-MM-DD' in line:
-                in_data = True
-                continue
-            
-            if not in_data:
-                continue
-            
-            # Parse data line: YYYY-MM-DD;--:--;value
-            parts = line.split(';')
-            if len(parts) < 3:
-                # Try comma or space delimiter
-                parts = line.replace(';', ',').split(',')
-                if len(parts) < 2:
-                    parts = line.split()
-            
-            if len(parts) < 2:
-                continue
-            
-            try:
-                date_str = parts[0].strip()
-                value_str = parts[1].strip() if len(parts) > 1 else parts[-1].strip()
-                quality = parts[2].strip() if len(parts) > 2 else 'A'
-                
-                # Parse date
-                date = datetime.strptime(date_str[:10], '%Y-%m-%d')
-                
-                # Parse value
-                value = float(value_str)
-                
-                # Skip missing values
-                if value < 0 or abs(value - MISSING_VALUE) < 0.01:
-                    continue
-                
-                observations.append((date, value, quality))
-            except (ValueError, IndexError):
-                continue
-    
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split(';')
+        if len(parts) < 3:
+            continue
+        try:
+            date = datetime.strptime(parts[0].strip()[:10], '%Y-%m-%d').date()
+            value = float(parts[2].strip())
+        except ValueError:
+            continue
+        if value < 0:
+            continue
+        observations.append((date, value))
     return observations
 
 
-def ensure_source_id(db, source_authority='GRDC'):
-    """Find or create the source_id for GRDC."""
+def read_file(path):
+    with open(path, 'r', encoding='utf-8', errors='replace') as f:
+        return f.readlines()
+
+
+def ensure_grdc_source(db):
     from sqlalchemy import text
-    
+
     row = db.execute(text(
-        "SELECT id FROM aquavision.water_sources WHERE name = :name LIMIT 1"
-    ), {'name': source_authority}).fetchone()
-    
+        "SELECT id FROM aquavision.water_sources WHERE authority = 'GRDC'"
+    )).scalar()
     if row:
-        return row[0]
-    
-    # Insert new source
+        return row
     db.execute(text(
-        "INSERT INTO aquavision.water_sources (name, description, is_active, created_at) "
-        "VALUES (:name, :desc, true, NOW()) RETURNING id"
-    ), {'name': source_authority, 'desc': 'Global Runoff Data Centre discharge data'})
-    
-    result = db.execute(text("SELECT currval(pg_get_serial_sequence('aquavision.water_sources', 'id'))"))
-    source_id = result.scalar()
+        "INSERT INTO aquavision.water_sources "
+        "(authority, source_type, source_url, update_frequency, description) "
+        "VALUES ('GRDC', 'CSV', 'https://grdc.bafg.de', 'ONE_TIME', "
+        "'Global Runoff Data Centre discharge archives') "
+        "ON CONFLICT (authority) DO NOTHING"
+    ))
     db.commit()
-    print(f"  Created source '{source_authority}' with id={source_id}")
-    return source_id
+    return db.execute(text(
+        "SELECT id FROM aquavision.water_sources WHERE authority = 'GRDC'"
+    )).scalar()
 
 
-def ingest_grdc_file(filepath, asset_id=None, source_id=None):
-    """Ingest a single GRDC file into water_observations.
-    
-    Returns number of observations inserted.
-    """
+def _upsert_station(db, meta, periods):
     from sqlalchemy import text
-    from infrastructure.db.engine import SessionLocal
-    
-    # Parse header
-    metadata = parse_grdc_header(filepath)
-    if metadata:
-        print(f"  Station: {metadata.get('station_name', '?')}, River: {metadata.get('river_name', '?')}")
-        print(f"  Country: {metadata.get('country', '?')}, GRDC-No: {metadata.get('grdc_no', '?')}")
-    
-    # Detect asset_id
-    if asset_id is None:
-        asset_id = detect_asset_from_metadata(metadata, filepath)
-    if asset_id is None:
-        print(f"  ERROR: Could not detect asset ID for {filepath}. Use --asset flag.")
-        print(f"  Station: {metadata.get('station_name', '?')}")
-        return 0
-    
-    # Parse observations
-    observations = parse_grdc_file(filepath)
-    if not observations:
-        print(f"  WARNING: No valid observations in {filepath}")
-        return 0
-    
-    print(f"  Parsed {len(observations)} observations from {filepath}")
-    print(f"  Asset: {asset_id}, Date range: {observations[0][0].date()} to {observations[-1][0].date()}")
-    
-    db = SessionLocal()
-    
-    # Get source_id
-    if source_id is None:
-        source_id = ensure_source_id(db, 'GRDC')
-    
-    inserted = 0
-    skipped = 0
-    
-    for date, discharge_m3s, quality in observations:
-        discharge_cusecs = discharge_m3s * M3S_TO_CUSECS
-        
-        # Check if observation already exists
-        existing = db.execute(text(
-            "SELECT id FROM aquavision.water_observations "
-            "WHERE asset_id = :aid AND observed_at = :dt AND discharge_cusecs IS NOT NULL"
-        ), {"aid": asset_id, "dt": date}).fetchone()
-        
-        if existing:
-            skipped += 1
-            continue
-        
-        db.execute(text(
-            "INSERT INTO aquavision.water_observations "
-            "(asset_id, source_id, observed_at, discharge_cusecs, unit, data_status, "
-            "data_origin, quality_status, source_authority, source_priority, created_at) "
-            "VALUES (:aid, :sid, :dt, :dis, 'cusecs', 'OBSERVED_OFFICIAL', "
-            "'REAL', :qs, 'GRDC', 1, NOW())"
-        ), {
-            "aid": asset_id, "sid": source_id, "dt": date,
-            "dis": round(discharge_cusecs, 2),
-            "qs": "VALID" if quality.strip() in ('A', '') else "PARTIAL"
-        })
-        inserted += 1
-    
-    db.commit()
-    db.close()
-    print(f"  Inserted {inserted} new, skipped {skipped} existing")
-    return inserted
+
+    db.execute(text(
+        "INSERT INTO aquavision.grdc_stations "
+        "(grdc_no, river, station, country, latitude, longitude, catchment_km2, "
+        " altitude_m, next_downstream_grdc_no, owner, file_generated, "
+        " period_daily_start, period_daily_end, period_monthly_start, period_monthly_end) "
+        "VALUES (:grdc_no, :river, :station, :country, :latitude, :longitude, "
+        " :catchment_km2, :altitude_m, :next_downstream_grdc_no, :owner, :file_generated, "
+        " :d_start, :d_end, :m_start, :m_end) "
+        "ON CONFLICT (grdc_no) DO UPDATE SET "
+        " river = EXCLUDED.river, station = EXCLUDED.station, country = EXCLUDED.country, "
+        " latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, "
+        " catchment_km2 = EXCLUDED.catchment_km2, altitude_m = EXCLUDED.altitude_m, "
+        " next_downstream_grdc_no = EXCLUDED.next_downstream_grdc_no, "
+        " owner = EXCLUDED.owner, file_generated = EXCLUDED.file_generated, "
+        " period_daily_start = EXCLUDED.period_daily_start, "
+        " period_daily_end = EXCLUDED.period_daily_end, "
+        " period_monthly_start = EXCLUDED.period_monthly_start, "
+        " period_monthly_end = EXCLUDED.period_monthly_end, "
+        " updated_at = now()"
+    ), {
+        'grdc_no': meta.get('grdc_no'),
+        'river': meta.get('river', ''),
+        'station': meta.get('station', ''),
+        'country': meta.get('country'),
+        'latitude': meta.get('latitude'),
+        'longitude': meta.get('longitude'),
+        'catchment_km2': meta.get('catchment_km2'),
+        'altitude_m': meta.get('altitude_m'),
+        'next_downstream_grdc_no': meta.get('next_downstream_grdc_no'),
+        'owner': meta.get('owner'),
+        'file_generated': meta.get('file_generated'),
+        'd_start': periods.get('D', (None, None))[0],
+        'd_end': periods.get('D', (None, None))[1],
+        'm_start': periods.get('M', (None, None))[0],
+        'm_end': periods.get('M', (None, None))[1],
+    })
 
 
-def batch_ingest_dir(dirpath, source_id=None):
-    """Ingest all GRDC files in a directory."""
+def _upsert_observations(db, grdc_no, freq, obs, source_id):
+    from sqlalchemy import text
+
     total = 0
-    for filename in sorted(os.listdir(dirpath)):
-        if filename.endswith(('.txt', '.csv', '.dat')):
-            filepath = os.path.join(dirpath, filename)
-            print(f"\nProcessing: {filename}")
-            count = ingest_grdc_file(filepath, source_id=source_id)
-            total += count
+    for i in range(0, len(obs), INSERT_CHUNK):
+        chunk = obs[i:i + INSERT_CHUNK]
+        placeholders = ', '.join(
+            f"(:g{i}_{j}, :d{i}_{j}, '{freq}', :v{i}_{j}, :src)"
+            for j in range(len(chunk))
+        )
+        params = {'src': source_id}
+        for j, (d, v) in enumerate(chunk):
+            params[f'g{i}_{j}'] = grdc_no
+            params[f'd{i}_{j}'] = d
+            params[f'v{i}_{j}'] = v
+        result = db.execute(text(
+            "INSERT INTO aquavision.grdc_observations "
+            "(grdc_no, obs_date, freq, discharge_m3s, source_id) "
+            f"VALUES {placeholders} "
+            "ON CONFLICT (grdc_no, obs_date, freq) "
+            "DO UPDATE SET discharge_m3s = EXCLUDED.discharge_m3s"
+        ), params)
+        total += result.rowcount
     return total
 
 
+def ingest(grdc_dir=None):
+    """Ingest every GRDC export file in grdc_dir. Idempotent.
+
+    Returns dict stats: stations, daily_rows, monthly_rows, empty_files.
+    """
+    from sqlalchemy import text
+    from infrastructure.db.engine import SessionLocal
+
+    grdc_dir = grdc_dir or DEFAULT_GRDC_DIR
+    db = SessionLocal()
+    stats = {'stations': 0, 'daily_rows': 0, 'monthly_rows': 0, 'empty_files': 0,
+             'files': 0}
+    try:
+        source_id = ensure_grdc_source(db)
+
+        # pass 1: parse everything (small: ~100k rows) - a station's row must
+        # exist before its observations (FK), and its period columns cover both files
+        seen = {}
+        for fname in sorted(os.listdir(grdc_dir)):
+            if fname.endswith('_Q_Day.Cmd.txt'):
+                freq = 'D'
+            elif fname.endswith('_Q_Month.txt'):
+                freq = 'M'
+            else:
+                continue
+            lines = read_file(os.path.join(grdc_dir, fname))
+            meta = parse_header(lines)
+            if not meta.get('grdc_no'):
+                meta['grdc_no'] = fname[:7]
+            obs = parse_series(lines)
+            stats['files'] += 1
+            if not obs:
+                stats['empty_files'] += 1
+            station = seen.setdefault(meta['grdc_no'], {'meta': meta, 'series': {}})
+            for k, v in meta.items():
+                if v:
+                    station['meta'][k] = v
+            if obs:
+                station['series'][freq] = obs
+                if freq == 'D':
+                    stats['daily_rows'] += len(obs)
+                else:
+                    stats['monthly_rows'] += len(obs)
+
+        # pass 2: station row first, then its observations
+        for grdc_no, station in sorted(seen.items()):
+            periods = {f: (s[0][0], s[-1][0]) for f, s in station['series'].items()}
+            _upsert_station(db, station['meta'], periods)
+            stats['stations'] += 1
+            for freq, obs in station['series'].items():
+                _upsert_observations(db, grdc_no, freq, obs, source_id)
+            db.commit()
+    finally:
+        db.close()
+
+    print(
+        f"GRDC ingest: {stats['stations']} stations, "
+        f"{stats['daily_rows']} daily + {stats['monthly_rows']} monthly rows "
+        f"from {stats['files']} files ({stats['empty_files']} empty)"
+    )
+    return stats
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Ingest GRDC discharge data')
-    parser.add_argument('--file', '-f', help='Path to GRDC file')
-    parser.add_argument('--dir', '-d', help='Directory containing GRDC files')
-    parser.add_argument('--asset', '-a', type=int, help='Asset ID (auto-detected from filename/header)')
-    parser.add_argument('--source-id', '-s', type=int, help='Source ID in water_sources table')
-    args = parser.parse_args()
-    
-    if args.file:
-        count = ingest_grdc_file(args.file, args.asset, args.source_id)
-        print(f"\nTotal: {count} observations inserted")
-    elif args.dir:
-        count = batch_ingest_dir(args.dir, args.source_id)
-        print(f"\nTotal: {count} observations inserted")
-    else:
-        parser.print_help()
-        print("\nStation mapping:")
-        for name, aid in sorted(STATION_KEYWORDS.items(), key=lambda x: x[1]):
-            print(f"  {name:<12} -> Asset {aid}")
-        print("\nUsage:")
-        print("  python ingest_grdc.py --file grdc_sukkur.txt --asset 7")
-        print("  python ingest_grdc.py --dir ./grdc_data/")
+    ingest()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

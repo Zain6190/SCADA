@@ -441,7 +441,9 @@ class FloodFeatureBuilder:
                 WHERE asset_id = :asset_id
                 AND forecast_date <= :dt
                 AND forecast_date + (horizon_days || ' days')::interval >= :dt
-                ORDER BY fetched_at DESC
+                -- horizon 0 = daily actual (backfill) beats a covering
+                -- multi-day aggregate; newest fetch wins within a horizon
+                ORDER BY horizon_days ASC, fetched_at DESC
                 LIMIT 1
             """),
             {"asset_id": asset_id, "dt": d},

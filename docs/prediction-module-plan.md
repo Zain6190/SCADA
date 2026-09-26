@@ -1,9 +1,10 @@
 # Prediction Module Completion Plan
 # ================================
 # Created: 2026-09-21
-# Updated: 2026-09-25
+# Updated: 2026-09-26
 # Status: APPROVED — Scenario 3 (PARALLEL)
 # Rating: 8.5/10
+# Companion: docs/prediction-module-guide.md (how it works, all rules/metrics)
 
 ## The Problem
 ML models predict water_level_ft, but dashboard needs discharge (m³/s).
@@ -39,9 +40,10 @@ Don't convert level→discharge. Instead:
 - [x] Step 6: Frontend dashboard components (verified 2026-09-24: national overview + alert panel + forecast chart + CI badges on v2 tab, all 11 assets, tsc clean, dev server page 200)
 
 **Data tasks (background — can be parallel):**
-- [ ] Ingest GRDC files (already on disk, 42 stations)
+- [x] Ingest GRDC files (already on disk, 41 stations) — DONE 2026-09-26
 - [ ] Email WAPDA for barrage historical data
-- [ ] Setup Open-Meteo rainfall auto-fetch
+- [x] Setup Open-Meteo rainfall auto-fetch (verified 2026-09-26: archive backfill
+  19,030 rows horizon-0 through today + 6h forecast refresh, both legs live)
 - [ ] Setup GEE Sentinel-2 auto-fetch
 
 ### Week 3: INTEGRATION
@@ -142,15 +144,34 @@ explicit fallback (inference uses physics routing).
 - Solution: Formal request to WAPDA Head Office Lahore
 - Priority: MEDIUM (routing works without it)
 
-### GAP 2: GRDC → Ingest Existing Files
-- Have: 42 stations on disk
-- Solution: Python script to parse + ingest
-- Priority: HIGH (needed for routing validation)
+### GAP 2: GRDC → Ingest Existing Files — DONE 2026-09-26
+- **Schema (migration 007):** `grdc_stations` registry + `grdc_observations`
+  (grdc_no, obs_date, freq D/M) — station-level, NEVER merged into
+  water_observations: upstream/foreign gauges are not the asset gauge (the old
+  ingest_grdc_useful.py mapped 4 Kabul tributaries onto asset 9; removed)
+- **Ingested:** 41 stations, 86,247 daily + 2,051 monthly rows (1936–1982),
+  idempotent via `docker exec -w /app ibcp-api python -m scripts.ingest_grdc`
+- **Monthly rescued the mainstem:** Indus @ Attock/Kotri, Chenab @ Panjnad have
+  EMPTY daily files but monthly series — Kotri covers 1936–10→1979-12 (44 yrs,
+  366 real months after -999 gaps). Catchments parsed for all 41 (old scripts: 0)
+- Old ingest_grdc.py was triple-broken (parsed time column as value → 0 rows
+  ever; queried non-existent water_sources.name; catchment key never matched)
+- Tests: 204 (new tests/unit/test_ingest_grdc.py, 8 cases incl. real files)
 
-### GAP 3: Rainfall → Open-Meteo Auto-Fetch
-- Have: API configured, nearly empty
-- Solution: Auto-fetch 16-day forecast weekly
-- Priority: HIGH (critical for alerts)
+### GAP 3: Rainfall → Open-Meteo Auto-Fetch — DONE 2026-09-26
+- **History:** scripts/backfill_weather.py rewritten (old version targeted the
+  dropped `precip_mm` column — dead). Now writes `weather_forecasts` horizon-0
+  daily rows from the Archive API: 19,030 rows, 11 assets, 2022-01-01→today
+- **Live leg:** WeatherService.refresh_all_assets (scheduler, every 6h) now also
+  upserts horizon-0 bridge rows for past_days..today (closes the archive's 3-day
+  latency) and slices 7/14/16 forward aggregates from TODAY onward (past_days
+  must never leak into them)
+- Feature lookup orders horizon_days ASC so daily actuals win; inference reads
+  the same daily scale training was built on (was a ×7 precip scale mismatch)
+- Retrain 81/7/0: weather now in top-10 importances (total 0.73 across 16
+  models; largest at 30d leads) — R² net ≈ flat vs pre-weather (Mangla 30d
+  0.19→0.26), coverage 0.798-0.801; rainfall alerts no longer blind
+- Tests: 196 (new tests/unit/test_weather_features.py, 5 cases)
 
 ### GAP 4: Satellite → GEE Sentinel-2
 - Have: Service account configured
