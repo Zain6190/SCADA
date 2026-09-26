@@ -25,6 +25,7 @@ from infrastructure.db.models import (
     WaterFFDObservation,
 )
 from infrastructure.alerts import workflow as alert_workflow
+from infrastructure.thresholds.engine import NON_OFFICIAL_AUTHORITIES, official_observation_clause
 from infrastructure.auth.jwt import get_current_user
 
 router = APIRouter()
@@ -240,7 +241,7 @@ async def list_assets(
         # Get latest observation
         latest_obs = session.execute(
             select(WaterObservation)
-            .where(WaterObservation.asset_id == asset.id)
+            .where(WaterObservation.asset_id == asset.id, official_observation_clause())
             .order_by(desc(WaterObservation.observed_at))
             .limit(1)
         ).scalar_one_or_none()
@@ -346,7 +347,7 @@ async def get_asset(
 
     latest_obs = session.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset.id)
+        .where(WaterObservation.asset_id == asset.id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
     ).scalar_one_or_none()
@@ -414,6 +415,7 @@ async def get_observations(
         .where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at >= since,
+            official_observation_clause(),
         )
         .order_by(desc(WaterObservation.observed_at))
     ).scalars().all()
@@ -449,7 +451,7 @@ async def get_asset_readings(
 
     observations = session.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset_id)
+        .where(WaterObservation.asset_id == asset_id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(limit)
     ).scalars().all()
@@ -754,7 +756,7 @@ async def get_downstream_impact(
     # Get latest observation for release/flow
     latest_obs = session.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset_id)
+        .where(WaterObservation.asset_id == asset_id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
     ).scalar_one_or_none()
@@ -812,7 +814,7 @@ async def get_downstream_impact(
         # Get downstream asset current readings
         downstream_obs = session.execute(
             select(WaterObservation)
-            .where(WaterObservation.asset_id == segment.downstream_asset_id)
+            .where(WaterObservation.asset_id == segment.downstream_asset_id, official_observation_clause())
             .order_by(desc(WaterObservation.observed_at))
             .limit(1)
         ).scalar_one_or_none()
@@ -1097,7 +1099,7 @@ async def get_weekly_summary(
         .order_by(WaterObservation.asset_id, WaterObservation.observed_at)
     )
     if asset_id:
-        q = q.where(WaterObservation.asset_id == asset_id)
+        q = q.where(WaterObservation.asset_id == asset_id, official_observation_clause())
 
     rows = session.execute(q).all()
 

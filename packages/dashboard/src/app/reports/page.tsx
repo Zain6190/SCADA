@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  FileText, Layers, Map, Building2, Globe2, Download, FileJson,
+  FileText, Layers, Map as MapIcon, Building2, Globe2, Download, FileJson,
   FileSpreadsheet, RefreshCw, ShieldCheck, FileCheck2,
 } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
@@ -193,7 +193,7 @@ export default function ReportsPage() {
             label="District"
             value={fmtNumber(district, 0)}
             detail="District-level deep dives"
-            icon={Map}
+            icon={MapIcon}
             accent={AMBER}
           />
         </div>
@@ -239,7 +239,7 @@ export default function ReportsPage() {
                   />
                   <ExportButton
                     label="Severity Choropleth GeoJSON"
-                    icon={<Map className="h-3.5 w-3.5" />}
+                    icon={<MapIcon className="h-3.5 w-3.5" />}
                     kind="regions-geojson"
                     busy={busy}
                     exporting={exporting}
