@@ -1,16 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Bell, CheckCircle2, Search, ShieldAlert, ArrowUpCircle, CheckCircle } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Bell, CheckCircle2, Search, ShieldAlert, ArrowUpCircle, CheckCircle, ClipboardList, History, X } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card } from '@/components/ui/card'
 import { SeverityBadge, Badge } from '@/components/ui/badge'
 import { Spinner, EmptyState } from '@/components/ui/state'
+import { TimelinePanel } from '@/components/ui/timeline'
 import { waterApi } from '@/features/water/api'
+import { useAuth } from '@/context/AuthContext'
 import { fmtNumber, fmtDateTime } from '@/lib/format'
 import { normalizeSeverity } from '@/lib/severity'
-import type { OperationalAlert } from '@/features/water/types'
+import type { OperationalAlert, AssignableUser, InstructionTemplate, TimelineItem } from '@/features/water/types'
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; border: string; tone: 'slate' | 'sky' | 'amber' | 'violet' | 'emerald' | 'red' }> = {
   NEW: { bg: 'bg-crit-soft', text: 'text-crit', border: 'border-crit/25', tone: 'red' },
@@ -39,11 +41,26 @@ const SEVERITY_BORDER: Record<string, string> = {
 }
 
 export default function OperatorAlertsPage() {
+  const { user } = useAuth()
+  const roles = useMemo(() => {
+    const set = new Set((user?.roles || []).map(r => r.toLowerCase()))
+    const r = (user?.role || '').toLowerCase()
+    if (r) set.add(r)
+    return set
+  }, [user])
+  const canIssue = ['admin', 'water_supervisor', 'aquavision_analyst'].some(x => roles.has(x))
+  const canEscalate = ['admin', 'water_supervisor'].some(x => roles.has(x))
+
   const [alerts, setAlerts] = useState<OperationalAlert[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [severityFilter, setSeverityFilter] = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [issueFor, setIssueFor] = useState<OperationalAlert | null>(null)
+  const [timelineFor, setTimelineFor] = useState<number | null>(null)
+  const [timeline, setTimeline] = useState<TimelineItem[]>([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const loadAlerts = () => {
     const params: any = { limit: 100 }
@@ -54,10 +71,39 @@ export default function OperatorAlertsPage() {
 
   useEffect(() => { loadAlerts() }, [statusFilter, severityFilter])
 
-  const handleAck = async (id: number) => { await waterApi.ackOperationalAlert(id, 'Operator'); loadAlerts() }
-  const handleInvestigate = async (id: number) => { await waterApi.investigateOperationalAlert(id, 'Operator'); loadAlerts() }
-  const handleEscalate = async (id: number) => { await waterApi.escalateOperationalAlert(id, 'Operator'); loadAlerts() }
-  const handleResolve = async (id: number) => { await waterApi.resolveOperationalAlert(id, 'Operator'); loadAlerts() }
+  const handleAck = async (id: number) => {
+    setError(null)
+    try { await waterApi.ackOperationalAlert(id, user?.username || 'Operator'); loadAlerts() }
+    catch (e: any) { setError(e?.response?.data?.detail || 'Ack failed') }
+  }
+  const handleInvestigate = async (id: number) => {
+    setError(null)
+    try { await waterApi.investigateOperationalAlert(id, user?.username || 'Operator'); loadAlerts() }
+    catch (e: any) { setError(e?.response?.data?.detail || 'Investigate failed') }
+  }
+  const handleEscalate = async (id: number) => {
+    setError(null)
+    try { await waterApi.escalateOperationalAlert(id, user?.username || 'Operator'); loadAlerts() }
+    catch (e: any) { setError(e?.response?.data?.detail || 'Escalate failed') }
+  }
+  const handleResolve = async (id: number) => {
+    setError(null)
+    const notes = window.prompt('Resolution summary (what was done / verified):', '')
+    if (notes === null) return
+    try {
+      await waterApi.resolveOperationalAlert(id, user?.username || 'Operator', notes || undefined)
+      loadAlerts()
+    } catch (e: any) { setError(e?.response?.data?.detail || 'Resolve failed') }
+  }
+
+  const openTimeline = async (alertId: number) => {
+    if (timelineFor === alertId) { setTimelineFor(null); return }
+    setTimelineFor(alertId)
+    setTimelineLoading(true)
+    try { setTimeline(await waterApi.getAlertTimeline(alertId)) }
+    catch (e: any) { setError(e?.response?.data?.detail || 'Timeline failed to load') }
+    finally { setTimelineLoading(false) }
+  }
 
   return (
     <AppShell>
@@ -73,6 +119,10 @@ export default function OperatorAlertsPage() {
             </button>
           }
         />
+
+        {error && (
+          <div className="rounded-xl border border-crit/25 bg-crit-soft px-4 py-3 text-sm text-crit">{error}</div>
+        )}
 
         {loading ? (
           <Spinner label="Loading alerts" />
@@ -204,10 +254,20 @@ export default function OperatorAlertsPage() {
                           </div>
 
                           {/* Right: Status + Actions */}
-                          <div className="flex flex-col items-end gap-3 sm:min-w-[140px]">
-                            <Badge tone={statusStyle.tone}>
-                              {STATUS_LABELS[alert.status] || alert.status.replace(/_/g, ' ')}
-                            </Badge>
+                          <div className="flex flex-col items-end gap-3 sm:min-w-[160px]">
+                            <div className="flex flex-col items-end gap-1.5">
+                              <Badge tone={statusStyle.tone}>
+                                {STATUS_LABELS[alert.status] || alert.status.replace(/_/g, ' ')}
+                              </Badge>
+                              {alert.status === 'NEW' && alert.sla_due_at && (
+                                <span className={`text-[10px] font-semibold ${new Date(alert.sla_due_at) < new Date() ? 'text-crit' : 'text-ink-subtle'}`}>
+                                  SLA {new Date(alert.sla_due_at) < new Date() ? 'breached' : `due ${fmtDateTime(alert.sla_due_at)}`}
+                                </span>
+                              )}
+                              {alert.assigned_to && (
+                                <span className="text-[10px] text-ink-subtle">Owner: {alert.assigned_to}</span>
+                              )}
+                            </div>
 
                             <div className="flex flex-wrap gap-2 justify-end">
                               {alert.status === 'NEW' && (
@@ -220,7 +280,7 @@ export default function OperatorAlertsPage() {
                                   <Search className="h-3.5 w-3.5" /> Investigate
                                 </button>
                               )}
-                              {alert.status === 'INVESTIGATING' && (
+                              {canEscalate && ['NEW', 'ACKNOWLEDGED', 'INVESTIGATING'].includes(alert.status) && (
                                 <button onClick={() => handleEscalate(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
                                   <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
                                 </button>
@@ -230,10 +290,21 @@ export default function OperatorAlertsPage() {
                                   <CheckCircle className="h-3.5 w-3.5" /> Resolve
                                 </button>
                               )}
+                              {canIssue && (alert.status === 'NEW' || alert.status === 'ACKNOWLEDGED' || alert.status === 'INVESTIGATING' || alert.status === 'ESCALATED') && (
+                                <button onClick={() => setIssueFor(alert)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-surface-alt px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
+                                  <ClipboardList className="h-3.5 w-3.5" /> Issue
+                                </button>
+                              )}
+                              <button onClick={() => openTimeline(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-brand/25 hover:text-brand">
+                                <History className="h-3.5 w-3.5" /> Timeline
+                              </button>
                             </div>
                           </div>
                         </div>
                       </div>
+                      {timelineFor === alert.id && (
+                        <TimelinePanel loading={timelineLoading} items={timeline} />
+                      )}
                     </Card>
                   )
                 })}
@@ -242,6 +313,159 @@ export default function OperatorAlertsPage() {
           </>
         )}
       </div>
+
+      {issueFor && (
+        <IssueModal
+          alert={issueFor}
+          onClose={() => setIssueFor(null)}
+          onIssued={() => { setIssueFor(null); loadAlerts() }}
+        />
+      )}
     </AppShell>
+  )
+}
+
+// ─── Issue instruction modal (supervisor/admin → officer) ────────────────────
+
+function IssueModal({
+  alert, onClose, onIssued,
+}: {
+  alert: OperationalAlert
+  onClose: () => void
+  onIssued: () => void
+}) {
+  const [assignables, setAssignables] = useState<AssignableUser[]>([])
+  const [templates, setTemplates] = useState<Record<string, InstructionTemplate>>({})
+  const [assigneeId, setAssigneeId] = useState<number | ''>('')
+  const [templateKey, setTemplateKey] = useState('')
+  const [text, setText] = useState('')
+  const [dueAt, setDueAt] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    waterApi.getAssignables('field_officer').then(setAssignables).catch(() => setAssignables([]))
+    waterApi.getInstructionTemplates().then(setTemplates).catch(() => setTemplates({}))
+  }, [])
+
+  const pickTemplate = (key: string) => {
+    setTemplateKey(key)
+    if (key && templates[key]) setText(templates[key].text)
+  }
+
+  const submit = async () => {
+    const assignee = assignables.find(a => a.id === assigneeId)
+    if (!assignee) { setErr('Select who the instruction is assigned to'); return }
+    if (text.trim().length < 5) { setErr('Instruction text is required (min 5 characters)'); return }
+    setBusy(true)
+    setErr(null)
+    try {
+      await waterApi.issueInstruction(alert.id, {
+        instruction_text: text.trim(),
+        assigned_to: assignee.username,
+        assigned_to_user_id: assignee.id,
+        due_at: dueAt ? new Date(dueAt).toISOString() : undefined,
+        template_key: templateKey || undefined,
+      })
+      onIssued()
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || 'Failed to issue instruction')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-2xl border border-line bg-surface p-5 shadow-card"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Issue instruction</h2>
+            <p className="text-xs text-ink-subtle">
+              Alert #{alert.id} · {alert.asset_name || `Asset ${alert.asset_id}`} · {alert.alert_type}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">Assign to</label>
+            <select
+              value={assigneeId}
+              onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : '')}
+              className="w-full rounded-xl border border-line-strong bg-surface-alt px-3 py-2.5 text-sm text-ink focus:border-brand/25 focus:outline-none"
+            >
+              <option value="">Select field officer…</option>
+              {assignables.map(a => (
+                <option key={a.id} value={a.id}>{a.name} ({a.email})</option>
+              ))}
+            </select>
+            {assignables.length === 0 && (
+              <p className="mt-1 text-[11px] text-ink-subtle">No active field officers found.</p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">Template (optional)</label>
+            <select
+              value={templateKey}
+              onChange={e => pickTemplate(e.target.value)}
+              className="w-full rounded-xl border border-line-strong bg-surface-alt px-3 py-2.5 text-sm text-ink focus:border-brand/25 focus:outline-none"
+            >
+              <option value="">Free text</option>
+              {Object.entries(templates).map(([key, t]) => (
+                <option key={key} value={key}>{t.title}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">
+              Instruction <span className="text-crit">*</span>
+            </label>
+            <textarea
+              value={text}
+              onChange={e => setText(e.target.value)}
+              rows={4}
+              placeholder="What should the officer do, where, and what to record…"
+              className="w-full rounded-xl border border-line-strong bg-surface-alt px-3 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:border-brand/25 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">Due by (optional, enables overdue tracking)</label>
+            <input
+              type="datetime-local"
+              value={dueAt}
+              onChange={e => setDueAt(e.target.value)}
+              className="w-full rounded-xl border border-line-strong bg-surface-alt px-3 py-2.5 text-sm text-ink focus:border-brand/25 focus:outline-none"
+            />
+          </div>
+
+          {err && <p className="text-xs text-crit">{err}</p>}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={submit} disabled={busy}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              <ClipboardList className="h-4 w-4" /> {busy ? 'Issuing…' : 'Issue instruction'}
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-xl border border-line-strong px-4 py-2.5 text-sm text-ink-muted transition hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

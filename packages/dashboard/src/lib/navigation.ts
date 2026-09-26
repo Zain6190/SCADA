@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Settings,
   Radio,
+  ClipboardList,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -57,6 +58,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Operations', href: '/water/operator', icon: Workflow, section: 'aqua', group: 'Operational' },
       { label: 'Assets', href: '/water/operator/assets', icon: Workflow, section: 'aqua', group: 'Operational' },
       { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, section: 'aqua', group: 'Operational' },
+      { label: 'My Tasks', href: '/water/operator/tasks', icon: ClipboardList, section: 'aqua', group: 'Operational' },
       { label: 'Stress Alerts', href: '/water/stress-alerts', icon: AlertTriangle, section: 'aqua', group: 'Operational' },
       { label: 'Sensors', href: '/water/sensors', icon: Radio, section: 'aqua', group: 'Operational' },
       { label: 'Overview', href: '/water', icon: Droplets, section: 'aqua', group: 'Analysis' },

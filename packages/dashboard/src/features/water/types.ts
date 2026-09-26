@@ -227,7 +227,13 @@ export interface OperationalAlert {
   rate_of_change_ft_6h?: number | null
   created_at: string
   acknowledged_at?: string | null
+  acknowledged_by?: string | null
   resolved_at?: string | null
+  resolution?: string | null
+  assigned_to?: string | null
+  sla_due_at?: string | null
+  escalated_at?: string | null
+  escalated_to?: string | null
   notes?: string | null
   episode_id?: number | null
   alert_source?: string | null
@@ -571,4 +577,117 @@ export interface V2ForecastChart {
   confidence_upper: Array<number | null>
   warning_level: number | null
   danger_level: number | null
+}
+
+// ─── Alert workflow (instructions, queue, timeline, KPIs) ──────────────────
+export interface WorkflowInstruction {
+  id: number
+  alert_id: number
+  asset_id: number
+  asset_name?: string | null
+  alert_type?: string | null
+  alert_severity?: string | null
+  alert_status?: string | null
+  alert_message?: string | null
+  issued_by: string
+  issued_role: string
+  assigned_to: string
+  instruction_text: string
+  template_key?: string | null
+  due_at?: string | null
+  status: string
+  report_text?: string | null
+  report_data?: Record<string, unknown> | null
+  reported_at?: string | null
+  reported_by?: string | null
+  verified_by?: string | null
+  verified_at?: string | null
+  decision_note?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface QueueAlertMini {
+  id: number
+  asset_id: number
+  asset_name?: string | null
+  alert_type: string
+  severity: string
+  status: string
+  message: string
+  alert_source?: string | null
+  created_at: string
+  sla_due_at?: string | null
+  sla_breached: boolean
+  acknowledged_by?: string | null
+  assigned_to?: string | null
+  escalated_to?: string | null
+  escalated_at?: string | null
+  episode_id?: number | null
+  flood_probability?: number | null
+}
+
+export interface AlertQueue {
+  scope: string
+  role: string
+  instructions_my: WorkflowInstruction[]
+  instructions_to_verify: WorkflowInstruction[]
+  alerts_new: QueueAlertMini[]
+  alerts_escalated: QueueAlertMini[]
+  counts: {
+    instructions_my: number
+    instructions_to_verify: number
+    alerts_new: number
+    alerts_escalated: number
+    alerts_sla_breached: number
+    badge: number
+  }
+}
+
+export interface TimelineItem {
+  kind: 'event' | 'instruction'
+  at: string
+  action: string
+  actor: string
+  actor_role?: string | null
+  old_status?: string | null
+  new_status?: string | null
+  notes?: string | null
+  instruction_id?: number | null
+  payload?: Record<string, unknown> | null
+  instruction?: WorkflowInstruction | null
+}
+
+export interface EscalationsBoard {
+  escalated: QueueAlertMini[]
+  sla_breached: QueueAlertMini[]
+  instructions_overdue: WorkflowInstruction[]
+  counts: { escalated: number; sla_breached: number; instructions_overdue: number }
+}
+
+export interface AlertKpis {
+  open_total: number
+  open_by_severity: Record<string, number>
+  open_by_status: Record<string, number>
+  mttr_hours_30d: number | null
+  ack_sla_compliance_pct: number | null
+  ack_sla_window_30d: number
+  overdue_instructions: number
+  open_instructions: number
+  escalations_7d: number
+  generated_at: string
+}
+
+export interface AssignableUser {
+  id: number
+  name: string
+  email: string
+  username: string
+  role: string
+}
+
+export interface InstructionTemplate {
+  title: string
+  text: string
+  report_fields: string[]
 }

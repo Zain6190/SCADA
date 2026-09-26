@@ -1,9 +1,9 @@
 // packages/dashboard/src/app/admin/alerts/page.tsx
-// Alert Management - list, filter, acknowledge, resolve operational alerts.
+// Alert Management - workflow health (KPIs), escalations board, list, ack/resolve.
 'use client'
 
-import { useState } from 'react'
-import { Bell, Filter, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Bell, Filter, CheckCircle2, XCircle, AlertTriangle, Activity, Timer, Send, TrendingUp } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -14,8 +14,10 @@ import {
   useAckOperationalAlert,
   useResolveOperationalAlert,
 } from '@/features/water/hooks'
-import { timeAgo } from '@/lib/format'
-import type { OperationalAlert } from '@/features/water/types'
+import { waterApi } from '@/features/water/api'
+import { useAuth } from '@/context/AuthContext'
+import { timeAgo, fmtDateTime } from '@/lib/format'
+import type { OperationalAlert, AlertKpis, EscalationsBoard } from '@/features/water/types'
 
 const AMBER = 'bg-warn-soft text-warn'
 
@@ -23,12 +25,48 @@ type StatusFilter = 'ALL' | 'NEW' | 'ACKNOWLEDGED' | 'RESOLVED'
 type SeverityFilter = 'ALL' | 'CRITICAL' | 'WARNING' | 'WATCH'
 
 export default function AdminAlertsPage() {
+  const { user } = useAuth()
+  const role = (user?.role || '').toLowerCase()
+  const roles = new Set((user?.roles || []).map(r => r.toLowerCase()))
+  if (role) roles.add(role)
+  const isAdmin = roles.has('admin')
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('ALL')
+  const [kpis, setKpis] = useState<AlertKpis | null>(null)
+  const [escalations, setEscalations] = useState<EscalationsBoard | null>(null)
+  const [boardError, setBoardError] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [testBusy, setTestBusy] = useState(false)
 
   const alertsQuery = useOperationalAlerts()
   const ack = useAckOperationalAlert()
   const resolve = useResolveOperationalAlert()
+
+  const loadBoard = () => {
+    setBoardError(null)
+    Promise.all([waterApi.getAlertKpis(), waterApi.getEscalations()])
+      .then(([k, e]) => { setKpis(k); setEscalations(e) })
+      .catch((err) => setBoardError(err?.response?.data?.detail || 'Board unavailable'))
+  }
+  useEffect(() => { loadBoard() }, [])
+
+  const sendTest = async () => {
+    setTestBusy(true)
+    setTestResult(null)
+    try {
+      const res = await waterApi.sendTestAlert()
+      setTestResult(
+        res.channels_configured
+          ? `Test alert #${res.alert_id}: sent=${res.dispatch?.sent ?? 0}, suppressed=${res.dispatch?.suppressed ?? 0}, failed=${res.dispatch?.failed ?? 0} → ${res.recipients.join(', ')}`
+          : `Test alert #${res.alert_id} recorded, but no notification channels are configured (set SMTP/Slack in settings).`,
+      )
+    } catch (e: any) {
+      setTestResult(e?.response?.data?.detail || 'Test failed')
+    } finally {
+      setTestBusy(false)
+    }
+  }
 
   const allAlerts = alertsQuery.data ?? []
 
@@ -58,7 +96,84 @@ export default function AdminAlertsPage() {
               {counts.new} new
             </Badge>
           }
+          action={
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={loadBoard}
+                className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2 text-sm text-ink-muted transition-colors hover:border-brand/25 hover:text-brand"
+              >
+                Refresh board
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={sendTest}
+                  disabled={testBusy}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-brand/25 bg-brand-soft px-4 py-2 text-sm font-medium text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" /> {testBusy ? 'Sending…' : 'Send test alert'}
+                </button>
+              )}
+            </div>
+          }
         />
+
+        {testResult && (
+          <div className="rounded-xl border border-line-strong bg-surface-alt px-4 py-3 text-sm text-ink-muted">{testResult}</div>
+        )}
+        {boardError && (
+          <div className="rounded-xl border border-crit/25 bg-crit-soft px-4 py-3 text-sm text-crit">{boardError}</div>
+        )}
+
+        {/* Workflow health KPIs */}
+        {kpis && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <KpiCard icon={<AlertTriangle className="h-4 w-4" />} label="Open alerts" value={String(kpis.open_total)} tone="amber" />
+            <KpiCard icon={<CheckCircle2 className="h-4 w-4" />} label="ACK SLA compliance" value={kpis.ack_sla_compliance_pct != null ? `${kpis.ack_sla_compliance_pct}%` : '—'} tone="sky" sub={kpis.ack_sla_window_30d ? `last ${kpis.ack_sla_window_30d} alerts` : 'no SLA window'} />
+            <KpiCard icon={<TrendingUp className="h-4 w-4" />} label="Avg time to resolve" value={kpis.mttr_hours_30d != null ? `${kpis.mttr_hours_30d}h` : '—'} tone="emerald" sub="last 30 days" />
+            <KpiCard icon={<Timer className="h-4 w-4" />} label="Overdue instructions" value={String(kpis.overdue_instructions)} tone={kpis.overdue_instructions > 0 ? 'red' : 'slate'} />
+            <KpiCard icon={<Activity className="h-4 w-4" />} label="Open instructions" value={String(kpis.open_instructions)} tone="violet" />
+            <KpiCard icon={<Bell className="h-4 w-4" />} label="Escalations (7d)" value={String(kpis.escalations_7d)} tone={kpis.escalations_7d > 0 ? 'red' : 'slate'} />
+          </div>
+        )}
+
+        {/* Escalations board */}
+        {escalations && (escalations.counts.escalated > 0 || escalations.counts.sla_breached > 0 || escalations.counts.instructions_overdue > 0) && (
+          <Card className="border-l-4 border-l-crit">
+            <CardHeader
+              title="Needs attention"
+              subtitle={`${escalations.counts.escalated} escalated · ${escalations.counts.sla_breached} SLA breached · ${escalations.counts.instructions_overdue} overdue instructions`}
+              icon={<AlertTriangle className="h-5 w-5" />}
+              accent="bg-crit-soft text-crit"
+            />
+            <CardBody className="space-y-3 p-4">
+              {escalations.escalated.map(a => (
+                <div key={`e-${a.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-alt px-3 py-2 text-sm">
+                  <span className="text-ink">
+                    <strong>#{a.id}</strong> {a.asset_name || `Asset ${a.asset_id}`} · {a.alert_type}
+                    {a.escalated_to && <span className="ml-2 text-xs text-ink-subtle">→ {a.escalated_to}</span>}
+                  </span>
+                  <span className="text-xs text-ink-subtle">{a.escalated_at ? fmtDateTime(a.escalated_at) : timeAgo(a.created_at)}</span>
+                </div>
+              ))}
+              {escalations.sla_breached.map(a => (
+                <div key={`s-${a.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-crit/25 bg-crit-soft px-3 py-2 text-sm">
+                  <span className="text-crit">
+                    <strong>#{a.id}</strong> {a.asset_name || `Asset ${a.asset_id}`} · ACK SLA breached
+                  </span>
+                  <span className="text-xs">due {a.sla_due_at ? fmtDateTime(a.sla_due_at) : '—'}</span>
+                </div>
+              ))}
+              {escalations.instructions_overdue.map(i => (
+                <div key={`i-${i.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warn/25 bg-warn-soft px-3 py-2 text-sm">
+                  <span className="text-warn">
+                    <strong>#{i.id}</strong> {i.asset_name || `Asset ${i.asset_id}`} · overdue → {i.assigned_to}
+                  </span>
+                  <span className="text-xs">{i.due_at ? fmtDateTime(i.due_at) : ''}</span>
+                </div>
+              ))}
+            </CardBody>
+          </Card>
+        )}
 
         {/* Status tabs */}
         <div className="flex flex-wrap gap-2">
@@ -230,5 +345,31 @@ function AdminAlertRow({
         </div>
       </div>
     </div>
+  )
+}
+
+const KPI_TONES: Record<string, string> = {
+  amber: 'text-warn', sky: 'text-brand', emerald: 'text-ok',
+  red: 'text-crit', slate: 'text-ink-muted', violet: 'text-ink',
+}
+
+function KpiCard({
+  icon, label, value, tone, sub,
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+  tone: string
+  sub?: string
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-2 text-ink-subtle">
+        <span className={KPI_TONES[tone] || 'text-ink-muted'}>{icon}</span>
+        <span className="truncate text-[10px] font-semibold uppercase tracking-wider">{label}</span>
+      </div>
+      <p className={`mt-2 text-xl font-bold ${KPI_TONES[tone] || 'text-ink'}`}>{value}</p>
+      {sub && <p className="mt-0.5 text-[10px] text-ink-subtle">{sub}</p>}
+    </Card>
   )
 }

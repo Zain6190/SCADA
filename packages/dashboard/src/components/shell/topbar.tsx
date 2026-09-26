@@ -11,20 +11,21 @@ import Link from 'next/link'
 export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
   const { user, logout } = useAuth()
 
-  const { data: alerts } = useQuery({
-    queryKey: ['alerts', 'count'],
+  const { data: queue } = useQuery({
+    queryKey: ['alerts', 'queue-badge'],
     queryFn: async () => {
       const token = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
-      const res = await fetch(`${API_BASE_URL}/water/operational/alerts`, {
+      const res = await fetch(`${API_BASE_URL}/water/alerts/queue`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (!res.ok) throw new Error('bad')
-      return (await res.json()) as Array<{ status: string }>
+      return (await res.json()) as { counts: { badge: number } }
     },
     refetchInterval: 60_000,
+    retry: false,
   })
 
-  const openCount = (alerts ?? []).filter((a) => a.status === 'New' || a.status === 'Acknowledged').length
+  const openCount = queue?.counts?.badge ?? 0
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-4 border-b border-line bg-surface px-4 backdrop-blur">
