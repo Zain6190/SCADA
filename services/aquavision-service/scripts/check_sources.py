@@ -1,7 +1,8 @@
 import psycopg2
+from _db_urls import local_url, neon_url
 
-local = psycopg2.connect("postgresql://postgres:1234@172.19.0.2:5432/ibcp_scada")
-neon = psycopg2.connect("postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require")
+local = psycopg2.connect(local_url())
+neon = psycopg2.connect(neon_url())
 
 lcur = local.cursor()
 ncur = neon.cursor()

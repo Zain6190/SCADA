@@ -18,6 +18,7 @@ WMO Drought Classification:
 from __future__ import annotations
 
 import csv
+import os
 import sys
 from pathlib import Path
 from statistics import median
@@ -27,7 +28,9 @@ from scipy import stats as scipy_stats
 from sqlalchemy import create_engine, text
 
 ML_ROOT = Path(__file__).resolve().parent.parent
-DB_URL = "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
+DB_URL = os.environ.get(
+    "DATABASE_URL", "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
+)
 
 SCALES = [1, 3, 6, 12]
 

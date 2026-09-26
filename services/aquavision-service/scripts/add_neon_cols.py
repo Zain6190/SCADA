@@ -1,8 +1,8 @@
 import psycopg2
 
-NEON_URL = "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+from _db_urls import neon_url
 
-conn = psycopg2.connect(NEON_URL)
+conn = psycopg2.connect(neon_url())
 cur = conn.cursor()
 
 cols = [

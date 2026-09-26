@@ -1,6 +1,7 @@
 import psycopg2
+from _db_urls import neon_url
 
-neon = psycopg2.connect("postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require")
+neon = psycopg2.connect(neon_url())
 cur = neon.cursor()
 
 # Local has: 1=IRSA, 2=FFD/PMD, 3=KAGGLE, 4=SENSOR_API, 5=GEE

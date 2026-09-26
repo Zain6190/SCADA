@@ -3,9 +3,10 @@ Bulk sync weather data from local DB to Neon using COPY.
 """
 import io
 import psycopg2
+from _db_urls import local_url, neon_url
 
-LOCAL_URL = "postgresql://postgres:1234@172.19.0.2:5432/ibcp_scada"
-NEON_URL = "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+LOCAL_URL = local_url()
+NEON_URL = neon_url()
 
 COLS = [
     "asset_id", "source_id", "observed_at", "water_level_ft", "inflow_cusecs",

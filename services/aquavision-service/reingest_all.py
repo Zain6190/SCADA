@@ -1,13 +1,13 @@
 """Re-ingest all real data sources into fresh DB."""
 import os
-os.environ["DATABASE_URL"] = "postgresql://postgres:1234@localhost:5433/ibcp_scada"
-os.environ["PGPASSWORD"] = "1234"
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:1234@localhost:5433/ibcp_scada")
+os.environ.setdefault("PGPASSWORD", "1234")
 
 from pathlib import Path
 from datetime import date, datetime
 from sqlalchemy import create_engine, text
 
-engine = create_engine("postgresql://postgres:1234@localhost:5433/ibcp_scada")
+engine = create_engine(os.environ["DATABASE_URL"])
 
 # 1. IRSA PDFs from archive
 print("=" * 60)

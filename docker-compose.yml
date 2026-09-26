@@ -1,5 +1,8 @@
 services:
-  # ── PostGIS Database ──────────────────────────────────────────────
+  # ── Local PostGIS (OPTIONAL fallback) ──────────────────────────────
+  # Not required: DATABASE_URL in .env points at Neon by default.
+  # Start it only for offline/local work and point DATABASE_URL at
+  # postgresql://postgres:${POSTGRES_PASSWORD:-1234}@localhost:5433/ibcp_scada
   db:
     image: postgis/postgis:16-3.4
     container_name: ibcp-postgis
@@ -32,10 +35,9 @@ services:
     ports:
       - "8100:8100"
     environment:
-      # Plain psycopg2 format for seed scripts
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
-      # SQLAlchemy format for FastAPI ORM
-      SQLALCHEMY_DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      # Primary DB from .env (Neon). Plain psycopg2-compatible scheme so both
+      # SQLAlchemy and psycopg2.connect() consumers work.
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required - copy .env.example to .env and set your Neon connection string}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
@@ -52,9 +54,6 @@ services:
       # Host is source of truth for trained models — container recreates
       # must not wipe them (retrain writes land here directly).
       - ./services/aquavision-service/models:/app/models
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - scada-net
     healthcheck:
@@ -74,13 +73,11 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "scheduler.main"]
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-1234}@db:5432/ibcp_scada
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required - copy .env.example to .env and set your Neon connection string}
       ML_PIPELINE_ROOT: /ml-pipeline
     volumes:
       - ./services/aquavision-service/models:/app/models
     depends_on:
-      db:
-        condition: service_healthy
       aquavision:
         condition: service_started
     networks:

@@ -6,7 +6,9 @@ A unified mega system for flood management, water distribution, and agricultural
 ## Tech Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS
 - Backend: FastAPI + Python (single service: `services/aquavision-service`)
-- Database: PostgreSQL + PostGIS (Docker, external volume `ibcp-pgdata`)
+- Database: Neon cloud Postgres + PostGIS (primary — `DATABASE_URL` in the
+  repo-root `.env`); optional local fallback via compose service `db`
+  (Docker, external volume `ibcp-pgdata`)
 - ML: XGBoost + Google Earth Engine (`services/ml-pipeline`)
 - Scheduling: schedule library (in-service: `services/aquavision-service/scheduler`)
 
@@ -18,13 +20,16 @@ A unified mega system for flood management, water distribution, and agricultural
 | Dashboard | http://localhost:3000 | compose service `frontend` |
 | API | http://127.0.0.1:8100 | compose service `aquavision` |
 | Swagger | http://127.0.0.1:8100/docs | auto with backend |
-| Database | localhost:5433 | compose service `db` (volume `ibcp-pgdata`) |
+| Database | see root `.env` `DATABASE_URL` (Neon) | primary: Neon; local fallback: compose service `db` (port 5433) |
 | Scheduler | — | compose service `scheduler` (same image, `python -m scheduler.main`) |
 
 ### Quick Start
 ```bash
+cp .env.example .env    # paste your Neon connection string as DATABASE_URL
 docker compose up -d --build
 ```
+Real credentials live only in the gitignored `.env` — share that file with
+teammates directly (the repo is public; `.env.example` keeps placeholders).
 
 For a local (non-Docker) backend + frontend loop:
 ```bash

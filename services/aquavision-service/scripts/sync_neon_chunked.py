@@ -2,9 +2,10 @@
 Sync weather + physics data from local DB to Neon, handling duplicates.
 """
 import psycopg2
+from _db_urls import local_url, neon_url
 
-LOCAL_URL = "postgresql://postgres:1234@172.19.0.2:5432/ibcp_scada"
-NEON_URL = "postgresql://neondb_owner:npg_Gzql1mVyaO3X@ep-autumn-frog-ax96bip5-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+LOCAL_URL = local_url()
+NEON_URL = neon_url()
 
 def sync():
     local = psycopg2.connect(LOCAL_URL)
