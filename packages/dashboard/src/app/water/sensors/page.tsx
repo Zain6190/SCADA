@@ -120,31 +120,31 @@ export default function SensorsPage() {
                 title="Software PLC / RTU"
                 subtitle="Live Soft OT devices replace one-off test POSTs. Setpoints stay in the simulator."
                 icon={<Send className="h-5 w-5" />}
-                accent="bg-amber-500/10 text-amber-300"
+                accent="bg-brand-soft text-brand"
               />
               <CardBody className="flex flex-wrap items-center gap-3">
                 <Link
                   href="/water/ot"
-                  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 hover:bg-amber-500/20"
+                  className="inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-soft px-4 py-2.5 text-sm font-medium text-brand transition-colors hover:bg-brand-soft"
                 >
                   Open Soft OT runtime
                 </Link>
                 <div className="w-full overflow-x-auto">
                   <table className="w-full text-sm">
-                    <tbody className="divide-y divide-slate-800/50">
+                    <tbody className="divide-y divide-line">
                       {otDevices.map((device) => (
                         <tr key={device.id || device.device_code}>
-                          <td className="py-2 pr-3 font-mono text-sky-300">
+                          <td className="py-2 pr-3 font-mono text-brand">
                             <Link href={`/water/ot/${device.id}`}>{device.device_code}</Link>
                           </td>
-                          <td className="py-2 pr-3 text-slate-400">{device.kind}</td>
-                          <td className="py-2 pr-3 text-slate-300">{device.asset_name}</td>
-                          <td className="py-2 text-slate-400">{device.mode || device.live?.mode || 'TRACK'}</td>
+                          <td className="py-2 pr-3 text-ink-muted">{device.kind}</td>
+                          <td className="py-2 pr-3 text-ink">{device.asset_name}</td>
+                          <td className="py-2 text-ink-muted">{device.mode || device.live?.mode || 'TRACK'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {otDevices.length === 0 && <p className="text-xs text-slate-500">OT devices appear when the API is up.</p>}
+                  {otDevices.length === 0 && <p className="text-xs text-ink-subtle">OT devices appear when the API is up.</p>}
                 </div>
                 <button
                   onClick={sendTestReading}
@@ -152,13 +152,6 @@ export default function SensorsPage() {
                   className="inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-soft px-4 py-2.5 text-sm font-medium text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
-                  {sending ? 'Sending...' : 'Send Test Reading'}
-                </button>
-                <button
-                  onClick={sendTestReading}
-                  disabled={sending}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-                >
                   {sending ? 'Sending...' : 'Legacy SENSOR_API ping'}
                 </button>
                 {testResult && (

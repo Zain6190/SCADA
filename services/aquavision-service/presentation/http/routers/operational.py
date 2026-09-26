@@ -22,9 +22,10 @@ from infrastructure.db.models import (
     WaterAsset, WaterAssetThreshold, WaterObservation,
     WaterOperationalAlert, WaterAlertAuditLog,
     WaterRiverNetwork, WaterTravelTimeModel,
-    WaterFFDObservation,
+    WaterFFDObservation, WaterSource,
 )
 from infrastructure.alerts import workflow as alert_workflow
+from infrastructure.thresholds.engine import NON_OFFICIAL_AUTHORITIES, official_observation_clause
 from infrastructure.auth.jwt import get_current_user
 
 router = APIRouter()
@@ -43,6 +44,7 @@ class AssetResponse(BaseModel):
     capacity_maf: Optional[float]
     normal_level_ft: Optional[float]
     warning_level_ft: Optional[float]
+    danger_level_ft: Optional[float]
     critical_level_ft: Optional[float]
     is_active: bool
 
@@ -53,6 +55,7 @@ class AssetResponse(BaseModel):
     current_discharge: Optional[float] = None
     last_observed_at: Optional[datetime] = None
     data_age_hours: Optional[float] = None
+    latest_source: Optional[str] = None
 
     # Current alert status
     active_alert_count: int = 0
@@ -235,12 +238,21 @@ async def list_assets(
         query = query.where(WaterAsset.asset_type == asset_type)
     assets = session.execute(query.order_by(WaterAsset.canonical_name)).scalars().all()
 
+    source_authorities = {
+        s.id: s.authority
+        for s in session.execute(select(WaterSource)).scalars().all()
+    }
+    thresholds = {
+        t.asset_id: t
+        for t in session.execute(select(WaterAssetThreshold)).scalars().all()
+    }
+
     result = []
     for asset in assets:
         # Get latest observation
         latest_obs = session.execute(
             select(WaterObservation)
-            .where(WaterObservation.asset_id == asset.id)
+            .where(WaterObservation.asset_id == asset.id, official_observation_clause())
             .order_by(desc(WaterObservation.observed_at))
             .limit(1)
         ).scalar_one_or_none()
@@ -273,6 +285,17 @@ async def list_assets(
             ).order_by(desc(WaterOperationalAlert.created_at)).limit(1)
         ).first()
 
+        # Thresholds live in water_asset_thresholds (authoritative for alerts);
+        # the asset row carries warning/critical as a legacy fallback.
+        thr = thresholds.get(asset.id)
+        warn_level = float(thr.warning_level_ft) if thr and thr.warning_level_ft is not None else (
+            float(asset.warning_level_ft) if asset.warning_level_ft else None
+        )
+        danger_level = float(thr.danger_level_ft) if thr and thr.danger_level_ft is not None else None
+        crit_level = float(thr.critical_level_ft) if thr and thr.critical_level_ft is not None else (
+            float(asset.critical_level_ft) if asset.critical_level_ft else None
+        )
+
         # Fallback: threshold-based probability if no ML classification exists
         fp_value, fp_severity, fp_rec = None, None, None
         if flood_prob:
@@ -284,9 +307,9 @@ async def list_assets(
             inflow = float(latest_obs.inflow_cusecs) if latest_obs.inflow_cusecs else None
             level = float(latest_obs.water_level_ft) if latest_obs.water_level_ft else None
             value = discharge or inflow or level
-            if value and asset.warning_level_ft and asset.critical_level_ft:
-                warn = float(asset.warning_level_ft)
-                crit = float(asset.critical_level_ft)
+            if value and warn_level and crit_level:
+                warn = warn_level
+                crit = crit_level
                 if crit > warn and value >= warn:
                     ratio = min((value - warn) / (crit - warn), 1.0)
                     fp_value = round(0.05 + ratio * 0.85, 4)
@@ -315,15 +338,20 @@ async def list_assets(
             longitude=float(asset.longitude) if asset.longitude else None,
             capacity_maf=float(asset.capacity_maf) if asset.capacity_maf else None,
             normal_level_ft=float(asset.normal_level_ft) if asset.normal_level_ft else None,
-            warning_level_ft=float(asset.warning_level_ft) if asset.warning_level_ft else None,
-            critical_level_ft=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+            warning_level_ft=warn_level,
+            danger_level_ft=danger_level,
+            critical_level_ft=crit_level,
             is_active=asset.is_active,
             current_level_ft=float(latest_obs.water_level_ft) if latest_obs and latest_obs.water_level_ft else None,
             current_inflow=float(latest_obs.inflow_cusecs) if latest_obs and latest_obs.inflow_cusecs else None,
             current_outflow=float(latest_obs.outflow_cusecs) if latest_obs and latest_obs.outflow_cusecs else None,
             current_discharge=float(latest_obs.discharge_cusecs) if latest_obs and latest_obs.discharge_cusecs else None,
             last_observed_at=latest_obs.observed_at if latest_obs else None,
-            data_age_hours=round(data_age, 1) if data_age else None,
+            data_age_hours=round(data_age, 1) if data_age is not None else None,
+            latest_source=(
+                (latest_obs.source_authority or source_authorities.get(latest_obs.source_id))
+                if latest_obs else None
+            ),
             active_alert_count=alert_count,
             highest_severity=highest,
             flood_probability=fp_value,
@@ -346,7 +374,7 @@ async def get_asset(
 
     latest_obs = session.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset.id)
+        .where(WaterObservation.asset_id == asset.id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
     ).scalar_one_or_none()
@@ -373,6 +401,21 @@ async def get_asset(
         else:
             data_age = (datetime.utcnow() - obs_time).total_seconds() / 3600
 
+    source_authorities = {
+        s.id: s.authority
+        for s in session.execute(select(WaterSource)).scalars().all()
+    }
+    thr = session.execute(
+        select(WaterAssetThreshold).where(WaterAssetThreshold.asset_id == asset.id)
+    ).scalar_one_or_none()
+    warn_level = float(thr.warning_level_ft) if thr and thr.warning_level_ft is not None else (
+        float(asset.warning_level_ft) if asset.warning_level_ft else None
+    )
+    danger_level = float(thr.danger_level_ft) if thr and thr.danger_level_ft is not None else None
+    crit_level = float(thr.critical_level_ft) if thr and thr.critical_level_ft is not None else (
+        float(asset.critical_level_ft) if asset.critical_level_ft else None
+    )
+
     return AssetResponse(
         id=asset.id,
         canonical_name=asset.canonical_name,
@@ -383,15 +426,20 @@ async def get_asset(
         longitude=float(asset.longitude) if asset.longitude else None,
         capacity_maf=float(asset.capacity_maf) if asset.capacity_maf else None,
         normal_level_ft=float(asset.normal_level_ft) if asset.normal_level_ft else None,
-        warning_level_ft=float(asset.warning_level_ft) if asset.warning_level_ft else None,
-        critical_level_ft=float(asset.critical_level_ft) if asset.critical_level_ft else None,
+        warning_level_ft=warn_level,
+        danger_level_ft=danger_level,
+        critical_level_ft=crit_level,
         is_active=asset.is_active,
         current_level_ft=float(latest_obs.water_level_ft) if latest_obs and latest_obs.water_level_ft else None,
         current_inflow=float(latest_obs.inflow_cusecs) if latest_obs and latest_obs.inflow_cusecs else None,
         current_outflow=float(latest_obs.outflow_cusecs) if latest_obs and latest_obs.outflow_cusecs else None,
         current_discharge=float(latest_obs.discharge_cusecs) if latest_obs and latest_obs.discharge_cusecs else None,
         last_observed_at=latest_obs.observed_at if latest_obs else None,
-        data_age_hours=round(data_age, 1) if data_age else None,
+        data_age_hours=round(data_age, 1) if data_age is not None else None,
+        latest_source=(
+            (latest_obs.source_authority or source_authorities.get(latest_obs.source_id))
+            if latest_obs else None
+        ),
         active_alert_count=alert_count,
         highest_severity=highest,
     )
@@ -414,6 +462,7 @@ async def get_observations(
         .where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at >= since,
+            official_observation_clause(),
         )
         .order_by(desc(WaterObservation.observed_at))
     ).scalars().all()
@@ -449,7 +498,7 @@ async def get_asset_readings(
 
     observations = session.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset_id)
+        .where(WaterObservation.asset_id == asset_id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(limit)
     ).scalars().all()
@@ -754,7 +803,7 @@ async def get_downstream_impact(
     # Get latest observation for release/flow
     latest_obs = session.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset_id)
+        .where(WaterObservation.asset_id == asset_id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
     ).scalar_one_or_none()
@@ -812,7 +861,7 @@ async def get_downstream_impact(
         # Get downstream asset current readings
         downstream_obs = session.execute(
             select(WaterObservation)
-            .where(WaterObservation.asset_id == segment.downstream_asset_id)
+            .where(WaterObservation.asset_id == segment.downstream_asset_id, official_observation_clause())
             .order_by(desc(WaterObservation.observed_at))
             .limit(1)
         ).scalar_one_or_none()
@@ -1097,7 +1146,7 @@ async def get_weekly_summary(
         .order_by(WaterObservation.asset_id, WaterObservation.observed_at)
     )
     if asset_id:
-        q = q.where(WaterObservation.asset_id == asset_id)
+        q = q.where(WaterObservation.asset_id == asset_id, official_observation_clause())
 
     rows = session.execute(q).all()
 

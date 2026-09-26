@@ -180,11 +180,19 @@ extras = [
         updated_at TIMESTAMPTZ DEFAULT now(),
         UNIQUE (service_name, instance_id))""",
     """CREATE TABLE IF NOT EXISTS aquavision.data_quality_log (
-        id BIGSERIAL PRIMARY KEY, observation_id BIGINT,
-        quality_score NUMERIC, issues TEXT, checked_at TIMESTAMPTZ DEFAULT NOW())""",
+        id BIGSERIAL PRIMARY KEY, asset_id BIGINT, observation_id BIGINT,
+        check_type VARCHAR(50), field_name VARCHAR(50), raw_value DOUBLE PRECISION,
+        expected_range_min DOUBLE PRECISION, expected_range_max DOUBLE PRECISION,
+        quality_status VARCHAR(20), details TEXT, source_record_id INTEGER,
+        quality_score NUMERIC, issues TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(), checked_at TIMESTAMPTZ DEFAULT NOW())""",
     """CREATE TABLE IF NOT EXISTS aquavision.water_observation_quarantine (
-        id BIGSERIAL PRIMARY KEY, observation_id BIGINT,
-        reason TEXT, quarantined_at TIMESTAMPTZ DEFAULT NOW())""",
+        id BIGSERIAL PRIMARY KEY, asset_id INTEGER, observation_id BIGINT,
+        source_record_id INTEGER, raw_payload JSON, parsed_values JSON,
+        failure_reason TEXT, field_name VARCHAR(50), raw_value DOUBLE PRECISION,
+        parser_version VARCHAR(50), data_status VARCHAR(30),
+        reason TEXT, created_at TIMESTAMPTZ DEFAULT NOW(),
+        quarantined_at TIMESTAMPTZ DEFAULT NOW())""",
     """CREATE TABLE IF NOT EXISTS aquavision.notification_deliveries (
         id BIGSERIAL PRIMARY KEY, alert_id BIGINT, channel TEXT NOT NULL,
         status TEXT DEFAULT 'pending', delivered_at TIMESTAMPTZ, error_message TEXT)""",

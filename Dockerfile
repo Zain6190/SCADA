@@ -26,6 +26,8 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels -r /tmp/requi
 COPY services/aquavision-service/ /app/
 # ml-pipeline scripts run by the in-service scheduler (WAI pipeline jobs)
 COPY services/ml-pipeline/ /ml-pipeline/
+# Soft OT package — persist.py resolves Path(__file__).parents[3]/"ot-runtime" -> /ot-runtime
+COPY services/ot-runtime/ /ot-runtime/
 
 EXPOSE 8100
 

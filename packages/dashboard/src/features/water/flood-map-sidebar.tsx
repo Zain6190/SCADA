@@ -22,6 +22,14 @@ const STATUS_LEVELS = [
   { color: '#f97316', label: 'Danger', desc: 'Above danger threshold' },
   { color: '#eab308', label: 'Warning', desc: 'Exceeds warning level' },
   { color: '#22c55e', label: 'Normal', desc: 'Within safe range' },
+  { color: '#6b7280', label: 'No reading', desc: 'No official observation' },
+]
+
+const FRESHNESS = [
+  { color: '#22c55e', label: '≤ 24h', desc: 'Fresh reading' },
+  { color: '#eab308', label: '24-48h', desc: 'Aging data' },
+  { color: '#ef4444', label: '> 48h', desc: 'Stale — verify' },
+  { color: '#94a3b8', label: 'No data', desc: 'No reading yet' },
 ]
 
 const FLOOD_PROB = [
@@ -59,9 +67,7 @@ interface SidebarProps {
   showRivers: boolean
   showLabels: boolean
   showWarnings: boolean
-  showImpact: boolean
   showRainfall: boolean
-  showFloodExtents: boolean
   showTerritories: boolean
   onToggleLayer: (layer: keyof LayerState) => void
   regionAlerts: RegionAlert[]
@@ -78,12 +84,6 @@ interface SidebarProps {
   impactSummary?: any
   calculating?: boolean
   onClearSelection?: () => void
-  simAssetId: number
-  simFlow: number
-  onSimAssetChange: (id: number) => void
-  onSimFlowChange: (flow: number) => void
-  simImpact: any
-  assetNames: Record<number, string>
 }
 
 function Section({ title, icon, children, defaultOpen = true }: { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
@@ -104,22 +104,18 @@ function Section({ title, icon, children, defaultOpen = true }: { title: string;
 
 export function FloodMapSidebar({
   timeSlider, onTimeSliderChange,
-  showRivers, showLabels, showWarnings, showImpact, showRainfall, showFloodExtents, showTerritories,
+  showRivers, showLabels, showWarnings, showRainfall, showTerritories,
   onToggleLayer,
   regionAlerts, alertedPopulation, selectedDistrict, selectedTerritory, onSelectDistrict,
   totalPopulation, totalBridges, totalHospitals, visibleSegments, totalSegments,
   selectedAssetId, impactSummary, calculating, onClearSelection,
-  simAssetId, simFlow, onSimAssetChange, onSimFlowChange, simImpact,
-  assetNames,
 }: SidebarProps) {
   const layers: { key: keyof LayerState; label: string; state: boolean }[] = [
-    { key: 'showTerritories', label: 'Danger zones', state: showTerritories },
+    { key: 'showTerritories', label: 'District Zones', state: showTerritories },
     { key: 'showRivers', label: 'River Geometry', state: showRivers },
     { key: 'showLabels', label: 'Asset Labels', state: showLabels },
-    { key: 'showWarnings', label: 'FFD Warnings', state: showWarnings },
-    { key: 'showImpact', label: 'Impact Assets', state: showImpact },
+    { key: 'showWarnings', label: 'FFD Alerts', state: showWarnings },
     { key: 'showRainfall', label: 'FFD Stations', state: showRainfall },
-    { key: 'showFloodExtents', label: 'Flood Extents', state: showFloodExtents },
   ]
 
   return (
@@ -182,6 +178,21 @@ export function FloodMapSidebar({
           </div>
         </Section>
 
+        <Section title="Data Freshness" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} defaultOpen={false}>
+          <div className="space-y-1.5">
+            {FRESHNESS.map((f) => (
+              <div key={f.label} className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: f.color }} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[11px] text-ink-muted">{f.label}</span>
+                  <p className="text-[9px] text-ink-subtle truncate">{f.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[9px] text-ink-subtle mt-2">Age of the latest official gauge observation per asset.</p>
+        </Section>
+
         <Section title="Flood Probability" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M2 12h20"/></svg>} defaultOpen={true}>
           <div className="space-y-1.5">
             {FLOOD_PROB.map((f) => (
@@ -220,14 +231,15 @@ export function FloodMapSidebar({
         <Section title="Region alerts" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>} defaultOpen={true}>
           <div className="mb-2 flex flex-wrap gap-x-2 gap-y-1">
             {TERRITORY_SEVERITY.map((item) => (
-              <span key={item.label} className="flex items-center gap-1 text-[9px] text-slate-500">
+              <span key={item.label} className="flex items-center gap-1 text-[9px] text-ink-subtle">
                 <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: item.color }} />
                 {item.label}
               </span>
             ))}
           </div>
+          <p className="text-[9px] text-ink-subtle mb-2">Zones are approximate planning boundaries, not official flood extents.</p>
           {regionAlerts.length === 0 ? (
-            <p className="text-[11px] text-slate-500">No danger zones. A district is marked when its flood prediction reaches moderate severity.</p>
+            <p className="text-[11px] text-ink-subtle">No danger zones. A district is marked when its flood prediction reaches moderate severity.</p>
           ) : (
             <div className="space-y-1.5">
               {regionAlerts.map((alert) => {
@@ -238,14 +250,14 @@ export function FloodMapSidebar({
                     key={alert.district}
                     type="button"
                     onClick={() => onSelectDistrict?.(alert.district)}
-                    className={`w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${active ? 'border-sky-500/50 bg-sky-500/10' : 'border-slate-800 bg-slate-900/80 hover:border-slate-700'}`}
+                    className={`w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${active ? 'border-brand/50 bg-brand-soft' : 'border-line bg-surface hover:border-line-strong'}`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold text-slate-100">{alert.district}</span>
+                      <span className="text-[11px] font-semibold text-ink">{alert.district}</span>
                       <span className="text-[9px] font-medium" style={{ color }}>{alert.severity}</span>
                     </div>
-                    <p className="text-[10px] text-amber-400 mt-0.5">{formatPeople(alert.population_exposed)} people</p>
-                    <p className="text-[9px] text-slate-500 truncate">
+                    <p className="text-[10px] text-warn mt-0.5">{formatPeople(alert.population_exposed)} people</p>
+                    <p className="text-[9px] text-ink-subtle truncate">
                       {alert.inside_count ?? alert.inside?.length ?? 0} places inside · {alert.bridges} bridges · {alert.hospitals} hospitals
                     </p>
                   </button>
@@ -260,61 +272,61 @@ export function FloodMapSidebar({
             <div className="space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-white">{selectedTerritory.properties.district}</p>
-                  <p className="text-[10px] text-slate-500">{selectedTerritory.properties.province}</p>
+                  <p className="text-xs font-semibold text-ink">{selectedTerritory.properties.district}</p>
+                  <p className="text-[10px] text-ink-subtle">{selectedTerritory.properties.province}</p>
                 </div>
                 {onSelectDistrict && (
                   <button
                     type="button"
                     onClick={() => onSelectDistrict(null)}
-                    className="text-[10px] text-slate-500 hover:text-slate-300"
+                    className="text-[10px] text-ink-subtle hover:text-ink"
                   >
                     Clear
                   </button>
                 )}
               </div>
-              <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-3 py-2">
-                <p className="text-[9px] uppercase tracking-wider text-slate-500">Prediction</p>
-                <p className="text-xs font-semibold" style={{ color: SEVERITY_COLOR[selectedTerritory.properties.flood_severity] || '#e2e8f0' }}>
+              <div className="rounded-lg bg-surface border border-line px-3 py-2">
+                <p className="text-[9px] uppercase tracking-wider text-ink-subtle">Prediction</p>
+                <p className="text-xs font-semibold" style={{ color: SEVERITY_COLOR[selectedTerritory.properties.flood_severity] || '#e5e7eb' }}>
                   {selectedTerritory.properties.flood_severity} · {Math.round((selectedTerritory.properties.flood_probability || 0) * 100)}%
                 </p>
               </div>
-              <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-3 py-2">
-                <p className="text-[9px] uppercase tracking-wider text-slate-500 mb-1">Population exposed</p>
-                <p className="text-lg font-bold text-amber-400">{(selectedTerritory.properties.population_exposed || 0).toLocaleString()}</p>
+              <div className="rounded-lg bg-surface border border-line px-3 py-2">
+                <p className="text-[9px] uppercase tracking-wider text-ink-subtle mb-1">Population exposed</p>
+                <p className="text-lg font-bold text-warn">{(selectedTerritory.properties.population_exposed || 0).toLocaleString()}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-2 py-1.5 text-center">
-                  <p className="text-[9px] text-slate-500">Bridges</p>
-                  <p className="text-xs font-semibold text-slate-200">{selectedTerritory.properties.bridges}</p>
+                <div className="rounded-lg bg-surface border border-line px-2 py-1.5 text-center">
+                  <p className="text-[9px] text-ink-subtle">Bridges</p>
+                  <p className="text-xs font-semibold text-ink">{selectedTerritory.properties.bridges}</p>
                 </div>
-                <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-2 py-1.5 text-center">
-                  <p className="text-[9px] text-slate-500">Hospitals</p>
-                  <p className="text-xs font-semibold text-slate-200">{selectedTerritory.properties.hospitals}</p>
+                <div className="rounded-lg bg-surface border border-line px-2 py-1.5 text-center">
+                  <p className="text-[9px] text-ink-subtle">Hospitals</p>
+                  <p className="text-xs font-semibold text-ink">{selectedTerritory.properties.hospitals}</p>
                 </div>
               </div>
               {selectedTerritory.properties.recommendation && (
-                <p className="text-[11px] text-slate-300">{selectedTerritory.properties.recommendation}</p>
+                <p className="text-[11px] text-ink-muted">{selectedTerritory.properties.recommendation}</p>
               )}
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[10px] text-ink-subtle">
                 Source: {selectedTerritory.properties.source_asset_name}
                 {selectedTerritory.properties.ot_source === 'SOFT_OT_SCENARIO' ? ' · scenario discharge' : ''}
               </p>
               {selectedTerritory.properties.source_asset_id ? (
                 <Link
                   href={`/water/ot?asset=${selectedTerritory.properties.source_asset_id}`}
-                  className="text-[11px] text-sky-300 hover:underline"
+                  className="text-[11px] text-brand hover:underline"
                 >
                   Open {selectedTerritory.properties.ot_device_code || 'Soft OT'} for this district
                 </Link>
               ) : null}
               {(selectedTerritory.properties.inside || []).length > 0 && (
                 <div className="space-y-1 pt-1">
-                  <p className="text-[9px] uppercase tracking-wider text-slate-500">Inside this zone</p>
+                  <p className="text-[9px] uppercase tracking-wider text-ink-subtle">Inside this zone</p>
                   {selectedTerritory.properties.inside!.map((place) => (
                     <div key={`${place.kind}-${place.name}`} className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-200 truncate">{place.name}</span>
-                      <span className="text-[9px] uppercase text-slate-500">{place.kind}</span>
+                      <span className="text-[11px] text-ink truncate">{place.name}</span>
+                      <span className="text-[9px] uppercase text-ink-subtle">{place.kind}</span>
                     </div>
                   ))}
                 </div>
@@ -330,8 +342,8 @@ export function FloodMapSidebar({
               <span className="text-[11px] font-semibold text-warn">{(totalPopulation / 1000000).toFixed(1)}M</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-[11px] text-slate-400">Alerted population</span>
-              <span className="text-[11px] font-semibold text-red-400">{formatPeople(alertedPopulation)}</span>
+              <span className="text-[11px] text-ink-muted">Alerted population</span>
+              <span className="text-[11px] font-semibold text-critical">{formatPeople(alertedPopulation)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-[11px] text-ink-muted">Bridges</span>
@@ -356,7 +368,7 @@ export function FloodMapSidebar({
               <div className="space-y-2">
                 <div className="rounded-lg bg-brand-soft border border-brand/25 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wider text-ink-subtle mb-1">Source</p>
-                  <p className="text-xs font-semibold text-white">{impactSummary.source_asset}</p>
+                  <p className="text-xs font-semibold text-ink">{impactSummary.source_asset}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-lg bg-surface border border-line px-3 py-2">
@@ -397,46 +409,10 @@ export function FloodMapSidebar({
           </Section>
         )}
 
-        <Section title="Scenario Simulation" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>} defaultOpen={false}>
-          <div className="space-y-2">
-            <div>
-              <label className="text-[10px] text-ink-subtle block mb-0.5">Source Asset</label>
-              <select
-                value={simAssetId}
-                onChange={(e) => onSimAssetChange(Number(e.target.value))}
-                className="w-full rounded-lg border border-line-strong bg-surface-alt px-2 py-1.5 text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-brand/25"
-              >
-                {Object.entries(assetNames).map(([id, name]) => (
-                  <option key={id} value={id}>{name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] text-ink-subtle block mb-0.5">Flow (cusecs)</label>
-              <input
-                type="number"
-                value={simFlow}
-                onChange={(e) => onSimFlowChange(Number(e.target.value))}
-                className="w-full rounded-lg border border-line-strong bg-surface-alt px-2 py-1.5 text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-brand/25"
-              />
-            </div>
-            {simImpact && (
-              <div className="mt-2 pt-2 border-t border-line space-y-1">
-                <p className="text-[10px] text-ink-subtle uppercase tracking-wider font-medium">Estimated Impact</p>
-                <div className="flex justify-between"><span className="text-[11px] text-ink-muted">Segments</span><span className="text-[11px] font-semibold text-white">{simImpact.segments}</span></div>
-                <div className="flex justify-between"><span className="text-[11px] text-ink-muted">Population</span><span className="text-[11px] font-semibold text-warn">{(simImpact.population / 1000000).toFixed(1)}M</span></div>
-                <div className="flex justify-between"><span className="text-[11px] text-ink-muted">Bridges</span><span className="text-[11px] font-semibold text-white">{simImpact.bridges}</span></div>
-                <div className="flex justify-between"><span className="text-[11px] text-ink-muted">Hospitals</span><span className="text-[11px] font-semibold text-white">{simImpact.hospitals}</span></div>
-                <div className="flex justify-between"><span className="text-[11px] text-ink-muted">Max Travel</span><span className="text-[11px] font-semibold text-brand">{simImpact.maxTravel.toFixed(1)}h</span></div>
-              </div>
-            )}
-          </div>
-        </Section>
-
-        <Section title="Forecast Window" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} defaultOpen={false}>
+        <Section title="Travel Time Filter" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} defaultOpen={false}>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-ink-subtle">Visible forecast</span>
+              <span className="text-[10px] text-ink-subtle">Show segments up to</span>
               <span className="text-xs font-semibold text-brand">{timeSlider}h</span>
             </div>
             <input

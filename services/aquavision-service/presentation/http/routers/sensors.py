@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import WaterAsset, WaterObservation, WaterSource
+from infrastructure.thresholds.engine import NON_OFFICIAL_AUTHORITIES
 
 logger = logging.getLogger("aquavision.api.sensors")
 
@@ -324,7 +325,11 @@ async def sensor_api_status(db: Session = Depends(get_session)):
 
         for count, latest, origin in rows:
             total_readings += count
-            if latest and (latest_overall is None or latest > latest_overall):
+            is_official = (
+                source.authority not in NON_OFFICIAL_AUTHORITIES
+                and (origin or "REAL") == "REAL"
+            )
+            if is_official and latest and (latest_overall is None or latest > latest_overall):
                 latest_overall = latest
             feeds.append({
                 "source": source.authority,

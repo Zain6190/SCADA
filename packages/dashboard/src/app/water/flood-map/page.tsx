@@ -9,11 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState } from '@/components/ui/state'
 import { FloodArrivalMapDynamic } from '@/features/water/flood-arrival-map-dynamic'
 import { FloodMapSidebar } from '@/features/water/flood-map-sidebar'
-import {
-  useFloodMapState,
-  DEFAULT_THRESHOLDS,
-  ASSET_NAMES,
-} from '@/features/water/use-flood-map-state'
+import { useFloodMapState } from '@/features/water/use-flood-map-state'
 
 export default function FloodMapPage() {
   const {
@@ -22,13 +18,11 @@ export default function FloodMapPage() {
     mobileSidebarOpen, setMobileSidebarOpen,
     layers, toggleLayer,
     timeSlider, setTimeSlider,
-    simAssetId, setSimAssetId, simFlow, setSimFlow,
-    displaySegments, totals, visibleSegments, simImpact,
-    impactSummary,
-    currentLevels, ffdWarnings, floodClassifications,
-    ffdMarkers, impactMarkers,
+    displaySegments, totals, visibleSegments, impactSummary,
+    assets, ffdWarnings, floodClassifications,
+    ffdMarkers,
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
-    setSelectedDistrict,
+    setSelectedDistrict, newestObservedAt,
   } = useFloodMapState()
 
   return (
@@ -36,8 +30,9 @@ export default function FloodMapPage() {
       <div className="space-y-4">
         <PageHeader
           title="Flood Arrival Map"
-          description="River propagation plus predicted flood territory. Districts are filled from flood classifications and alerted with population, bridges, and hospitals."
+          description="Live gauge readings with modelled downstream travel times. District zones are approximate planning boundaries filled from flood classifications."
           icon={<Map className="h-6 w-6" />}
+          updatedAt={newestObservedAt}
           action={
             <div className="flex items-center gap-2">
               {selectedAsset && (
@@ -72,25 +67,19 @@ export default function FloodMapPage() {
                   segments={displaySegments}
                   selectedAssetId={selectedAsset}
                   onAssetClick={setSelectedAsset}
-                  height={800}
-                  assetThresholds={DEFAULT_THRESHOLDS}
-                  currentLevels={currentLevels}
+                  assets={assets}
                   ffdWarnings={ffdWarnings}
                   floodClassifications={floodClassifications}
                   ffdMarkers={ffdMarkers}
-                  impactMarkers={impactMarkers}
                   showRivers={layers.showRivers}
                   showLabels={layers.showLabels}
                   showWarnings={layers.showWarnings}
-                  showImpact={layers.showImpact}
                   showRainfall={layers.showRainfall}
-                  showFloodExtents={layers.showFloodExtents}
                   showTerritories={layers.showTerritories}
                   territories={territories}
                   selectedDistrict={selectedDistrict}
                   onDistrictClick={setSelectedDistrict}
                   timeSlider={timeSlider}
-                  simulationFlow={selectedAsset ? null : { assetId: simAssetId, flow: simFlow }}
                 />
               )}
             </div>
@@ -103,9 +92,7 @@ export default function FloodMapPage() {
                 showRivers={layers.showRivers}
                 showLabels={layers.showLabels}
                 showWarnings={layers.showWarnings}
-                showImpact={layers.showImpact}
                 showRainfall={layers.showRainfall}
-                showFloodExtents={layers.showFloodExtents}
                 showTerritories={layers.showTerritories}
                 onToggleLayer={toggleLayer}
                 regionAlerts={regionAlerts}
@@ -122,12 +109,6 @@ export default function FloodMapPage() {
                 impactSummary={impactSummary}
                 calculating={calculating}
                 onClearSelection={() => setSelectedAsset(null)}
-                simAssetId={simAssetId}
-                simFlow={simFlow}
-                onSimAssetChange={setSimAssetId}
-                onSimFlowChange={setSimFlow}
-                simImpact={simImpact}
-                assetNames={ASSET_NAMES}
               />
             </div>
           </div>
@@ -152,9 +133,7 @@ export default function FloodMapPage() {
                   showRivers={layers.showRivers}
                   showLabels={layers.showLabels}
                   showWarnings={layers.showWarnings}
-                  showImpact={layers.showImpact}
                   showRainfall={layers.showRainfall}
-                  showFloodExtents={layers.showFloodExtents}
                   showTerritories={layers.showTerritories}
                   onToggleLayer={toggleLayer}
                   regionAlerts={regionAlerts}
@@ -174,12 +153,6 @@ export default function FloodMapPage() {
                   impactSummary={impactSummary}
                   calculating={calculating}
                   onClearSelection={() => { setSelectedAsset(null); setMobileSidebarOpen(false) }}
-                  simAssetId={simAssetId}
-                  simFlow={simFlow}
-                  onSimAssetChange={setSimAssetId}
-                  onSimFlowChange={setSimFlow}
-                  simImpact={simImpact}
-                  assetNames={ASSET_NAMES}
                 />
               </div>
             </div>

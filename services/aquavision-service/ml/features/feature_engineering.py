@@ -264,7 +264,6 @@ class FloodFeatureBuilder:
                     by_date[dt]["discharge"] = float(row.value)
                 by_date[dt]["source"] = row.source
                 by_date[dt]["data_origin"] = row.data_origin or "REAL"
-            
             return [
                 row for row in by_date.values()
                 if keep_training_row(row.get("data_origin"), row.get("source"), real_only)

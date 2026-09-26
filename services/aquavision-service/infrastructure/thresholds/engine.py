@@ -82,15 +82,15 @@ class AlertType:
     OT_SCENARIO = "OT_SCENARIO"
 
 
-_NON_OFFICIAL_AUTHORITIES = ("SOFT_OT", "USGS", "USGS/NWIS", "BATADAL", "KAGGLE")
+NON_OFFICIAL_AUTHORITIES = ("SOFT_OT", "USGS", "USGS/NWIS", "BATADAL", "KAGGLE")
 
 
-def _official_observation_clause():
+def official_observation_clause():
     """IRSA and FFD rows only. Soft OT replay never becomes the latest official reading."""
     return and_(
         or_(
             WaterObservation.source_authority.is_(None),
-            WaterObservation.source_authority.notin_(_NON_OFFICIAL_AUTHORITIES),
+            WaterObservation.source_authority.notin_(NON_OFFICIAL_AUTHORITIES),
         ),
         or_(
             WaterObservation.data_origin.is_(None),
@@ -132,7 +132,7 @@ def _get_latest_observation(db: Session, asset_id: int) -> Optional[WaterObserva
     """Latest IRSA/FFD observation. Soft OT rows are ignored here."""
     return db.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset_id, _official_observation_clause())
+        .where(WaterObservation.asset_id == asset_id, official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
     ).scalar_one_or_none()
@@ -145,7 +145,7 @@ def _get_previous_observation(db: Session, asset_id: int, before: datetime) -> O
         .where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at < before,
-            _official_observation_clause(),
+            official_observation_clause(),
         )
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
@@ -164,7 +164,7 @@ def _get_observation_n_hours_ago(db: Session, asset_id: int, current_time: datet
         .where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at <= target,
-            _official_observation_clause(),
+            official_observation_clause(),
         )
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)

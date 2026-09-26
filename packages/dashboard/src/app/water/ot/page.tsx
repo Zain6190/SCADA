@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Radio, RefreshCw, AlertTriangle, Play } from 'lucide-react'
@@ -16,6 +16,14 @@ import { fmtNumber } from '@/lib/format'
 const AMBER = 'bg-amber-500/10 text-amber-300'
 
 export default function SoftOtPage() {
+  return (
+    <Suspense fallback={null}>
+      <SoftOtContent />
+    </Suspense>
+  )
+}
+
+function SoftOtContent() {
   const search = useSearchParams()
   const focusAsset = Number(search.get('asset') || 0)
   const [status, setStatus] = useState<any>(null)

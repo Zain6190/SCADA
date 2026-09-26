@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import WaterAsset, WaterDownstreamImpact, WaterObservation, WaterOperationalAlert
+from infrastructure.thresholds.engine import official_observation_clause
 from infrastructure.flood.territories import (
     AssetFlood,
     LocatedPoint,
@@ -49,6 +50,7 @@ def load_flood_territory(session: Session) -> dict:
             WaterObservation.asset_id,
             func.max(WaterObservation.observed_at).label("observed_at"),
         )
+        .where(official_observation_clause())
         .group_by(WaterObservation.asset_id)
         .subquery()
     )

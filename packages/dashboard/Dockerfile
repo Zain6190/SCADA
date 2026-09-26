@@ -19,22 +19,9 @@ RUN npm run build
 # ── Stage 2: Serve with nginx ─────────────────────────────────
 FROM nginx:alpine
 
-# Remove default nginx config
-RUN rm /etc/nginx/conf.d/default.conf
-
-# Custom config for SPA routing
-RUN echo 'server { \
-    listen 3000; \
-    root /usr/share/nginx/html; \
-    index index.html; \
-    location / { \
-        try_files $uri $uri/ $uri.html /index.html; \
-    } \
-    location /IBCP-SCADA/ { \
-        alias /usr/share/nginx/html/; \
-        try_files $uri $uri/ $uri.html /IBCP-SCADA/index.html; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+# Custom config: SPA routing + cache policy (HTML revalidates, hashed
+# /_next/static assets immutable). See nginx.conf for details.
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=builder /app/out /usr/share/nginx/html
 
