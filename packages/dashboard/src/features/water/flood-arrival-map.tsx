@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   MapContainer,
   TileLayer,
@@ -175,9 +175,14 @@ function makeArrowIcon(from: [number, number], to: [number, number]): L.DivIcon 
   })
 }
 
-function FitBounds({ assets }: { assets: AssetReading[] }) {
+function FitBounds({ assets, districtKey }: { assets: AssetReading[]; districtKey: string | null }) {
   const map = useMap()
+  const lastFit = useRef<string | null>(null)
   useEffect(() => {
+    const key = districtKey || '__overview__'
+    if (lastFit.current === key) return
+    lastFit.current = key
+    if (districtKey) return
     const positions = assets
       .map((a) => (a.lat != null && a.lng != null ? ([a.lat, a.lng] as [number, number]) : null))
       .filter((c): c is [number, number] => c != null)
@@ -191,7 +196,7 @@ function FitBounds({ assets }: { assets: AssetReading[] }) {
       [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]],
       { padding: [40, 40] }
     )
-  }, [assets, map])
+  }, [districtKey, assets, map])
   return null
 }
 
@@ -299,6 +304,15 @@ export function FloodArrivalMap({
     return ids
   }, [assets])
 
+  const otTerritories = useMemo(
+    () => territories.filter((feature) => Boolean(feature.properties.ot_source)),
+    [territories],
+  )
+  const scenarioDistricts = useMemo(
+    () => otTerritories.filter((feature) => feature.properties.ot_source === 'SOFT_OT_SCENARIO').length,
+    [otTerritories],
+  )
+
   if (!mounted) return <div style={{ height }} className="rounded-2xl bg-surface" />
 
   return (
@@ -313,6 +327,37 @@ export function FloodArrivalMap({
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             Back to Overview
           </button>
+        </div>
+      )}
+
+      {/* Paint-source badge - top right */}
+      {otTerritories.length > 0 && (
+        <div className="absolute top-4 right-4 z-[1000]">
+          {scenarioDistricts > 0 ? (
+            <div className="rounded-lg border border-amber-400/50 bg-amber-500/15 px-3 py-2 text-right shadow-lg backdrop-blur">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-amber-300">Soft OT scenario</p>
+              <p className="m-0 text-[10px] text-amber-200/80">
+                {scenarioDistricts} of {otTerritories.length} districts · rest official
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-sky-400/40 bg-sky-500/15 px-3 py-2 text-right shadow-lg backdrop-blur">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Official · IRSA / FFD</p>
+              <p className="m-0 text-[10px] text-sky-200/80">No active Soft OT scenario</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Empty state - no assets from the official feed */}
+      {assets.length === 0 && (
+        <div className="absolute inset-0 z-[999] flex items-center justify-center bg-slate-950/60 backdrop-blur-[2px]">
+          <div className="mx-6 max-w-sm rounded-xl border border-line bg-surface/95 px-6 py-5 text-center shadow-2xl">
+            <p className="m-0 text-sm font-semibold text-ink">No monitoring assets available</p>
+            <p className="mt-1.5 m-0 text-xs text-ink-subtle">
+              The official station feed returned no assets. Arrival times stay hidden until readings are back.
+            </p>
+          </div>
         </div>
       )}
 
@@ -357,6 +402,11 @@ export function FloodArrivalMap({
                     {severity} · {Math.round((props.flood_probability || 0) * 100)}% · {formatPeople(props.population_exposed || 0)} people
                   </p>
                   <p className="text-xs text-slate-700 m-0">{inside.length} places inside</p>
+                  {props.ot_source === 'SOFT_OT_SCENARIO' && (
+                    <p className="text-xs font-semibold text-amber-700 m-0">
+                      Scenario · Soft OT twin{props.ot_device_code ? ` · ${props.ot_device_code}` : ''}
+                    </p>
+                  )}
                 </div>
               </Tooltip>
               <Popup>
@@ -371,6 +421,11 @@ export function FloodArrivalMap({
                   <p className="text-[10px] m-0">Bridges: <span className="font-semibold">{props.bridges}</span> · Hospitals: <span className="font-semibold">{props.hospitals}</span></p>
                   {inside.length > 0 && (
                     <p className="text-[10px] m-0">Inside: {inside.map((place) => place.name).slice(0, 6).join(', ')}{inside.length > 6 ? '…' : ''}</p>
+                  )}
+                  {props.ot_source === 'SOFT_OT_SCENARIO' && (
+                    <p className="text-[10px] font-semibold text-amber-600 m-0">
+                      Painted from Soft OT scenario{props.ot_device_code ? ` · ${props.ot_device_code}` : ''}
+                    </p>
                   )}
                   {props.recommendation && <p className="text-[10px] m-0">{props.recommendation}</p>}
                   <p className="text-[10px] text-slate-400 m-0">Source: {props.source_asset_name}</p>
@@ -464,6 +519,8 @@ export function FloodArrivalMap({
           const travel = seg.travel_time_hours
           if (!from || !to || travel == null) return null
           const riverName = SEGMENT_RIVER[`${seg.from_id}-${seg.to_id}`] || seg.river
+          const arrival = seg.arrival_time ? new Date(seg.arrival_time) : null
+          const arrivalValid = arrival != null && !Number.isNaN(arrival.getTime())
           return (
             <FloodPulsePolyline
               key={`segment-${seg.from_id}-${seg.to_id}-${i}`}
@@ -475,6 +532,16 @@ export function FloodArrivalMap({
                     <p className="text-[11px] font-semibold">{fromAsset?.name ?? '—'} → {toAsset?.name ?? '—'}</p>
                     {riverName && <p className="text-[10px] text-ink-subtle">{riverName} River</p>}
                     <p className="text-[10px]">Travel: <span className="font-semibold">{travel}h</span> <span className="text-ink-subtle">(model estimate)</span></p>
+                    <p className="text-[10px]">
+                      Arrival:{' '}
+                      {arrivalValid ? (
+                        <span className="font-semibold">
+                          {arrival!.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      ) : (
+                        <span className="font-semibold">in {travel}h <span className="text-ink-subtle">(from now)</span></span>
+                      )}
+                    </p>
                     <p className="text-[10px]">Distance: <span className="font-semibold">{seg.distance_km != null ? `${seg.distance_km} km` : '—'}</span></p>
                     <p className="text-[10px]">Pop: <span className="font-semibold text-warn">{(seg.population_exposed / 1000000).toFixed(1)}M</span></p>
                   </div>
@@ -664,7 +731,7 @@ export function FloodArrivalMap({
           )
         })}
 
-        <FitBounds assets={assets} />
+        <FitBounds assets={assets} districtKey={selectedDistrict} />
       </MapContainer>
     </div>
   )

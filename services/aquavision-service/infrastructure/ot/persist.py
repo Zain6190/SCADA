@@ -48,13 +48,13 @@ def get_runtime(db: Optional[Session] = None, auto_anchor: bool = True) -> OtRun
     global _RUNTIME, _ANCHORING
     if _RUNTIME is None:
         _RUNTIME = OtRuntime(sim_minutes=15.0)
-    if auto_anchor and not _RUNTIME.series_loaded and not _RUNTIME.anchored and not _ANCHORING:
+    if auto_anchor and not _RUNTIME.series_loaded and not _ANCHORING:
         _ANCHORING = True
         try:
             loaded = load_process_series(_RUNTIME, db=db)
             if loaded:
                 restore_runtime_state(_RUNTIME, db=db)
-            else:
+            elif not _RUNTIME.anchored:
                 apply_official_anchor_now(db=db, force=False)
         finally:
             _ANCHORING = False
@@ -477,8 +477,13 @@ def _days_from_csv() -> list:
     import csv
     from ot_runtime.series import OfficialDay, parse_day
 
-    path = Path(__file__).resolve().parents[4] / "data" / "ot" / "indus_ot_daily.csv"
-    if not path.exists():
+    path = None
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "data" / "ot" / "indus_ot_daily.csv"
+        if candidate.exists():
+            path = candidate
+            break
+    if path is None:
         return []
     days = []
     with path.open(encoding="utf-8", newline="") as handle:

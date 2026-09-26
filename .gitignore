@@ -63,6 +63,9 @@ Thumbs.db
 # Keep the Kaggle river-flow sample needed by entrypoint ingestion
 !services/aquavision-service/data/raw/real/kaggle/*.csv
 
+# Keep the collected official Indus daily series for the Soft OT twin
+!data/ot/indus_ot_daily.csv
+
 # Logs / temp
 logs/
 tmp/

@@ -61,6 +61,20 @@ function formatPeople(count: number): string {
   return count.toLocaleString()
 }
 
+function formatTravel(hours: number | null | undefined): string {
+  return hours == null ? '—' : `${hours.toFixed(1)}h`
+}
+
+function formatArrival(iso: string | null | undefined): { text: string; known: boolean } {
+  if (!iso) return { text: '—', known: false }
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return { text: '—', known: false }
+  return {
+    text: parsed.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    known: true,
+  }
+}
+
 interface SidebarProps {
   timeSlider: number
   onTimeSliderChange: (v: number) => void
@@ -82,6 +96,7 @@ interface SidebarProps {
   totalSegments: number
   selectedAssetId?: number | null
   impactSummary?: any
+  impactReason?: 'no-flow' | 'failed' | null
   calculating?: boolean
   onClearSelection?: () => void
 }
@@ -108,7 +123,7 @@ export function FloodMapSidebar({
   onToggleLayer,
   regionAlerts, alertedPopulation, selectedDistrict, selectedTerritory, onSelectDistrict,
   totalPopulation, totalBridges, totalHospitals, visibleSegments, totalSegments,
-  selectedAssetId, impactSummary, calculating, onClearSelection,
+  selectedAssetId, impactSummary, impactReason, calculating, onClearSelection,
 }: SidebarProps) {
   const layers: { key: keyof LayerState; label: string; state: boolean }[] = [
     { key: 'showTerritories', label: 'District Zones', state: showTerritories },
@@ -377,7 +392,7 @@ export function FloodMapSidebar({
                   </div>
                   <div className="rounded-lg bg-surface border border-line px-3 py-2">
                     <p className="text-[9px] uppercase tracking-wider text-ink-subtle">Travel</p>
-                    <p className="text-[11px] font-semibold text-brand">{impactSummary.total_travel_hours?.toFixed(1)}h</p>
+                    <p className="text-[11px] font-semibold text-brand">{formatTravel(impactSummary.total_travel_hours)}</p>
                   </div>
                 </div>
                 <div className="rounded-lg bg-surface border border-line px-3 py-2">
@@ -401,10 +416,26 @@ export function FloodMapSidebar({
                 <div className="rounded-lg bg-surface border border-line px-3 py-2">
                   <p className="text-[9px] uppercase tracking-wider text-ink-subtle">Furthest Asset</p>
                   <p className="text-xs font-semibold text-brand">{impactSummary.furthest_asset}</p>
+                  <p className="text-[10px] text-ink-muted">
+                    {(() => {
+                      const arrival = formatArrival(impactSummary.furthest_arrival)
+                      return arrival.known
+                        ? `Arrives ${arrival.text}`
+                        : 'Arrival unknown — travel model incomplete for this chain'
+                    })()}
+                  </p>
                 </div>
               </div>
             ) : (
-              <p className="text-[11px] text-ink-subtle">No impact data</p>
+              <div className="space-y-1">
+                <p className="text-[11px] text-ink-subtle">No impact data</p>
+                {impactReason === 'no-flow' && (
+                  <p className="text-[10px] text-ink-subtle">No current flow reading for this asset, so downstream impact cannot be calculated.</p>
+                )}
+                {impactReason === 'failed' && (
+                  <p className="text-[10px] text-crit">Impact calculation failed — no result to show.</p>
+                )}
+              </div>
             )}
           </Section>
         )}

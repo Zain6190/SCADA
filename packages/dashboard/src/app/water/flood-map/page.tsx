@@ -13,7 +13,7 @@ import { useFloodMapState } from '@/features/water/use-flood-map-state'
 
 export default function FloodMapPage() {
   const {
-    loading, calculating, error,
+    loading, calculating, error, degraded, impactReason,
     selectedAsset, setSelectedAsset,
     mobileSidebarOpen, setMobileSidebarOpen,
     layers, toggleLayer,
@@ -45,6 +45,9 @@ export default function FloodMapPage() {
               )}
               {regionAlerts.length > 0 && (
                 <Badge tone="red">{regionAlerts.length} region alerts</Badge>
+              )}
+              {degraded.length > 0 && (
+                <Badge tone="amber">Partial data · {degraded.join(', ')}</Badge>
               )}
               <Badge tone="sky">{displaySegments.length} segments</Badge>
             </div>
@@ -107,6 +110,7 @@ export default function FloodMapPage() {
                 totalSegments={displaySegments.length}
                 selectedAssetId={selectedAsset}
                 impactSummary={impactSummary}
+                impactReason={impactReason}
                 calculating={calculating}
                 onClearSelection={() => setSelectedAsset(null)}
               />
@@ -151,6 +155,7 @@ export default function FloodMapPage() {
                   totalSegments={displaySegments.length}
                   selectedAssetId={selectedAsset}
                   impactSummary={impactSummary}
+                  impactReason={impactReason}
                   calculating={calculating}
                   onClearSelection={() => { setSelectedAsset(null); setMobileSidebarOpen(false) }}
                 />

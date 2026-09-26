@@ -11,6 +11,7 @@ export interface SegmentData {
   to_id: number
   river: string | null
   travel_time_hours: number | null
+  arrival_time?: string | null
   distance_km: number | null
   population_exposed: number
   bridges: number
@@ -23,15 +24,17 @@ export interface ImpactSummary {
   total_population_exposed: number
   total_bridges: number
   total_hospitals: number
-  total_travel_hours: number
+  total_travel_hours: number | null
   furthest_asset: string
+  furthest_arrival: string | null
   segments: Array<{
     segment_order: number
     river_name: string
     upstream_asset: string
     downstream_asset: string
     distance_km: number
-    travel_time_hours: number
+    travel_time_hours: number | null
+    arrival_time: string | null
     population_exposed: number
     bridges_count: number
     hospitals_count: number
@@ -133,6 +136,7 @@ interface FloodMapOverview {
   floodClassifications: Record<number, { probability: number; severity: string; recommendation: string }>
   territories: FloodTerritoryFeature[]
   regionAlerts: RegionAlert[]
+  degraded: string[]
 }
 
 const RIVER_NAMES = ['Indus', 'Jhelum', 'Kabul', 'Chenab', 'Panjnad']
@@ -178,6 +182,13 @@ async function fetchOverview(): Promise<FloodMapOverview> {
     fetch(`${API_BASE}/water/operational/ffd/markers`),
     fetch(`${API_BASE}/water/flood-map/territory`),
   ])
+
+  const degraded: string[] = []
+  if (!impRes.ok) degraded.push('impact')
+  if (!alertRes.ok) degraded.push('alerts')
+  if (!assetsRes.ok) degraded.push('assets')
+  if (!ffdRes.ok) degraded.push('ffd')
+  if (!territoryRes.ok) degraded.push('territory')
 
   const rawAssets = assetsRes.ok ? await assetsRes.json() : []
   const assets: AssetReading[] = (Array.isArray(rawAssets) ? rawAssets : []).map(mapAssetReading)
@@ -259,6 +270,7 @@ async function fetchOverview(): Promise<FloodMapOverview> {
     floodClassifications,
     territories,
     regionAlerts,
+    degraded,
   }
 }
 
@@ -302,6 +314,7 @@ export function useFloodMapState() {
   const floodClassifications = overview.data?.floodClassifications ?? {}
   const territories = overview.data?.territories ?? []
   const regionAlerts = overview.data?.regionAlerts ?? []
+  const degraded = overview.data?.degraded ?? []
 
   const assetsById = useMemo(() => {
     const map: Record<number, AssetReading> = {}
@@ -316,10 +329,12 @@ export function useFloodMapState() {
   }, [assets])
 
   // Impact calculation when asset selected
+  const [impactReason, setImpactReason] = useState<'no-flow' | 'failed' | null>(null)
   useEffect(() => {
-    if (!selectedAsset) { setImpactSummary(null); return }
+    if (!selectedAsset) { setImpactSummary(null); setImpactReason(null); return }
     async function calc() {
       setCalculating(true)
+      setImpactReason(null)
       try {
         let flow: number | null = null
         try {
@@ -332,6 +347,7 @@ export function useFloodMapState() {
 
         if (flow == null) {
           setImpactSummary(null)
+          setImpactReason('no-flow')
           return
         }
 
@@ -345,9 +361,10 @@ export function useFloodMapState() {
           }),
         })
         if (res.ok) setImpactSummary(await res.json())
-        else setImpactSummary(null)
+        else { setImpactSummary(null); setImpactReason('failed') }
       } catch {
         setImpactSummary(null)
+        setImpactReason('failed')
       }
       setCalculating(false)
     }
@@ -366,6 +383,7 @@ export function useFloodMapState() {
             to_id: to.id,
             river: s.river_name || null,
             travel_time_hours: s.travel_time_hours ?? null,
+            arrival_time: s.arrival_time ?? null,
             distance_km: s.distance_km ?? null,
             population_exposed: s.population_exposed,
             bridges: s.bridges_count,
@@ -414,7 +432,7 @@ export function useFloodMapState() {
     assets, assetsById, ffdWarnings: alertMarkers, floodClassifications, ffdMarkers,
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
     // UI
-    loading, calculating, error, selectedAsset, mobileSidebarOpen,
+    loading, calculating, error, selectedAsset, mobileSidebarOpen, degraded, impactReason,
     // Layers
     layers, toggleLayer,
     // Controls

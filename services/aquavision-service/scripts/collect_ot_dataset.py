@@ -15,9 +15,17 @@ from pathlib import Path
 
 import httpx
 
-ROOT = Path(__file__).resolve().parents[1]
-REPO = Path(__file__).resolve().parents[3]
-OT_ROOT = REPO / "services" / "ot-runtime"
+_HERE = Path(__file__).resolve()
+ROOT = _HERE.parents[1]
+REPO = next((p for p in _HERE.parents if (p / "services" / "ot-runtime").is_dir()), ROOT)
+OT_ROOT = next(
+    (
+        candidate
+        for candidate in (REPO / "services" / "ot-runtime", Path("/ot-runtime"), ROOT / "ot-runtime")
+        if candidate.is_dir()
+    ),
+    REPO / "services" / "ot-runtime",
+)
 for path in (str(ROOT), str(OT_ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)

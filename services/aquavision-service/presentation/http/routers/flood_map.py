@@ -1,6 +1,8 @@
 # GET /water/flood-map/territory
 # District polygons painted from the latest asset flood prediction, plus
 # region alerts for moderate severity and above.
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
@@ -15,6 +17,8 @@ from infrastructure.flood.territories import (
     build_flood_territory,
     threshold_flood_classification,
 )
+
+logger = logging.getLogger("aquavision.api.flood_map")
 
 router = APIRouter()
 
@@ -133,9 +137,11 @@ def _apply_process_view(session: Session, payload: dict, thresholds: dict) -> di
         from infrastructure.ot.persist import get_runtime
         from ot_runtime.series import flood_discharge
         runtime = get_runtime(db=session, auto_anchor=True)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Soft OT process view unavailable; territory keeps official classifications: %s", exc)
         return payload
     if not runtime.series_loaded:
+        logger.debug("Soft OT series not loaded; territory keeps official classifications")
         return payload
     by_asset = {int(row["asset_id"]): row for row in runtime.process_view()}
     for feature in payload.get("features") or []:
