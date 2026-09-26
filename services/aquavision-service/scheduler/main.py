@@ -11,7 +11,8 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 # Ensure the aquavision-service package root is on the path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, APP_ROOT)
 
 
 def _find_ml_root() -> str:
@@ -28,8 +29,11 @@ def _find_ml_root() -> str:
 
 
 ML_ROOT = _find_ml_root()
+# Append (never insert): both roots carry a `scripts` package, and the
+# service's own /app/scripts (compute_accuracy, backfill_inflow, retrain,
+# validate) must win over the legacy ml-pipeline copy.
 if ML_ROOT not in sys.path:
-    sys.path.insert(0, ML_ROOT)
+    sys.path.append(ML_ROOT)
 
 import schedule
 from sqlalchemy import text
@@ -296,8 +300,8 @@ def job_retrain_all_models():
             import subprocess
             result = subprocess.run(
                 [sys.executable, "-c",
-                 f"import sys; sys.path.insert(0, r'{ML_ROOT}'); from scripts.retrain_all_models import main; main()"],
-                capture_output=True, text=True, timeout=3600, cwd=ML_ROOT
+                 f"import sys; sys.path.insert(0, r'{APP_ROOT}'); from scripts.retrain_all_models import main; main()"],
+                capture_output=True, text=True, timeout=3600, cwd=APP_ROOT
             )
             if result.returncode == 0:
                 complete_pipeline_run(session, run_id, "SUCCESS")
@@ -327,8 +331,8 @@ def job_validate_all_models():
             import subprocess
             result = subprocess.run(
                 [sys.executable, "-c",
-                 f"import sys; sys.path.insert(0, r'{ML_ROOT}'); from scripts.validate_all_models import main; main()"],
-                capture_output=True, text=True, timeout=3600, cwd=ML_ROOT
+                 f"import sys; sys.path.insert(0, r'{APP_ROOT}'); from scripts.validate_all_models import main; main()"],
+                capture_output=True, text=True, timeout=3600, cwd=APP_ROOT
             )
             if result.returncode == 0:
                 complete_pipeline_run(session, run_id, "SUCCESS")
