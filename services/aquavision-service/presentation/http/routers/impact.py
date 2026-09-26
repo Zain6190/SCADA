@@ -2,7 +2,7 @@
 # Downstream Impact Engine API.
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,8 +29,8 @@ class SegmentImpactResponse(BaseModel):
     upstream_asset: str
     downstream_asset: str
     distance_km: float
-    travel_time_hours: float
-    arrival_time: str
+    travel_time_hours: Optional[float]
+    arrival_time: Optional[str]
     flow_at_arrival: float
     population_exposed: int
     village_count: int
@@ -56,7 +56,7 @@ class ImpactSummaryResponse(BaseModel):
     total_roads_km: float
     furthest_asset: str
     furthest_arrival: Optional[str]
-    total_travel_hours: float
+    total_travel_hours: Optional[float]
 
 
 class PreCalculatedImpactResponse(BaseModel):
@@ -116,7 +116,7 @@ def calculate_impact(
                 downstream_asset=s.downstream_asset,
                 distance_km=s.distance_km,
                 travel_time_hours=s.travel_time_hours,
-                arrival_time=s.arrival_time.isoformat(),
+                arrival_time=s.arrival_time.isoformat() if s.arrival_time else None,
                 flow_at_arrival=s.flow_at_arrival,
                 population_exposed=s.population_exposed,
                 village_count=s.village_count,
@@ -218,120 +218,3 @@ def get_latest_flow(asset_id: int):
             "observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "effective_flow": float(row["inflow_cusecs"] or row["discharge_cusecs"] or 0),
         }
-
-
-class ImpactMarkerResponse(BaseModel):
-    id: str
-    type: str  # population | bridge | hospital
-    name: str
-    lat: float
-    lng: float
-    population: Optional[int] = None
-    segment: str  # e.g. "Tarbela - Kalabagh"
-    river: Optional[str] = None
-
-
-@router.get("/markers", response_model=List[ImpactMarkerResponse])
-def get_impact_markers():
-    """Get individual impact markers (population centers, bridges, hospitals) with coordinates."""
-    from sqlalchemy import text
-
-    with sa_engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT
-                    di.source_asset_id,
-                    di.downstream_asset_id,
-                    di.affected_population_est,
-                    di.bridges_count,
-                    di.hospitals_count,
-                    di.affected_village_count,
-                    di.affected_town_count,
-                    sa.canonical_name as upstream_name,
-                    sa.latitude as up_lat,
-                    sa.longitude as up_lng,
-                    da.canonical_name as downstream_name,
-                    da.latitude as down_lat,
-                    da.longitude as down_lng,
-                    rn.river_name
-                FROM aquavision.water_downstream_impacts di
-                JOIN aquavision.water_assets sa ON di.source_asset_id = sa.id
-                JOIN aquavision.water_assets da ON di.downstream_asset_id = da.id
-                JOIN aquavision.water_river_network rn
-                    ON rn.upstream_asset_id = di.source_asset_id
-                    AND rn.downstream_asset_id = di.downstream_asset_id
-            """)
-        ).mappings().all()
-
-        markers = []
-        marker_id = 0
-
-        for row in rows:
-            up_lat = float(row["up_lat"]) if row["up_lat"] else None
-            up_lng = float(row["up_lng"]) if row["up_lng"] else None
-            down_lat = float(row["down_lat"]) if row["down_lat"] else None
-            down_lng = float(row["down_lng"]) if row["down_lng"] else None
-
-            if up_lat is None or down_lat is None:
-                continue
-
-            segment_name = f"{row['upstream_name']} - {row['downstream_name']}"
-            river = row["river_name"]
-
-            # Population center at midpoint
-            pop = row["affected_population_est"] or 0
-            if pop > 0:
-                mid_lat = (up_lat + down_lat) / 2
-                mid_lng = (up_lng + down_lng) / 2
-                # Slight offset so it doesn't overlap the river line
-                villages = row["affected_village_count"] or 0
-                towns = row["affected_town_count"] or 0
-                markers.append(ImpactMarkerResponse(
-                    id=f"pop-{marker_id}",
-                    type="population",
-                    name=f"{villages} villages, {towns} towns",
-                    lat=mid_lat + 0.08,
-                    lng=mid_lng + 0.05,
-                    population=pop,
-                    segment=segment_name,
-                    river=river,
-                ))
-                marker_id += 1
-
-            # Bridges distributed along segment
-            bridges = row["bridges_count"] or 0
-            for b in range(bridges):
-                t = (b + 1) / (bridges + 1)
-                br_lat = up_lat + (down_lat - up_lat) * t
-                br_lng = up_lng + (down_lng - up_lng) * t
-                # Offset perpendicular to river
-                br_lat += 0.03
-                br_lng -= 0.03
-                markers.append(ImpactMarkerResponse(
-                    id=f"bridge-{marker_id}",
-                    type="bridge",
-                    name=f"Bridge #{b+1} ({segment_name})",
-                    lat=br_lat,
-                    lng=br_lng,
-                    segment=segment_name,
-                    river=river,
-                ))
-                marker_id += 1
-
-            # Hospitals near downstream asset
-            hospitals = row["hospitals_count"] or 0
-            for h in range(hospitals):
-                ho_lat = down_lat + 0.02 * (h + 1)
-                ho_lng = down_lng - 0.02 * (h + 1)
-                markers.append(ImpactMarkerResponse(
-                    id=f"hosp-{marker_id}",
-                    type="hospital",
-                    name=f"Hospital #{h+1} ({row['downstream_name']})",
-                    lat=ho_lat,
-                    lng=ho_lng,
-                    segment=segment_name,
-                    river=river,
-                ))
-                marker_id += 1
-
-        return markers

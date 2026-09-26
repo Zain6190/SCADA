@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from infrastructure.thresholds.flood_class import classify_flood
+
 
 SEVERITY_RANK = {
     "NONE": 0,
@@ -173,29 +175,24 @@ def threshold_flood_classification(
     discharge: float | None,
     inflow: float | None,
     level: float | None,
-    warning_level_ft: float | None,
-    critical_level_ft: float | None,
+    warning_level_ft: float | None = None,
+    critical_level_ft: float | None = None,
+    warning_discharge: float | None = None,
+    danger_discharge: float | None = None,
 ) -> tuple[float, str, str] | None:
-    """Mirror the operational asset fallback when no ML flood row exists."""
-    value = discharge or inflow or level
-    if value and warning_level_ft and critical_level_ft:
-        warn = float(warning_level_ft)
-        crit = float(critical_level_ft)
-        if crit > warn and value >= warn:
-            ratio = min((value - warn) / (crit - warn), 1.0)
-            probability = round(0.05 + ratio * 0.85, 4)
-            if ratio > 0.8:
-                severity = "CRITICAL"
-            elif ratio > 0.5:
-                severity = "HIGH"
-            elif ratio > 0.2:
-                severity = "MODERATE"
-            else:
-                severity = "LOW"
-            return probability, severity, f"Level at {ratio * 100:.0f}% of critical threshold"
-    elif value and discharge:
-        return 0.05, "LOW", "Normal operations - threshold-based estimate"
-    return None
+    """Unit-aware threshold fallback when no ML flood row exists.
+
+    Delegates to infrastructure.thresholds.flood_class; inflow is accepted
+    for call-site symmetry but never classifies on its own.
+    """
+    return classify_flood(
+        level=level,
+        discharge=discharge,
+        warning_level_ft=warning_level_ft,
+        critical_level_ft=critical_level_ft,
+        warning_discharge=warning_discharge,
+        danger_discharge=danger_discharge,
+    )
 
 
 def _rank(severity: str | None) -> int:

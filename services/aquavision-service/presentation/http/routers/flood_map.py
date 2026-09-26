@@ -6,7 +6,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import get_session
-from infrastructure.db.models import WaterAsset, WaterDownstreamImpact, WaterObservation, WaterOperationalAlert
+from infrastructure.db.models import WaterAsset, WaterAssetThreshold, WaterDownstreamImpact, WaterObservation, WaterOperationalAlert
 from infrastructure.thresholds.engine import official_observation_clause
 from infrastructure.flood.territories import (
     AssetFlood,
@@ -23,9 +23,24 @@ def _f(value) -> float | None:
     return float(value) if value is not None else None
 
 
+def _threshold_kw(thr) -> dict:
+    if thr is None:
+        return {}
+    return {
+        "warning_level_ft": _f(thr.warning_level_ft),
+        "critical_level_ft": _f(thr.critical_level_ft),
+        "warning_discharge": _f(thr.warning_discharge),
+        "danger_discharge": _f(thr.danger_discharge),
+    }
+
+
 def load_flood_territory(session: Session) -> dict:
     assets = session.execute(select(WaterAsset).where(WaterAsset.is_active == True)).scalars().all()
     asset_names = {asset.id: asset.canonical_name for asset in assets}
+    thresholds = {
+        int(t.asset_id): t
+        for t in session.execute(select(WaterAssetThreshold)).scalars().all()
+    }
 
     alerts = session.execute(
         select(WaterOperationalAlert)
@@ -75,8 +90,7 @@ def load_flood_territory(session: Session) -> dict:
             discharge=_f(obs.discharge_cusecs),
             inflow=_f(obs.inflow_cusecs),
             level=_f(obs.water_level_ft),
-            warning_level_ft=_f(asset.warning_level_ft),
-            critical_level_ft=_f(asset.critical_level_ft),
+            **_threshold_kw(thresholds.get(asset.id)),
         )
         if fallback is None:
             continue
@@ -110,10 +124,10 @@ def load_flood_territory(session: Session) -> dict:
         if asset.latitude is not None and asset.longitude is not None
     ]
     payload = build_flood_territory(classifications, impacts, asset_names, located)
-    return _apply_process_view(session, payload, assets)
+    return _apply_process_view(session, payload, thresholds)
 
 
-def _apply_process_view(session: Session, payload: dict, assets) -> dict:
+def _apply_process_view(session: Session, payload: dict, thresholds: dict) -> dict:
     """Scenario discharges repaint the district. Track mode keeps the official classification."""
     try:
         from infrastructure.ot.persist import get_runtime
@@ -124,8 +138,6 @@ def _apply_process_view(session: Session, payload: dict, assets) -> dict:
     if not runtime.series_loaded:
         return payload
     by_asset = {int(row["asset_id"]): row for row in runtime.process_view()}
-    warning = {asset.id: _f(asset.warning_level_ft) for asset in assets}
-    critical = {asset.id: _f(asset.critical_level_ft) for asset in assets}
     for feature in payload.get("features") or []:
         props = feature.get("properties") or {}
         row = by_asset.get(props.get("source_asset_id"))
@@ -145,8 +157,7 @@ def _apply_process_view(session: Session, payload: dict, assets) -> dict:
             discharge=_discharge,
             inflow=(row.get("ot") or {}).get("inflow_cusecs"),
             level=(row.get("ot") or {}).get("level_ft"),
-            warning_level_ft=warning.get(aid),
-            critical_level_ft=critical.get(aid),
+            **_threshold_kw(thresholds.get(aid)),
         )
         if classified is None:
             props["recommendation"] = (

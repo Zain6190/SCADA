@@ -26,6 +26,7 @@ from infrastructure.db.models import (
 )
 from infrastructure.alerts import workflow as alert_workflow
 from infrastructure.thresholds.engine import NON_OFFICIAL_AUTHORITIES, official_observation_clause
+from infrastructure.thresholds.flood_class import classify_flood
 from infrastructure.auth.jwt import get_current_user
 
 router = APIRouter()
@@ -303,22 +304,16 @@ async def list_assets(
             fp_severity = flood_prob[1]
             fp_rec = flood_prob[2]
         elif latest_obs:
-            discharge = float(latest_obs.discharge_cusecs) if latest_obs.discharge_cusecs else None
-            inflow = float(latest_obs.inflow_cusecs) if latest_obs.inflow_cusecs else None
-            level = float(latest_obs.water_level_ft) if latest_obs.water_level_ft else None
-            value = discharge or inflow or level
-            if value and warn_level and crit_level:
-                warn = warn_level
-                crit = crit_level
-                if crit > warn and value >= warn:
-                    ratio = min((value - warn) / (crit - warn), 1.0)
-                    fp_value = round(0.05 + ratio * 0.85, 4)
-                    fp_severity = "CRITICAL" if ratio > 0.8 else "HIGH" if ratio > 0.5 else "MODERATE" if ratio > 0.2 else "LOW"
-                    fp_rec = f"Level at {ratio*100:.0f}% of critical threshold"
-            elif value and discharge:
-                fp_value = 0.05
-                fp_severity = "LOW"
-                fp_rec = "Normal operations - threshold-based estimate"
+            classified = classify_flood(
+                level=float(latest_obs.water_level_ft) if latest_obs.water_level_ft else None,
+                discharge=float(latest_obs.discharge_cusecs) if latest_obs.discharge_cusecs else None,
+                warning_level_ft=warn_level,
+                critical_level_ft=crit_level,
+                warning_discharge=float(thr.warning_discharge) if thr and thr.warning_discharge else None,
+                danger_discharge=float(thr.danger_discharge) if thr and thr.danger_discharge else None,
+            )
+            if classified:
+                fp_value, fp_severity, fp_rec = classified
 
         data_age = None
         if latest_obs and latest_obs.observed_at:

@@ -41,8 +41,8 @@ class SegmentImpact:
     upstream_asset: str
     downstream_asset: str
     distance_km: float
-    travel_time_hours: float
-    arrival_time: datetime
+    travel_time_hours: Optional[float]
+    arrival_time: Optional[datetime]
     flow_at_arrival: float
     population_exposed: int
     village_count: int
@@ -69,7 +69,7 @@ class DownstreamImpactResult:
     total_roads_km: float = 0.0
     furthest_asset: str = ""
     furthest_arrival: Optional[datetime] = None
-    total_travel_hours: float = 0.0
+    total_travel_hours: Optional[float] = None
     chain_rivers: list[str] = field(default_factory=list)
 
 
@@ -120,13 +120,26 @@ class DownstreamImpactEngine:
             travel_time = self._get_travel_time(
                 seg["river_segment_id"], current_flow
             )
-            confidence = seg.get("confidence", "MEDIUM")
+            confidence = seg.get("confidence") or "LOW"
 
-            arrival_time = current_time + timedelta(hours=travel_time)
+            arrival_time = None
+            if travel_time is not None and current_time is not None:
+                arrival_time = current_time + timedelta(hours=travel_time)
             flow_at_arrival = current_flow * (attenuation_factor ** seg["segment_order"])
 
             # Get impact data
-            impact = self._get_impact_data(seg["river_segment_id"])
+            impact = self._get_impact_data(
+                seg["upstream_asset_id"], seg["downstream_asset_id"]
+            )
+            notes = impact.get("notes") or ""
+            if arrival_time is None:
+                confidence = "LOW"
+                reason = (
+                    "No travel-time model for this flow; arrival time unknown."
+                    if travel_time is None
+                    else "Upstream arrival unknown; arrival time unknown."
+                )
+                notes = f"{notes} {reason}".strip()
 
             segment_impact = SegmentImpact(
                 segment_order=seg["segment_order"],
@@ -144,7 +157,7 @@ class DownstreamImpactEngine:
                 hospitals_count=_to_int(impact.get("hospitals_count", 0)),
                 roads_km=_to_float(impact.get("roads_km", 0)),
                 confidence=confidence,
-                notes=impact.get("notes", ""),
+                notes=notes,
             )
             result.segments.append(segment_impact)
 
@@ -163,18 +176,27 @@ class DownstreamImpactEngine:
             current_flow = flow_at_arrival
 
         if result.segments:
-            last = result.segments[-1]
-            result.furthest_asset = last.downstream_asset
-            result.furthest_arrival = last.arrival_time
-            result.total_travel_hours = (
-                last.arrival_time - release_time
-            ).total_seconds() / 3600
+            known = [s for s in result.segments if s.arrival_time is not None]
+            if known:
+                last = known[-1]
+                result.furthest_asset = last.downstream_asset
+                result.furthest_arrival = last.arrival_time
+                result.total_travel_hours = (
+                    last.arrival_time - release_time
+                ).total_seconds() / 3600
+            else:
+                result.furthest_asset = result.segments[-1].downstream_asset
 
+        travel_label = (
+            f"in {result.total_travel_hours:.0f}h"
+            if result.total_travel_hours is not None
+            else "travel time unknown"
+        )
         logger.info(
             f"Impact: {result.total_population_exposed:,} people, "
             f"{result.total_bridges} bridges, "
             f"{result.total_hospitals} hospitals, "
-            f"furthest: {result.furthest_asset} in {result.total_travel_hours:.0f}h"
+            f"furthest: {result.furthest_asset} {travel_label}"
         )
 
         return result
@@ -193,6 +215,7 @@ class DownstreamImpactEngine:
             rows = conn.execute(
                 text("""
                     SELECT rn.id as river_segment_id,
+                           rn.upstream_asset_id,
                            rn.segment_order,
                            rn.river_name,
                            rn.distance_km,
@@ -230,6 +253,7 @@ class DownstreamImpactEngine:
                 more = conn.execute(
                     text("""
                         SELECT rn.id as river_segment_id,
+                               rn.upstream_asset_id,
                                rn.segment_order,
                                rn.river_name,
                                rn.distance_km,
@@ -259,7 +283,7 @@ class DownstreamImpactEngine:
 
             return all_segments
 
-    def _get_travel_time(self, river_segment_id: int, flow_cusecs: float) -> float:
+    def _get_travel_time(self, river_segment_id: int, flow_cusecs: float) -> Optional[float]:
         """Get travel time for a given flow in a river segment."""
         with self.engine.connect() as conn:
             row = conn.execute(
@@ -289,10 +313,10 @@ class DownstreamImpactEngine:
                 {"seg_id": river_segment_id, "flow": flow_cusecs},
             ).mappings().first()
 
-            return float(row["travel_time_expected_hours"]) if row else 24.0
+            return float(row["travel_time_expected_hours"]) if row else None
 
-    def _get_impact_data(self, river_segment_id: int) -> dict:
-        """Get pre-calculated impact data for a segment."""
+    def _get_impact_data(self, source_asset_id: int, downstream_asset_id: int) -> dict:
+        """Get pre-calculated impact data for the asset pair."""
         with self.engine.connect() as conn:
             row = conn.execute(
                 text("""
@@ -300,10 +324,11 @@ class DownstreamImpactEngine:
                            affected_town_count, bridges_count, hospitals_count,
                            roads_km, notes
                     FROM aquavision.water_downstream_impacts
-                    WHERE id = :seg_id
+                    WHERE source_asset_id = :src_id
+                    AND downstream_asset_id = :dst_id
                     LIMIT 1
                 """),
-                {"seg_id": river_segment_id},
+                {"src_id": source_asset_id, "dst_id": downstream_asset_id},
             ).mappings().first()
 
             return dict(row) if row else {}

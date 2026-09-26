@@ -22,8 +22,8 @@ interface SegmentImpact {
   upstream_asset: string;
   downstream_asset: string;
   distance_km: number;
-  travel_time_hours: number;
-  arrival_time: string;
+  travel_time_hours: number | null;
+  arrival_time: string | null;
   flow_at_arrival: number;
   population_exposed: number;
   village_count: number;
@@ -49,7 +49,7 @@ interface ImpactResult {
   total_roads_km: number;
   furthest_asset: string;
   furthest_arrival: string | null;
-  total_travel_hours: number;
+  total_travel_hours: number | null;
 }
 
 function formatNumber(n: number): string {
@@ -58,9 +58,14 @@ function formatNumber(n: number): string {
   return n.toString();
 }
 
-function formatArrival(iso: string): string {
+function formatArrival(iso: string | null): string {
+  if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatTravel(hours: number | null): string {
+  return hours != null ? `${hours.toFixed(0)}h` : "—";
 }
 
 export default function ImpactPage() {
@@ -195,7 +200,7 @@ export default function ImpactPage() {
             />
             <KpiCard
               label="Total Travel"
-              value={`${result.total_travel_hours.toFixed(0)}h`}
+              value={result.total_travel_hours != null ? `${result.total_travel_hours.toFixed(0)}h` : "—"}
               icon={Clock}
             />
           </div>
@@ -228,7 +233,7 @@ export default function ImpactPage() {
                           <div className="text-white font-medium">{seg.upstream_asset}</div>
                           <div className="text-ink-subtle text-xs">→ {seg.downstream_asset}</div>
                         </td>
-                        <td className="p-3 text-brand font-mono">{seg.travel_time_hours.toFixed(0)}h</td>
+                        <td className="p-3 text-brand font-mono">{formatTravel(seg.travel_time_hours)}</td>
                         <td className="p-3 text-white">{formatArrival(seg.arrival_time)}</td>
                         <td className="p-3 text-right text-warn font-mono">
                           {formatNumber(seg.flow_at_arrival)}
@@ -273,7 +278,7 @@ export default function ImpactPage() {
                         <div>
                           <div className="text-white font-medium">{seg.downstream_asset}</div>
                           <div className="text-sm text-ink-muted">
-                            {seg.river_name} | {seg.distance_km}km | {seg.travel_time_hours.toFixed(0)}h travel
+                            {seg.river_name} | {seg.distance_km}km{seg.travel_time_hours != null ? ` | ${seg.travel_time_hours.toFixed(0)}h travel` : " | travel unknown"}
                           </div>
                           <div className="text-xs text-ink-subtle mt-1">{seg.notes}</div>
                         </div>
