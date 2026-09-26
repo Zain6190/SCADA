@@ -27,6 +27,8 @@ export default function FloodMapPage() {
     impactSummary,
     currentLevels, ffdWarnings, floodClassifications,
     ffdMarkers, impactMarkers,
+    territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
+    setSelectedDistrict,
   } = useFloodMapState()
 
   return (
@@ -34,7 +36,7 @@ export default function FloodMapPage() {
       <div className="space-y-4">
         <PageHeader
           title="Flood Arrival Map"
-          description="Real-time flood propagation across Pakistan's river network. Click assets to calculate downstream impact."
+          description="River propagation plus predicted flood territory. Districts are filled from flood classifications and alerted with population, bridges, and hospitals."
           icon={<Map className="h-6 w-6" />}
           action={
             <div className="flex items-center gap-2">
@@ -45,6 +47,9 @@ export default function FloodMapPage() {
                 >
                   Back to Overview
                 </button>
+              )}
+              {regionAlerts.length > 0 && (
+                <Badge tone="red">{regionAlerts.length} region alerts</Badge>
               )}
               <Badge tone="sky">{displaySegments.length} segments</Badge>
             </div>
@@ -80,6 +85,10 @@ export default function FloodMapPage() {
                   showImpact={layers.showImpact}
                   showRainfall={layers.showRainfall}
                   showFloodExtents={layers.showFloodExtents}
+                  showTerritories={layers.showTerritories}
+                  territories={territories}
+                  selectedDistrict={selectedDistrict}
+                  onDistrictClick={setSelectedDistrict}
                   timeSlider={timeSlider}
                   simulationFlow={selectedAsset ? null : { assetId: simAssetId, flow: simFlow }}
                 />
@@ -97,7 +106,13 @@ export default function FloodMapPage() {
                 showImpact={layers.showImpact}
                 showRainfall={layers.showRainfall}
                 showFloodExtents={layers.showFloodExtents}
+                showTerritories={layers.showTerritories}
                 onToggleLayer={toggleLayer}
+                regionAlerts={regionAlerts}
+                alertedPopulation={alertedPopulation}
+                selectedDistrict={selectedDistrict}
+                selectedTerritory={selectedTerritory}
+                onSelectDistrict={setSelectedDistrict}
                 totalPopulation={totals.population}
                 totalBridges={totals.bridges}
                 totalHospitals={totals.hospitals}
@@ -140,7 +155,16 @@ export default function FloodMapPage() {
                   showImpact={layers.showImpact}
                   showRainfall={layers.showRainfall}
                   showFloodExtents={layers.showFloodExtents}
+                  showTerritories={layers.showTerritories}
                   onToggleLayer={toggleLayer}
+                  regionAlerts={regionAlerts}
+                  alertedPopulation={alertedPopulation}
+                  selectedDistrict={selectedDistrict}
+                  selectedTerritory={selectedTerritory}
+                  onSelectDistrict={(district) => {
+                    setSelectedDistrict(district)
+                    if (district) setMobileSidebarOpen(false)
+                  }}
                   totalPopulation={totals.population}
                   totalBridges={totals.bridges}
                   totalHospitals={totals.hospitals}

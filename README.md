@@ -37,6 +37,7 @@ start-all.bat
 |--------|------|--------|
 | IRSA | Dam levels, inflow/outflow | ✅ Working |
 | FFD/PMD | Flood bulletins, discharge | ✅ Working |
+| Soft OT | Software PLC/RTU telemetry (simulated) | ✅ Working |
 | GEE | Rainfall, ET, NDVI | ❌ Not configured |
 
 ## Accounts
@@ -67,6 +68,9 @@ Water domain (`/water/*`):
 - `GET /water/operational/ffd` - FFD flood bulletins
 - `POST /water/operational/ffd/ingest` - Trigger FFD ingestion
 - `GET /water/operational/impact/{id}` - Downstream impact
+- `GET /water/ot/devices` - Soft PLC/RTU devices
+- `POST /water/ot/tick` - Advance simulated plant
+- `POST /water/ot/hmi/setpoint` - Virtual HMI (simulator only)
 
 Ops:
 - `GET /health/live`, `GET /health/ready`

@@ -26,6 +26,13 @@ def get_generate_use_case(session: Session = Depends(get_session)) -> GenerateWa
     )
 
 
+@router.get("/reports/ot-section")
+async def ot_report(session: Session = Depends(get_session)):
+    """Soft OT weekly section: mode, official date, interlocks, scenario divergence."""
+    from infrastructure.ot.persist import get_runtime, ot_report_section
+    return ot_report_section(get_runtime(db=session))
+
+
 @router.get("/reports", response_model=List[WaterReportResponse])
 async def list_reports(
     scope: Optional[str] = Query(None, pattern="^(National|Province|District)$"),

@@ -4,7 +4,7 @@
 -- =====================================================
 -- WATER SOURCES (data authorities)
 -- Priority ordering is enforced in water_observations.source_priority:
---   IRSA=1 > FFD/PMD=2 > KAGGLE=3 > SENSOR_API/SENSOR_REPLAY/USGS_NWIS=4 > GEE=5
+--   IRSA=1 > FFD/PMD=2 > KAGGLE=3 > SENSOR_API/SENSOR_REPLAY/USGS_NWIS/SOFT_OT=4 > GEE=5
 -- See alembic/versions/014_create_source_aware_views.sql
 -- =====================================================
 INSERT INTO aquavision.water_sources (authority, source_url, source_type, update_frequency, description)
@@ -14,7 +14,9 @@ VALUES
 ('SENSOR_REPLAY', 'https://www.batadal.net/data.html', 'CSV_REPLAY', 'HOURLY',
  'Replayed SCADA telemetry (BATADAL C-Town) - simulated signals, data_origin=SYNTHETIC'),
 ('USGS_NWIS', 'https://waterservices.usgs.gov/nwis/iv/', 'API', 'REALTIME',
- 'USGS NWIS instantaneous values - proxy gauge telemetry, data_origin=SYNTHETIC')
+ 'USGS NWIS instantaneous values - proxy gauge telemetry, data_origin=SYNTHETIC'),
+('SOFT_OT', 'soft-ot-runtime', 'SIMULATED_OT', 'SUB_DAILY',
+ 'Software PLC/RTU runtime — simulated telemetry, data_origin=SYNTHETIC')
 ON CONFLICT (authority) DO UPDATE SET
   source_url = EXCLUDED.source_url,
   source_type = EXCLUDED.source_type,

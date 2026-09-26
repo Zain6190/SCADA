@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { ChevronDown, ChevronUp, X, Layers, Activity, Gauge } from 'lucide-react'
+import type { FloodTerritoryFeature, LayerState, RegionAlert } from './use-flood-map-state'
 
 const TRAVEL_TIMES = [
   { color: '#ef4444', label: '0-6h', tag: 'Critical' },
@@ -28,6 +30,29 @@ const FLOOD_PROB = [
   { color: '#22c55e', label: '<20%', tag: 'Low' },
 ]
 
+const TERRITORY_SEVERITY = [
+  { color: '#64748b', label: 'None' },
+  { color: '#3b82f6', label: 'Low' },
+  { color: '#f59e0b', label: 'Moderate' },
+  { color: '#f97316', label: 'High' },
+  { color: '#ef4444', label: 'Extreme' },
+]
+
+const SEVERITY_COLOR: Record<string, string> = {
+  NONE: '#64748b',
+  LOW: '#3b82f6',
+  MODERATE: '#f59e0b',
+  HIGH: '#f97316',
+  EXTREME: '#ef4444',
+  CRITICAL: '#ef4444',
+}
+
+function formatPeople(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
+  if (count >= 1_000) return `${Math.round(count / 1_000)}k`
+  return count.toLocaleString()
+}
+
 interface SidebarProps {
   timeSlider: number
   onTimeSliderChange: (v: number) => void
@@ -37,7 +62,13 @@ interface SidebarProps {
   showImpact: boolean
   showRainfall: boolean
   showFloodExtents: boolean
-  onToggleLayer: (layer: string) => void
+  showTerritories: boolean
+  onToggleLayer: (layer: keyof LayerState) => void
+  regionAlerts: RegionAlert[]
+  alertedPopulation: number
+  selectedDistrict?: string | null
+  selectedTerritory?: FloodTerritoryFeature | null
+  onSelectDistrict?: (district: string | null) => void
   totalPopulation: number
   totalBridges: number
   totalHospitals: number
@@ -73,20 +104,22 @@ function Section({ title, icon, children, defaultOpen = true }: { title: string;
 
 export function FloodMapSidebar({
   timeSlider, onTimeSliderChange,
-  showRivers, showLabels, showWarnings, showImpact, showRainfall, showFloodExtents,
+  showRivers, showLabels, showWarnings, showImpact, showRainfall, showFloodExtents, showTerritories,
   onToggleLayer,
+  regionAlerts, alertedPopulation, selectedDistrict, selectedTerritory, onSelectDistrict,
   totalPopulation, totalBridges, totalHospitals, visibleSegments, totalSegments,
   selectedAssetId, impactSummary, calculating, onClearSelection,
   simAssetId, simFlow, onSimAssetChange, onSimFlowChange, simImpact,
   assetNames,
 }: SidebarProps) {
-  const layers = [
-    { key: 'rivers', label: 'River Geometry', state: showRivers },
-    { key: 'labels', label: 'Asset Labels', state: showLabels },
-    { key: 'warnings', label: 'FFD Warnings', state: showWarnings },
-    { key: 'impact', label: 'Impact Assets', state: showImpact },
-    { key: 'rainfall', label: 'FFD Stations', state: showRainfall },
-    { key: 'floodExtents', label: 'Flood Extents', state: showFloodExtents },
+  const layers: { key: keyof LayerState; label: string; state: boolean }[] = [
+    { key: 'showTerritories', label: 'Danger zones', state: showTerritories },
+    { key: 'showRivers', label: 'River Geometry', state: showRivers },
+    { key: 'showLabels', label: 'Asset Labels', state: showLabels },
+    { key: 'showWarnings', label: 'FFD Warnings', state: showWarnings },
+    { key: 'showImpact', label: 'Impact Assets', state: showImpact },
+    { key: 'showRainfall', label: 'FFD Stations', state: showRainfall },
+    { key: 'showFloodExtents', label: 'Flood Extents', state: showFloodExtents },
   ]
 
   return (
@@ -184,11 +217,121 @@ export function FloodMapSidebar({
           </div>
         </Section>
 
+        <Section title="Region alerts" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>} defaultOpen={true}>
+          <div className="mb-2 flex flex-wrap gap-x-2 gap-y-1">
+            {TERRITORY_SEVERITY.map((item) => (
+              <span key={item.label} className="flex items-center gap-1 text-[9px] text-slate-500">
+                <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: item.color }} />
+                {item.label}
+              </span>
+            ))}
+          </div>
+          {regionAlerts.length === 0 ? (
+            <p className="text-[11px] text-slate-500">No danger zones. A district is marked when its flood prediction reaches moderate severity.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {regionAlerts.map((alert) => {
+                const active = selectedDistrict === alert.district
+                const color = SEVERITY_COLOR[alert.severity] || '#f59e0b'
+                return (
+                  <button
+                    key={alert.district}
+                    type="button"
+                    onClick={() => onSelectDistrict?.(alert.district)}
+                    className={`w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${active ? 'border-sky-500/50 bg-sky-500/10' : 'border-slate-800 bg-slate-900/80 hover:border-slate-700'}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-slate-100">{alert.district}</span>
+                      <span className="text-[9px] font-medium" style={{ color }}>{alert.severity}</span>
+                    </div>
+                    <p className="text-[10px] text-amber-400 mt-0.5">{formatPeople(alert.population_exposed)} people</p>
+                    <p className="text-[9px] text-slate-500 truncate">
+                      {alert.inside_count ?? alert.inside?.length ?? 0} places inside · {alert.bridges} bridges · {alert.hospitals} hospitals
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </Section>
+
+        {selectedTerritory && (
+          <Section title="Region impact" icon={<Activity className="h-3 w-3" />} defaultOpen={true}>
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-white">{selectedTerritory.properties.district}</p>
+                  <p className="text-[10px] text-slate-500">{selectedTerritory.properties.province}</p>
+                </div>
+                {onSelectDistrict && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectDistrict(null)}
+                    className="text-[10px] text-slate-500 hover:text-slate-300"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-3 py-2">
+                <p className="text-[9px] uppercase tracking-wider text-slate-500">Prediction</p>
+                <p className="text-xs font-semibold" style={{ color: SEVERITY_COLOR[selectedTerritory.properties.flood_severity] || '#e2e8f0' }}>
+                  {selectedTerritory.properties.flood_severity} · {Math.round((selectedTerritory.properties.flood_probability || 0) * 100)}%
+                </p>
+              </div>
+              <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-3 py-2">
+                <p className="text-[9px] uppercase tracking-wider text-slate-500 mb-1">Population exposed</p>
+                <p className="text-lg font-bold text-amber-400">{(selectedTerritory.properties.population_exposed || 0).toLocaleString()}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-2 py-1.5 text-center">
+                  <p className="text-[9px] text-slate-500">Bridges</p>
+                  <p className="text-xs font-semibold text-slate-200">{selectedTerritory.properties.bridges}</p>
+                </div>
+                <div className="rounded-lg bg-slate-900/80 border border-slate-800 px-2 py-1.5 text-center">
+                  <p className="text-[9px] text-slate-500">Hospitals</p>
+                  <p className="text-xs font-semibold text-slate-200">{selectedTerritory.properties.hospitals}</p>
+                </div>
+              </div>
+              {selectedTerritory.properties.recommendation && (
+                <p className="text-[11px] text-slate-300">{selectedTerritory.properties.recommendation}</p>
+              )}
+              <p className="text-[10px] text-slate-500">
+                Source: {selectedTerritory.properties.source_asset_name}
+                {selectedTerritory.properties.ot_source === 'SOFT_OT_SCENARIO' ? ' · scenario discharge' : ''}
+              </p>
+              {selectedTerritory.properties.source_asset_id ? (
+                <Link
+                  href={`/water/ot?asset=${selectedTerritory.properties.source_asset_id}`}
+                  className="text-[11px] text-sky-300 hover:underline"
+                >
+                  Open {selectedTerritory.properties.ot_device_code || 'Soft OT'} for this district
+                </Link>
+              ) : null}
+              {(selectedTerritory.properties.inside || []).length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-[9px] uppercase tracking-wider text-slate-500">Inside this zone</p>
+                  {selectedTerritory.properties.inside!.map((place) => (
+                    <div key={`${place.kind}-${place.name}`} className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-200 truncate">{place.name}</span>
+                      <span className="text-[9px] uppercase text-slate-500">{place.kind}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
+
         <Section title="Visible Summary" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>} defaultOpen={true}>
           <div className="space-y-1.5">
             <div className="flex justify-between">
               <span className="text-[11px] text-ink-muted">Population at Risk</span>
               <span className="text-[11px] font-semibold text-warn">{(totalPopulation / 1000000).toFixed(1)}M</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[11px] text-ink-muted">Alerted population</span>
+              <span className="text-[11px] font-semibold text-critical">{formatPeople(alertedPopulation)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-[11px] text-ink-muted">Bridges</span>

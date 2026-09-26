@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
-from sqlalchemy import select, and_, desc, func, text
+from sqlalchemy import select, and_, desc, func, or_, text
 from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import SessionLocal
@@ -78,6 +78,25 @@ class AlertType:
     FFD_FLOOD_HIGH = "FFD_FLOOD_HIGH"
     FFD_FLOOD_MEDIUM = "FFD_FLOOD_MEDIUM"
     FFD_FLOOD_LOW = "FFD_FLOOD_LOW"
+    OT_INTERLOCK = "OT_INTERLOCK"
+    OT_SCENARIO = "OT_SCENARIO"
+
+
+_NON_OFFICIAL_AUTHORITIES = ("SOFT_OT", "USGS", "USGS/NWIS", "BATADAL", "KAGGLE")
+
+
+def _official_observation_clause():
+    """IRSA and FFD rows only. Soft OT replay never becomes the latest official reading."""
+    return and_(
+        or_(
+            WaterObservation.source_authority.is_(None),
+            WaterObservation.source_authority.notin_(_NON_OFFICIAL_AUTHORITIES),
+        ),
+        or_(
+            WaterObservation.data_origin.is_(None),
+            WaterObservation.data_origin == "REAL",
+        ),
+    )
 
 
 # Clear condition maps: which alert types auto-clear when condition normalizes.
@@ -110,10 +129,10 @@ def _get_threshold(db: Session, asset_id: int) -> Optional[WaterAssetThreshold]:
 
 
 def _get_latest_observation(db: Session, asset_id: int) -> Optional[WaterObservation]:
-    """Get the most recent observation for an asset."""
+    """Latest IRSA/FFD observation. Soft OT rows are ignored here."""
     return db.execute(
         select(WaterObservation)
-        .where(WaterObservation.asset_id == asset_id)
+        .where(WaterObservation.asset_id == asset_id, _official_observation_clause())
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
     ).scalar_one_or_none()
@@ -126,6 +145,7 @@ def _get_previous_observation(db: Session, asset_id: int, before: datetime) -> O
         .where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at < before,
+            _official_observation_clause(),
         )
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
@@ -144,6 +164,7 @@ def _get_observation_n_hours_ago(db: Session, asset_id: int, current_time: datet
         .where(
             WaterObservation.asset_id == asset_id,
             WaterObservation.observed_at <= target,
+            _official_observation_clause(),
         )
         .order_by(desc(WaterObservation.observed_at))
         .limit(1)
@@ -1338,6 +1359,62 @@ def evaluate_all_assets(db: Session = None) -> dict:
 
 
 # ─── Convenience: Wire to IRSA Ingestion ───────────────────────────────────
+
+def evaluate_ot_process(rows: list, db: Session = None) -> dict:
+    """Open OT_INTERLOCK / OT_SCENARIO from the process view. IRSA alerts are left alone."""
+    from ot_runtime.series import ot_alert_candidates
+
+    close_session = False
+    if db is None:
+        db = SessionLocal()
+        close_session = True
+    created = 0
+    resolved = 0
+    try:
+        for item in ot_alert_candidates(rows):
+            asset_id = int(item["asset_id"])
+            alert_type = item["alert_type"]
+            open_alert = db.execute(
+                select(WaterOperationalAlert).where(
+                    WaterOperationalAlert.asset_id == asset_id,
+                    WaterOperationalAlert.alert_type == alert_type,
+                    WaterOperationalAlert.status.notin_([STATUS_RESOLVED, STATUS_FALSE_INVALID]),
+                )
+            ).scalars().first()
+            if item.get("active"):
+                if open_alert is None:
+                    _create_alert(
+                        db,
+                        asset_id,
+                        alert_type,
+                        item.get("severity") or "Watch",
+                        item.get("message") or alert_type,
+                        alert_source="SOFT_OT",
+                        rule_version="soft_ot_v1",
+                    )
+                    created += 1
+            elif open_alert is not None:
+                old = open_alert.status
+                open_alert.status = STATUS_RESOLVED
+                open_alert.resolved_at = datetime.utcnow()
+                db.add(WaterAlertAuditLog(
+                    alert_id=open_alert.id,
+                    action="AUTO_CLEARED",
+                    performed_by="SYSTEM",
+                    old_status=old,
+                    new_status=STATUS_RESOLVED,
+                    notes="Soft OT condition cleared. IRSA alerts were not changed.",
+                ))
+                resolved += 1
+        db.commit()
+        return {"created": created, "resolved": resolved}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if close_session:
+            db.close()
+
 
 def run_threshold_engine_after_ingestion() -> dict:
     """Called automatically after IRSA ingestion completes."""

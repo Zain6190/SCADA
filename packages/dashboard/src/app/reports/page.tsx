@@ -2,7 +2,7 @@
 // AquaVision Reports - weekly PDF documents + CSV / GeoJSON data exports.
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   FileText, Layers, Map, Building2, Globe2, Download, FileJson,
   FileSpreadsheet, RefreshCw, ShieldCheck, FileCheck2,
@@ -34,6 +34,38 @@ function saveBlob(blob: Blob, filename: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function OtReportCard() {
+  const [section, setSection] = useState<any>(null)
+  useEffect(() => {
+    waterApi.getOtReportSection().then(setSection).catch(() => setSection(null))
+  }, [])
+  if (!section) return null
+  const rows = Array.from(
+    new Map([...(section.open_interlocks || []), ...(section.scenarios || [])].map((row) => [row.device_code, row])).values()
+  )
+  return (
+    <Card>
+      <CardHeader
+        title="Soft OT section"
+        subtitle={section.coverage?.last ? `Official series through ${section.coverage.last}` : 'Official series'}
+        icon={<FileText className="h-5 w-5" />}
+        accent={AMBER}
+      />
+      <CardBody className="space-y-2 text-sm text-slate-300">
+        <p>{section.coverage?.days || 0} days loaded. Cursor {section.coverage?.cursor || '—'}.</p>
+        {rows.length === 0 ? (
+          <p className="text-slate-500">Every device is tracking the official day. No open interlock.</p>
+        ) : rows.map((row) => (
+          <p key={row.device_code}>
+            {row.device_code} {row.mode} · official {row.official_on || '—'}
+            {row.interlock_reasons?.length ? ` · ${row.interlock_reasons.join(', ')}` : ''}
+          </p>
+        ))}
+      </CardBody>
+    </Card>
+  )
 }
 
 function scopeKey(scope: string): string {
@@ -165,6 +197,8 @@ export default function ReportsPage() {
             accent={AMBER}
           />
         </div>
+
+        <OtReportCard />
 
         <Card>
           <CardHeader

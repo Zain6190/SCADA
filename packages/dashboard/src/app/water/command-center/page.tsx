@@ -84,6 +84,25 @@ const QUICK_LINKS = [
   { label: 'Analyst', href: '/water/analyst', icon: LineChart, accent: 'bg-ok-soft text-ok' },
 ]
 
+function OtHealthStrip() {
+  const [status, setStatus] = useState<any>(null)
+  useEffect(() => {
+    fetch(`${API_BASE}/water/ot/status`).then((r) => r.ok ? r.json() : null).then(setStatus).catch(() => setStatus(null))
+  }, [])
+  if (!status) return null
+  const scenario = status.coverage?.scenario_assets?.length || 0
+  return (
+    <Link href="/water/ot" className="block rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 hover:border-sky-500/40">
+      <p className="text-[10px] uppercase tracking-wider text-slate-500">Soft OT</p>
+      <p className="text-sm text-slate-200">
+        {status.coverage?.days || 0} official days
+        {status.coverage?.last ? ` · latest ${status.coverage.last}` : ''}
+        {scenario ? ` · ${scenario} scenario` : ' · tracking official series'}
+      </p>
+    </Link>
+  )
+}
+
 function AssetCard({ asset }: { asset: OperationalAsset }) {
   const fresh = freshnessTone(asset.data_age_hours)
   const lv = levelInfo(asset)
@@ -257,6 +276,8 @@ export default function WaterCommandCenterPage() {
           <ErrorState title="Failed to load" message={error} onRetry={fetchData} />
         ) : (
           <>
+            <OtHealthStrip />
+
             <AlertTicker alerts={openAlerts} />
 
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

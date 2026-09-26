@@ -48,6 +48,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # pragma: no cover - non-fatal for startup
         logger.warning("Seeding skipped: %s", exc)
 
+    try:
+        from infrastructure.ot.persist import seed_ot_catalog
+        n = seed_ot_catalog()
+        logger.info("Soft OT catalog ready (%s devices)", n)
+    except Exception as exc:
+        logger.warning("Soft OT catalog seed skipped: %s", exc)
+
     # Wire notification dispatcher
     from infrastructure.notifications.dispatcher import NotificationDispatcher
     from infrastructure.notifications.email_notifier import EmailNotifier
@@ -102,9 +109,24 @@ async def lifespan(app: FastAPI):
     ingestion_task = asyncio.create_task(background_ingestion())
     logger.info("Background ingestion task started (IRSA every 2h, FFD every 6h)")
 
+    async def background_ot_ticks():
+        await asyncio.sleep(2)
+        while True:
+            try:
+                from infrastructure.ot.persist import run_ot_tick
+                result = run_ot_tick(evaluate_thresholds=True)
+                logger.info("Soft OT tick %s published=%s", result.get("ticks"), (result.get("publish") or {}).get("accepted"))
+            except Exception as e:
+                logger.warning("Soft OT tick failed: %s", e)
+            await asyncio.sleep(15)
+
+    ot_task = asyncio.create_task(background_ot_ticks())
+    logger.info("Soft OT runtime started (15s wall / 15 min simulated)")
+
     yield
 
     ingestion_task.cancel()
+    ot_task.cancel()
     db_session.close()
 
 
@@ -155,6 +177,7 @@ from presentation.http.routers import (  # noqa: E402
     alert_workflow,
     auth,
     channels,
+    flood_map,
     health,
     impact,
     indicators,
@@ -165,6 +188,7 @@ from presentation.http.routers import (  # noqa: E402
     regions,
     reports,
     sensors,
+    ot,
     validation,
 )
 from ml.prediction_api import router as ml_router
@@ -190,7 +214,9 @@ app.include_router(ml_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_v2_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(stress_alerts_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(impact.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(flood_map.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(ot.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(channels.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(prediction_pipeline_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_api_router, prefix=WATER_PREFIX, tags=TAG)

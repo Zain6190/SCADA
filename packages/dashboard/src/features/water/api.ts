@@ -385,6 +385,53 @@ export const waterApi = {
     return data
   },
 
+  // ─── Soft OT (software PLC / RTU) ────────────────────────────────────────
+
+  getOtStatus: async (): Promise<any> => {
+    const { data } = await waterClient.get('/ot/status')
+    return data
+  },
+
+  getOtProcessView: async (): Promise<any> => {
+    const { data } = await waterClient.get('/ot/process-view')
+    return data
+  },
+
+  getOtReportSection: async (): Promise<any> => {
+    const { data } = await waterClient.get('/reports/ot-section')
+    return data
+  },
+
+  getOtDevices: async (): Promise<any[]> => {
+    const { data } = await waterClient.get('/ot/devices')
+    return data
+  },
+
+  getOtDevice: async (id: number): Promise<any> => {
+    const { data } = await waterClient.get(`/ot/devices/${id}`)
+    return data
+  },
+
+  getOtCommands: async (limit = 50): Promise<any[]> => {
+    const { data } = await waterClient.get('/ot/commands', { params: { limit } })
+    return data
+  },
+
+  runOtTick: async (): Promise<any> => {
+    const { data } = await waterClient.post('/ot/tick')
+    return data
+  },
+
+  otSetpoint: async (assetId: number, value: number, tag = 'AO.gate_cmd_pct'): Promise<any> => {
+    const { data } = await waterClient.post('/ot/hmi/setpoint', {
+      asset_id: assetId,
+      tag,
+      value,
+      actor: 'virtual-hmi',
+    })
+    return data
+  },
+
   issueInstruction: async (
     alertId: number,
     payload: {
@@ -421,6 +468,15 @@ export const waterApi = {
     return data
   },
 
+  otFault: async (assetId: number, kind: string): Promise<any> => {
+    const { data } = await waterClient.post('/ot/hmi/fault', {
+      asset_id: assetId,
+      kind,
+      actor: 'virtual-hmi',
+    })
+    return data
+  },
+
   verifyInstruction: async (id: number, note: string): Promise<WorkflowInstruction> => {
     const { data } = await waterClient.post(`/instructions/${id}/verify`, { note })
     return data
@@ -438,6 +494,11 @@ export const waterApi = {
 
   sendTestAlert: async (): Promise<{ alert_id: number; channels_configured: boolean; dispatch: Record<string, number> | null; recipients: string[] }> => {
     const { data } = await waterClient.post('/alerts/test')
+    return data
+  },
+
+  anchorOt: async (): Promise<any> => {
+    const { data } = await waterClient.post('/ot/anchor')
     return data
   },
 }

@@ -18,6 +18,15 @@ from infrastructure.ingestion.validators import validate_observation, build_quar
 logger = logging.getLogger("aquavision.ingest")
 
 
+def _reanchor_soft_ot(reason: str) -> dict:
+    try:
+        from infrastructure.ot.persist import reanchor_soft_ot_from_ingest
+        return reanchor_soft_ot_from_ingest(reason)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Soft OT re-anchor after %s failed: %s", reason, exc)
+        return {"applied": False, "error": str(exc)}
+
+
 def _get_or_create_source(db) -> WaterSource:
     source = db.execute(
         select(WaterSource).where(WaterSource.authority == "IRSA")
@@ -163,6 +172,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 "raw_record_id": existing_raw.id,
                 "duplicate": True,
                 "thresholds": {"assets_checked": 0, "new_alerts": 0, "alerts": {}},
+                "ot_anchor": _reanchor_soft_ot("irsa-duplicate"),
             }
         else:
             raw_record = RawSourceRecord(
@@ -286,6 +296,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
         "invalid": invalid,
         "raw_record_id": raw_record_id,
         "thresholds": threshold_result,
+        "ot_anchor": _reanchor_soft_ot("irsa-ingest"),
     }
 
 

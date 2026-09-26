@@ -23,6 +23,11 @@
   animation: flood-pulse 0.8s linear infinite;
 }
 
+.territory-alert {
+  stroke-dasharray: 6, 4;
+  animation: flood-pulse 2.4s linear infinite;
+}
+
 /* Asset marker pulse ring for active alerts */
 @keyframes alert-pulse {
   0% { r: 12; opacity: 0.8; }

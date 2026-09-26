@@ -975,6 +975,123 @@ class ValidationReportDB(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class WaterOtDevice(Base):
+    """Software PLC or RTU attached to a water asset."""
+    __tablename__ = "water_ot_devices"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)  # RTU | PLC
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    scan_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    publish_s: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    comms_ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_scan_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    control_mode: Mapped[str] = mapped_column(Text, default="TRACK")
+    gate_cmd_pct: Mapped[Optional[float]] = mapped_column(Float)
+    fault_state: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped[WaterAsset] = relationship("WaterAsset")
+    tags: Mapped[List["WaterOtTag"]] = relationship("WaterOtTag", back_populates="device")
+
+
+class WaterOtTag(Base):
+    __tablename__ = "water_ot_tags"
+    __table_args__ = (
+        UniqueConstraint("device_id", "name", name="uq_ot_tag_device_name"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_ot_devices.id"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    tag_class: Mapped[str] = mapped_column(Text, nullable=False)  # AI DI AO DO
+    unit: Mapped[Optional[str]] = mapped_column(Text)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    device: Mapped[WaterOtDevice] = relationship("WaterOtDevice", back_populates="tags")
+
+
+class WaterOtTagValue(Base):
+    __tablename__ = "water_ot_tag_values"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tag_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_ot_tags.id"), nullable=False)
+    value: Mapped[Optional[float]] = mapped_column(Float)
+    quality: Mapped[str] = mapped_column(Text, default="VALID")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WaterOtCommand(Base):
+    """Virtual HMI audit — setpoints and faults. Never writes water_observations."""
+    __tablename__ = "water_ot_commands"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_ot_devices.id"), nullable=False)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    tag_name: Mapped[str] = mapped_column(Text, nullable=False)
+    value: Mapped[Optional[float]] = mapped_column(Float)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str] = mapped_column(Text, default="virtual-hmi")
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WaterOtProcessDay(Base):
+    """One official IRSA/FFD day for the Soft OT replay. Gate percent is derived."""
+    __tablename__ = "water_ot_process_days"
+    __table_args__ = (
+        UniqueConstraint("observed_on", "asset_id", name="uq_ot_process_day_asset"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    observed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    device_code: Mapped[str] = mapped_column(Text, nullable=False)
+    level_ft: Mapped[Optional[float]] = mapped_column(Float)
+    inflow_cusecs: Mapped[Optional[float]] = mapped_column(Float)
+    outflow_cusecs: Mapped[Optional[float]] = mapped_column(Float)
+    discharge_cusecs: Mapped[Optional[float]] = mapped_column(Float)
+    canal_offtake_cusecs: Mapped[float] = mapped_column(Float, default=0)
+    gate_pct_derived: Mapped[Optional[float]] = mapped_column(Float)
+    source_authority: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class WaterOtRuntimeState(Base):
+    __tablename__ = "water_ot_runtime_state"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    cursor_date: Mapped[Optional[date]] = mapped_column(Date)
+    state_json: Mapped[Optional[dict]] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WaterOtDivergence(Base):
+    __tablename__ = "water_ot_divergences"
+    __table_args__ = {"schema": "aquavision"}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+    observed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    official_outflow: Mapped[Optional[float]] = mapped_column(Float)
+    scenario_outflow: Mapped[Optional[float]] = mapped_column(Float)
+    official_gate_pct: Mapped[Optional[float]] = mapped_column(Float)
+    scenario_gate_pct: Mapped[Optional[float]] = mapped_column(Float)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PredictionErrorDB(Base):
     """Stores individual prediction errors for audit and analysis."""
 
