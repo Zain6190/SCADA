@@ -509,8 +509,22 @@ def _days_from_csv() -> list:
     return days
 
 
+def refresh_process_series() -> int:
+    """Reload the official day series after an ingest append. Scenario setpoints stay."""
+    runtime = get_runtime(auto_anchor=False)
+    state = runtime.export_state() if runtime.series_loaded else None
+    count = load_process_series(runtime)
+    if state:
+        runtime.restore_state(state)
+    elif count:
+        restore_runtime_state(runtime)
+    return count
+
+
 def load_process_series(runtime: OtRuntime, db: Optional[Session] = None) -> int:
     """Load water_ot_process_days into the runtime. Official observation rows are not written."""
+    csv_days = _days_from_csv()
+    _upsert_csv_days(csv_days)
     own = db is None
     session = db
     days = []
@@ -547,11 +561,24 @@ def load_process_series(runtime: OtRuntime, db: Optional[Session] = None) -> int
     finally:
         if own and session is not None:
             session.close()
-    if not days:
-        days = _days_from_csv()
+    merged = {(day.observed_on, day.asset_id): day for day in csv_days}
+    for day in days:
+        merged[(day.observed_on, day.asset_id)] = day
+    loaded = list(merged.values())
+    if not loaded:
+        return 0
+    return runtime.load_series(loaded)
+
+
+def _upsert_csv_days(days: list) -> int:
     if not days:
         return 0
-    return runtime.load_series(days)
+    try:
+        from scripts.collect_ot_dataset import upsert_process_days
+        return upsert_process_days(days)
+    except Exception as exc:
+        logger.warning("Soft OT CSV upsert skipped: %s", exc)
+        return 0
 
 
 def restore_runtime_state(runtime: OtRuntime, db: Optional[Session] = None) -> bool:

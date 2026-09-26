@@ -103,6 +103,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
 
         if existing_raw:
             logger.info(f"Duplicate FFD bulletin detected (hash={content_hash[:16]}...), skipping ingestion for {target_date}")
+            matched = _matched_ffd(db, observations)
             db.commit()
             return {
                 "date": str(target_date),
@@ -111,6 +112,8 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
                 "skipped": len(observations),
                 "fetch_status": fetch_status,
                 "duplicate": True,
+                "ot_series": _append_ffd_series(matched, target_date),
+                "ot_anchor": _reanchor_soft_ot("ffd-duplicate"),
             }
         
         # Archive raw record
@@ -130,6 +133,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         stored = 0
         skipped = 0
         
+        matched = []
         for obs in observations:
             asset_id = _get_asset_id(db, obs.station_name)
             
@@ -137,6 +141,8 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
                 logger.debug(f"Station '{obs.station_name}' not matched to asset, skipping")
                 skipped += 1
                 continue
+            obs.asset_id = asset_id
+            matched.append(obs)
             
             # Check for existing observation (idempotent)
             existing = db.execute(
@@ -201,7 +207,32 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         "skipped": skipped,
         "fetch_status": fetch_status,
         "ot_anchor": _reanchor_soft_ot("ffd-ingest"),
+        "ot_series": _append_ffd_series(matched, target_date),
     }
+
+
+def _matched_ffd(db, observations) -> list:
+    matched = []
+    for obs in observations:
+        asset_id = _get_asset_id(db, obs.station_name)
+        if asset_id is None:
+            continue
+        obs.asset_id = asset_id
+        matched.append(obs)
+    return matched
+
+
+def _append_ffd_series(observations, target_date: date) -> dict:
+    try:
+        from infrastructure.ingestion.ot_series_append import append_ffd_observations
+        return append_ffd_observations(
+            observations,
+            target_date,
+            "https://ffd.pmd.gov.pk/bulletin/bulletin",
+        )
+    except Exception as exc:
+        logger.warning("Soft OT FFD series append skipped: %s", exc)
+        return {"csv_rows": 0, "stored": 0, "error": str(exc)}
 
 
 def get_ffd_status_for_asset(asset_id: int, target_date: date = None) -> dict:

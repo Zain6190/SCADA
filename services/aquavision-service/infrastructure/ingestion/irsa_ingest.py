@@ -173,6 +173,7 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
                 "duplicate": True,
                 "thresholds": {"assets_checked": 0, "new_alerts": 0, "alerts": {}},
                 "ot_anchor": _reanchor_soft_ot("irsa-duplicate"),
+                "ot_series": _append_ot_series(observations, target_date, source_url),
             }
         else:
             raw_record = RawSourceRecord(

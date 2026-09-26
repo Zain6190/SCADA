@@ -145,5 +145,60 @@ class TestSeriesReplay(unittest.TestCase):
         self.assertIsNotNone(canal_shortfall_note(100, 50, date(2026, 9, 1)))
 
 
+class TestSeriesSpan(unittest.TestCase):
+    def test_track_day_is_official_and_scenario_is_a_simulated_step(self):
+        runtime = OtRuntime(sim_minutes=15.0)
+        runtime.load_series([
+            _day(1, date(2026, 7, 22)),
+            _day(1, date(2026, 9, 26)),
+        ])
+        view = runtime.process_view()
+        tarbela = next(row for row in view if row["asset_id"] == 1)
+        self.assertEqual(tarbela["reading_kind"], "official_day")
+        self.assertEqual(tarbela["device_code"], "RTU-TARBELA")
+        self.assertEqual(tarbela["series_first"], "2026-07-22")
+        self.assertEqual(tarbela["series_last"], "2026-09-26")
+        runtime.modes[1] = "SCENARIO"
+        again = next(row for row in runtime.process_view() if row["asset_id"] == 1)
+        self.assertEqual(again["reading_kind"], "simulated_step")
+
+    def test_ffd_append_keeps_the_irsa_inflow(self):
+        import tempfile
+        from infrastructure.ingestion import ot_series_append as append
+
+        class Gauge:
+            asset_id = 9
+            gauge_level_ft = 18.0
+            discharge_cusecs = 42000.0
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "indus_ot_daily.csv"
+            path.write_text(
+                "observed_on,asset_id,device_code,level_ft,inflow_cusecs,outflow_cusecs,"
+                "discharge_cusecs,canal_offtake_cusecs,gate_pct_derived,source_authority,source_url\n"
+                "2026-09-26,9,RTU-NOWSHERA,,1100,1100,,0,,IRSA,http://pakirsa.gov.pk/example.pdf\n",
+                encoding="utf-8",
+            )
+            stored = append._store_days
+            refresh = append._refresh_runtime
+            append._store_days = lambda days: 0
+            append._refresh_runtime = lambda: None
+            try:
+                result = append.append_ffd_observations(
+                    [Gauge()],
+                    date(2026, 9, 26),
+                    "https://ffd.pmd.gov.pk/bulletin/bulletin",
+                    path=path,
+                )
+            finally:
+                append._store_days = stored
+                append._refresh_runtime = refresh
+            self.assertEqual(result["csv_rows"], 1)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("1100", text)
+            self.assertIn("18.0", text)
+            self.assertIn("42000", text)
+
+
 if __name__ == "__main__":
     unittest.main()

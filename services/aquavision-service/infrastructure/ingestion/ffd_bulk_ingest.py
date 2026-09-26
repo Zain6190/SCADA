@@ -124,6 +124,7 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
 
         if existing_raw:
             logger.info(f"Duplicate FFD bulletin detected (hash={content_hash[:16]}...), skipping {html_path.name}")
+            matched = _gauge_days(db, observations)
             db.commit()
             return {
                 "date": str(target_date),
@@ -132,6 +133,7 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
                 "stored": 0,
                 "skipped": len(observations),
                 "duplicate": True,
+                "ot_series": _append_bulk_ffd(matched, target_date),
             }
 
         # Archive raw HTML
@@ -150,6 +152,7 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
 
         stored = 0
         skipped = 0
+        matched = []
 
         for obs in observations:
             asset_id = _get_asset_id(db, obs.canonical_name)
@@ -157,6 +160,9 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
                 logger.debug(f"Station '{obs.canonical_name}' not matched to asset, skipping")
                 skipped += 1
                 continue
+
+            discharge_cusecs = obs.headroom_current * 1000 if obs.headroom_current else None
+            matched.append(_gauge_row(asset_id, discharge_cusecs))
 
             # Check for existing observation (idempotent)
             existing = db.execute(
@@ -170,9 +176,6 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
             if existing:
                 skipped += 1
                 continue
-
-            # Convert headroom_current (thousands of cusecs) to discharge_cusecs
-            discharge_cusecs = obs.headroom_current * 1000 if obs.headroom_current else None
 
             # Store observation
             water_obs = WaterObservation(
@@ -229,7 +232,40 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
         "parsed": len(observations),
         "stored": stored,
         "skipped": skipped,
+        "ot_series": _append_bulk_ffd(matched, target_date),
     }
+
+
+def _gauge_row(asset_id: int, discharge_cusecs):
+    return type("GaugeDay", (), {
+        "asset_id": asset_id,
+        "gauge_level_ft": None,
+        "discharge_cusecs": discharge_cusecs,
+    })()
+
+
+def _gauge_days(db, observations) -> list:
+    rows = []
+    for obs in observations:
+        asset_id = _get_asset_id(db, obs.canonical_name)
+        if asset_id is None:
+            continue
+        discharge = obs.headroom_current * 1000 if obs.headroom_current else None
+        rows.append(_gauge_row(asset_id, discharge))
+    return rows
+
+
+def _append_bulk_ffd(rows, target_date: date) -> dict:
+    try:
+        from infrastructure.ingestion.ot_series_append import append_ffd_observations
+        return append_ffd_observations(
+            rows,
+            target_date,
+            "https://ffd.pmd.gov.pk/bulletins/archive",
+        )
+    except Exception as exc:
+        logger.warning("Soft OT FFD archive append skipped: %s", exc)
+        return {"csv_rows": 0, "stored": 0, "error": str(exc)}
 
 
 def bulk_ingest_ffd_archive(archive_dir: Path, dry_run: bool = False) -> dict:

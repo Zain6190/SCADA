@@ -172,7 +172,7 @@ export function AssetDetailClient() {
           <Card>
             <CardHeader
               title="Soft OT"
-              subtitle={`${otRow.device_code} · ${otRow.mode} · official ${otRow.official_on || '—'}`}
+              subtitle={`${otRow.device_code} · ${otRow.mode} · ${otRow.reading_kind === 'official_day' ? 'official day' : 'simulated step'} ${otRow.official_on || '—'} · series ${otRow.series_first || '—'} to ${otRow.series_last || '—'}`}
             />
             <CardBody className="flex flex-wrap items-center gap-4 text-sm text-slate-300">
               <span>Comms {otRow.comms_ok ? 'OK' : 'DOWN'}</span>

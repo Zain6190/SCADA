@@ -682,6 +682,12 @@ class OtRuntime:
         }
         return reading, row
 
+    def _reading_kind(self, asset_id: int) -> str:
+        day = self._day(asset_id)
+        if day is not None and self.modes.get(asset_id, "TRACK") == "TRACK":
+            return "official_day"
+        return "simulated_step"
+
     def process_view(self) -> List[Dict[str, Any]]:
         rows = []
         for spec in DEVICE_CATALOG:
@@ -704,11 +710,15 @@ class OtRuntime:
                 reasons.append("comms_down")
             if rtu and rtu.sensor_stuck:
                 reasons.append("sensor_stuck")
+            span = self.coverage()
             rows.append({
                 "asset_id": spec.asset_id,
                 "device_code": spec.device_code,
                 "kind": spec.kind,
                 "mode": mode,
+                "reading_kind": self._reading_kind(spec.asset_id),
+                "series_first": span["first"],
+                "series_last": span["last"],
                 "comms_ok": (not plc.comms_down) if plc else (not rtu.comms_down if rtu else True),
                 "official_on": day.observed_on.isoformat() if day else None,
                 "official": None if day is None else day.as_csv_row(),
@@ -731,6 +741,7 @@ class OtRuntime:
         rows = []
         for spec in DEVICE_CATALOG:
             ai = self.plant.as_ai(spec.asset_id)
+            span = self.coverage()
             row: Dict[str, Any] = {
                 "device_code": spec.device_code,
                 "kind": spec.kind,
@@ -738,6 +749,10 @@ class OtRuntime:
                 "asset_name": spec.asset_name,
                 "scan_ms": spec.scan_ms,
                 "mode": self.modes.get(spec.asset_id, "TRACK"),
+                "reading_kind": self._reading_kind(spec.asset_id),
+                "official_on": self._day(spec.asset_id).observed_on.isoformat() if self._day(spec.asset_id) else None,
+                "series_first": span["first"],
+                "series_last": span["last"],
                 "ai": ai,
             }
             if spec.asset_id in self.rtus:

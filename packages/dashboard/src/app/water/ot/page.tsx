@@ -85,17 +85,13 @@ function SoftOtContent() {
           Track readings are an official replay at priority 4. Scenario readings stay on SOFT_OT. IRSA and FFD rows are never overwritten.
         </div>
 
-        {status?.anchor_banner || status?.anchor?.banner ? (
+        {status?.coverage ? (
           <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
-            {status.anchor_banner || status.anchor?.banner}
-            {status?.coverage?.days ? (
-              <span className="block mt-1 text-xs text-sky-300/80">
-                {status.coverage.days} official days loaded
-                {status.coverage.first ? `, ${status.coverage.first}` : ''}
-                {status.coverage.last ? ` to ${status.coverage.last}` : ''}.
-                Cursor {status.coverage.cursor || '—'}.
-                {status.coverage.holding_latest ? ' Holding the latest day.' : ' Replaying the series.'}
-              </span>
+            Official series {status.coverage.first || '—'} to {status.coverage.last || '—'}
+            {' '}({status.coverage.days || 0} days). Cursor {status.coverage.cursor || '—'}.
+            {status.coverage.holding_latest ? ' Holding the latest official day.' : ' Replaying official days.'}
+            {status?.anchor_banner || status?.anchor?.banner ? (
+              <span className="block mt-1 text-xs text-sky-300/80">{status.anchor_banner || status.anchor?.banner}</span>
             ) : null}
           </div>
         ) : null}
@@ -130,6 +126,7 @@ function SoftOtContent() {
                           <th className="px-4 py-3 text-left">Discharge</th>
                           <th className="px-4 py-3 text-left">Gate</th>
                           <th className="px-4 py-3 text-left">Mode</th>
+                          <th className="px-4 py-3 text-left">Reading</th>
                           <th className="px-4 py-3 text-left">Comms</th>
                         </tr>
                       </thead>
@@ -160,6 +157,10 @@ function SoftOtContent() {
                               <Badge tone={d.mode === 'SCENARIO' || d.live?.mode === 'SCENARIO' ? 'amber' : 'sky'}>
                                 {d.mode || d.live?.mode || 'TRACK'}
                               </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-300">
+                              {d.live?.reading_kind === 'official_day' ? 'Official day' : 'Simulated step'}
+                              {d.live?.official_on ? ` ${d.live.official_on}` : ''}
                             </td>
                             <td className="px-4 py-3">
                               <Badge tone={d.comms_ok ? 'emerald' : 'red'}>{d.comms_ok ? 'OK' : 'DOWN'}</Badge>
