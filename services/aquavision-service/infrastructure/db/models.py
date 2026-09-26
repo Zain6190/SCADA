@@ -751,6 +751,24 @@ class WaterWeatherForecast(Base):
 # ─── Pipeline Run Tracking ────────────────────────────────────────────────
 
 
+class WaterSatelliteArea(Base):
+    """Satellite surface area beside a reservoir. IRSA level stays on water_observations."""
+
+    __tablename__ = "water_satellite_area"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "observed_on", "method"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("aquavision.water_assets.id"), nullable=False)
+    observed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    area_km2: Mapped[Optional[float]] = mapped_column(Float)
+    source_authority: Mapped[str] = mapped_column(String(20), default="GEE")
+    method: Mapped[str] = mapped_column(String(20), default="NDWI")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PipelineRun(Base):
     """Tracks each ingestion pipeline execution."""
 

@@ -144,6 +144,27 @@ def run(csv_path: Path | None = None) -> dict:
                     f"week={row['week_start_date']}: {e}"
                 )
                 errors += 1
+        conn.execute(
+            text(
+                """
+                UPDATE aquavision.water_indicators_weekly AS i
+                SET surface_water_area_km2 = s.water_area_km2,
+                    surface_water_change_pct = COALESCE(s.change_pct, i.surface_water_change_pct)
+                FROM (
+                    SELECT DISTINCT ON (region_id, date_trunc('month', week_start_date))
+                           region_id,
+                           date_trunc('month', week_start_date)::date AS month_start,
+                           water_area_km2,
+                           change_pct
+                    FROM aquavision.surface_water_weekly
+                    WHERE water_area_km2 IS NOT NULL
+                    ORDER BY region_id, date_trunc('month', week_start_date), week_start_date DESC
+                ) AS s
+                WHERE i.region_id = s.region_id
+                  AND i.week_start_date = s.month_start
+                """
+            )
+        )
 
     result = {
         "status": "success",

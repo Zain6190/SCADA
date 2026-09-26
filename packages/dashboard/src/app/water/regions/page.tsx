@@ -2,6 +2,7 @@
 // AquaVision Regions - provinces & districts with alert counts.
 'use client'
 
+import { useEffect, useState } from 'react'
 import { MapPin } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
@@ -9,6 +10,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { useWaterRegions, useWaterAlerts } from '@/features/water/hooks'
+import { waterApi } from '@/features/water/api'
 import Link from 'next/link'
 
 export default function RegionsPage() {
@@ -19,6 +21,10 @@ export default function RegionsPage() {
   const alerts = alertsQuery.data ?? []
   const openAlertCount = alerts.filter((a) => a.status !== 'RESOLVED').length
 
+  const [satellite, setSatellite] = useState<any>(null)
+  useEffect(() => {
+    waterApi.getSatelliteReportSection().then(setSatellite).catch(() => setSatellite(null))
+  }, [])
   const provinces = regions.filter((r) => r.type === 'province')
   const districts = regions.filter((r) => r.type !== 'province')
 
@@ -27,7 +33,7 @@ export default function RegionsPage() {
       <div className="space-y-6">
         <PageHeader
           title="Water Regions"
-          description="Provinces and districts with open alert pressure."
+          description="Provinces and districts. Satellite rainfall, ET, and surface water come from the weekly index."
           icon={<MapPin className="h-6 w-6" />}
           action={regions.length ? <Badge tone="sky">{regions.length} regions</Badge> : undefined}
         />
@@ -40,6 +46,21 @@ export default function RegionsPage() {
           <EmptyState title="No regions" message="Run the region ingest pipeline." />
         ) : (
           <>
+            {satellite?.image_week && (
+              <Card>
+                <CardHeader
+                  title="Satellite week"
+                  subtitle={`Image week ${satellite.image_week}`}
+                />
+                <CardBody className="space-y-1 text-sm text-slate-300">
+                  {(satellite.worst_districts || []).map((row: any) => (
+                    <p key={row.region_id}>
+                      {row.name}: rain {row.rainfall_mm ?? '—'} mm, ET {row.et_mm ?? '—'} mm, surface water {row.surface_water_km2 ?? '—'} km²
+                    </p>
+                  ))}
+                </CardBody>
+              </Card>
+            )}
             <RegionTable title="Provinces" rows={provinces} openAlertCount={openAlertCount} />
             {districts.length > 0 && <RegionTable title="Districts" rows={districts} openAlertCount={openAlertCount} />}
           </>

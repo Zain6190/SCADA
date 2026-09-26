@@ -58,7 +58,7 @@ def load_regions() -> list[dict]:
     cur = conn.cursor()
     cur.execute(
         "SELECT id, name, type, ST_AsGeoJSON(geom) AS geojson "
-        "FROM shared.regions ORDER BY id"
+        "FROM shared.regions WHERE type = 'district' ORDER BY id"
     )
     rows = []
     for rid, name, rtype, geojson in cur.fetchall():
@@ -198,12 +198,10 @@ def main(
     """Run surface water detection and export to CSV."""
     ee.Initialize(project=PROJECT)
 
-    # Default: last 4 weeks
     if not end_date:
-        end_date = date.today().isoformat()
+        end_date = os.getenv("GEE_END_DATE") or date.today().isoformat()
     if not start_date:
-        start = date.today() - timedelta(weeks=4)
-        start_date = start.isoformat()
+        start_date = os.getenv("GEE_START_DATE") or (date.today() - timedelta(weeks=12)).isoformat()
 
     regions = load_regions()
     regions_fc = ee.FeatureCollection(

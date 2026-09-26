@@ -26,6 +26,35 @@ def get_generate_use_case(session: Session = Depends(get_session)) -> GenerateWa
     )
 
 
+@router.get("/reports/satellite-section")
+async def satellite_report(session: Session = Depends(get_session)):
+    """Worst districts, rainfall, ET, surface water, and the image week."""
+    from sqlalchemy import text
+
+    from infrastructure.ingestion.satellite_publish import REPO, satellite_section
+
+    names = {}
+    try:
+        found = session.execute(text("SELECT id, name FROM shared.regions WHERE type = 'district'")).all()
+        names = {int(row.id): row.name for row in found}
+    except Exception:
+        names = {}
+    section = satellite_section(names=names)
+    out = REPO / "data" / "reports"
+    out.mkdir(parents=True, exist_ok=True)
+    stamp = (section.get("image_week") or "pending").replace("-", "")
+    text_path = out / f"satellite-section-{stamp}.txt"
+    lines = [f"Image week: {section.get('image_week') or 'not fetched'}", f"Districts: {section.get('districts')}"]
+    for row in section.get("worst_districts") or []:
+        lines.append(
+            f"{row['name']}: rain {row['rainfall_mm']} mm, ET {row['et_mm']} mm, "
+            f"surface water {row.get('surface_water_km2')} km2, NDVI {row['ndvi']}"
+        )
+    text_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    section["file_path"] = str(text_path)
+    return section
+
+
 @router.get("/reports/ot-section")
 async def ot_report(session: Session = Depends(get_session)):
     """Soft OT weekly section: mode, official date, interlocks, scenario divergence."""

@@ -82,6 +82,7 @@ export function AssetDetailClient() {
   const [loading, setLoading] = useState(true)
   const [noteText, setNoteText] = useState('')
   const [otRow, setOtRow] = useState<any>(null)
+  const [satelliteArea, setSatelliteArea] = useState<any>(null)
 
   const notesQuery = useAssetNotes(assetId)
   const addNote = useAddAssetNote()
@@ -97,6 +98,11 @@ export function AssetDetailClient() {
       .then(([a, o, al]) => { setAsset(a); setObservations(o); setAlerts(al) })
       .finally(() => setLoading(false))
   }, [assetId, days])
+
+  useEffect(() => {
+    if (!assetId) return
+    waterApi.getSatelliteArea(assetId).then(setSatelliteArea).catch(() => setSatelliteArea(null))
+  }, [assetId])
 
   useEffect(() => {
     if (!assetId) return
@@ -186,6 +192,12 @@ export function AssetDetailClient() {
           <TelemetryCard label="Outflow" value={asset.current_outflow} unit="cusecs" accent="text-warn" />
           <TelemetryCard label="Discharge" value={asset.current_discharge} unit="cusecs" accent="text-brand" />
         </div>
+        {(assetId === 1 || assetId === 2) && (
+          <p className="text-sm text-slate-400">
+            IRSA level {asset.current_level_ft ?? '—'} ft. Satellite surface area {satelliteArea?.area_km2 ?? '—'} km²
+            {satelliteArea?.observed_on ? ` on ${satelliteArea.observed_on}` : ''}.
+          </p>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2">

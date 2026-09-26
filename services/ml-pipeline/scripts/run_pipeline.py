@@ -63,7 +63,7 @@ DB_URL = os.getenv(
 )
 PIPELINE_NAME = "weekly_water_pipeline"
 CODE_VERSION = os.getenv("GEE_CODE_VERSION", "1.0.0")
-SOURCE_VERSION = os.getenv("GEE_SOURCE_VERSION", "GEE-CHIRPS/ERA5-JRC-2026.8")
+SOURCE_VERSION = os.getenv("GEE_SOURCE_VERSION", "GEE-CHIRPS/MOD16-JRC-2026.9")
 MODEL_VERSION = os.getenv("GEE_MODEL_VERSION", "xgb-v1.0")
 LOG_DIR = ML_ROOT / "logs"
 LOCK_KEY = int(os.getenv("PIPELINE_LOCK_KEY", "1463592275"))  # stable bigint advisory-lock key
@@ -73,7 +73,19 @@ MAX_CACHE_DAYS = int(os.getenv("PIPELINE_MAX_CACHE_DAYS", "7"))  # max cached-CS
 RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
 SURFACE_WATER_CSV = ML_ROOT / "Data" / "raw" / "surface_water.csv"
 
-STAGES = ["sync_indicators", "sync_surface_water", "compute_spi", "predict_weekly", "run_risk_alerts"]
+STAGES = [
+    "sync_indicators",
+    "surface_water",
+    "sync_surface_water",
+    "compute_spi",
+    "predict_weekly",
+    "run_risk_alerts",
+]
+GEE_STAGES = {"gee_fetch", "surface_water"}
+STAGE_MODULES = {
+    "gee_fetch": "gee.gee_fetch",
+    "surface_water": "gee.surface_water",
+}
 
 _engine = None
 
@@ -102,15 +114,15 @@ def create_run(trigger: str) -> tuple[int, str]:
             text(
                 """
                 INSERT INTO aquavision.pipeline_runs
-                    (pipeline_name, status, run_id, trigger_type, code_version,
-                     source_version, model_version, log_path, started_at)
-                VALUES (:name, 'QUEUED', :run_id, :trigger, :code, :src, :model,
+                    (pipeline_type, status, run_id, trigger_type, code_version,
+                     source_version, log_path, started_at)
+                VALUES ('WAI_PIPELINE', 'QUEUED', :run_id, :trigger, :code, :src,
                         :log_dir, now())
                 RETURNING id
                 """
             ),
-            {"name": PIPELINE_NAME, "run_id": run_id, "trigger": trigger,
-             "code": CODE_VERSION, "src": SOURCE_VERSION, "model": MODEL_VERSION,
+            {"run_id": run_id, "trigger": trigger,
+             "code": CODE_VERSION, "src": SOURCE_VERSION,
              "log_dir": str(LOG_DIR)},
         ).first()
         return row[0], run_id
@@ -119,10 +131,18 @@ def create_run(trigger: str) -> tuple[int, str]:
 def update_run(run_pk: int, **fields) -> None:
     if not fields:
         return
-    sets = ", ".join(f"{k} = :{k}" for k in fields)
-    fields["id"] = run_pk
+    renamed = {}
+    for key, value in fields.items():
+        key = {"ended_at": "completed_at", "error_summary": "error_message"}.get(key, key)
+        if key in {"data_period", "records_read", "records_written", "records_skipped", "warning_count", "error_count"}:
+            continue
+        renamed[key] = value
+    if not renamed:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in renamed)
+    renamed["id"] = run_pk
     with engine().begin() as conn:
-        conn.execute(text(f"UPDATE aquavision.pipeline_runs SET {sets} WHERE id = :id"), fields)
+        conn.execute(text(f"UPDATE aquavision.pipeline_runs SET {sets} WHERE id = :id"), renamed)
 
 
 def acquire_lock(conn) -> bool:
@@ -144,9 +164,9 @@ def sweep_stale_runs(stale_after: str = STALE_AFTER) -> int:
                 """
                 UPDATE aquavision.pipeline_runs
                 SET status = 'FAILED',
-                    error_summary = COALESCE(error_summary, '')
+                    error_message = COALESCE(error_message, '')
                                      || ' [auto-failed: exceeded ' || :stale || ']',
-                    ended_at = now()
+                    completed_at = now()
                 WHERE status = 'RUNNING'
                   AND started_at < now() - (:stale)::interval
                 """
@@ -163,7 +183,7 @@ def cancel_run(run_pk: int) -> bool:
             text(
                 """
                 UPDATE aquavision.pipeline_runs
-                SET status = 'CANCELLED', ended_at = now()
+                SET status = 'CANCELLED', completed_at = now()
                 WHERE id = :id AND status = 'QUEUED'
                 """
             ),
@@ -175,6 +195,19 @@ def cancel_run(run_pk: int) -> bool:
 def _gee_credentials_file() -> Path:
     """Default OAuth credentials file from `earthengine authenticate`."""
     return Path(os.path.expanduser("~/.config/earthengine/credentials"))
+
+
+def gee_skip_reason(configured: bool, age: float | None) -> str | None:
+    """None when Earth Engine can run. Otherwise the SKIPPED reason."""
+    if configured:
+        return None
+    if age is None:
+        return "no GEE credentials and no cached CSV"
+    return f"no GEE credentials; using cached CSV (age {age:.1f}d)"
+
+
+def indicators_are_stale(age: float | None, max_days: int = MAX_CACHE_DAYS) -> bool:
+    return age is None or age > max_days
 
 
 def gee_configured() -> bool:
@@ -211,24 +244,18 @@ def record_skipped_stage(run_pk: int, run_id: str, stage: str, log_path: str,
             text(
                 """
                 INSERT INTO aquavision.pipeline_run_stages
-                    (run_pk, run_id, stage_name, status, started_at, finished_at,
-                     records_read, records_written, records_skipped,
-                     warning_count, error_count, log_path)
-                VALUES (:run_pk, :run_id, :stage, 'SKIPPED', :started, :finished,
-                        0, 0, 0, 0, 0, :log)
-                ON CONFLICT (run_id, stage_name) DO UPDATE
-                    SET status = EXCLUDED.status, finished_at = EXCLUDED.finished_at,
-                        log_path = EXCLUDED.log_path
+                    (run_id, stage_name, status, started_at, completed_at, log_path)
+                VALUES (:run_id, :stage, 'SKIPPED', :started, :finished, :log)
                 """
             ),
-            {"run_pk": run_pk, "run_id": run_id, "stage": stage,
+            {"run_id": run_id, "stage": stage,
              "started": now, "finished": now, "log": log_path},
         )
         conn.execute(
             text(
                 """
                 UPDATE aquavision.pipeline_runs
-                SET error_summary = COALESCE(error_summary, '') || :reason || E'\n'
+                SET error_message = COALESCE(error_message, '') || :reason || E'\n'
                 WHERE id = :id AND status = 'RUNNING'
                 """
             ),
@@ -243,26 +270,16 @@ def record_stage(run_pk: int, run_id: str, stage: str, summary: dict,
             text(
                 """
                 INSERT INTO aquavision.pipeline_run_stages
-                    (run_pk, run_id, stage_name, status, started_at, finished_at,
-                     records_read, records_written, records_skipped,
-                     warning_count, error_count, log_path)
-                VALUES (:run_pk, :run_id, :stage, :status, :started, :finished,
-                        :read, :written, :skipped, :warn, :err, :log)
-                ON CONFLICT (run_id, stage_name) DO UPDATE
-                    SET status = EXCLUDED.status, finished_at = EXCLUDED.finished_at,
-                        records_read = EXCLUDED.records_read,
-                        records_written = EXCLUDED.records_written,
-                        records_skipped = EXCLUDED.records_skipped,
-                        warning_count = EXCLUDED.warning_count,
-                        error_count = EXCLUDED.error_count,
-                        log_path = EXCLUDED.log_path
+                    (run_id, stage_name, status, started_at, completed_at,
+                     records_fetched, records_stored, records_skipped, log_path)
+                VALUES (:run_id, :stage, :status, :started, :finished,
+                        :read, :written, :skipped, :log)
                 """
             ),
-            {"run_pk": run_pk, "run_id": run_id, "stage": stage,
+            {"run_id": run_id, "stage": stage,
              "status": summary["status"], "started": started, "finished": finished,
              "read": summary["records_read"], "written": summary["records_written"],
-             "skipped": summary["records_skipped"], "warn": summary["warning_count"],
-             "err": summary["error_count"], "log": log_path},
+             "skipped": summary["records_skipped"], "log": log_path},
         )
 
 
@@ -315,6 +332,7 @@ def _parse_stage(stage: str, output: str, code: int) -> dict:
             "predict_weekly": r"Wrote (\d+) predictions",
             "run_risk_alerts": r"Wrote (\d+) alerts",
             "gee_fetch": r"Wrote (\d+) rows ->",
+            "surface_water": r"Wrote (\d+) rows ->",
         },
         "records_skipped": {"sync_indicators": r"Skipped (\d+) invalid rows"},
         "warning_count": {"sync_indicators": r"PARTIAL \(incomplete\) periods: (\d+)"},
@@ -350,7 +368,7 @@ def finalize(run_pk: int, run_id: str, stages: list[dict], data_period: str | No
     existing = None
     with engine().connect() as conn:
         existing = conn.execute(
-            text("SELECT error_summary FROM aquavision.pipeline_runs WHERE id = :id"),
+            text("SELECT error_message FROM aquavision.pipeline_runs WHERE id = :id"),
             {"id": run_pk},
         ).scalar()
     parts = [p for p in (existing, "; ".join(errors[:5])) if p]
@@ -410,7 +428,7 @@ def main() -> None:
         update_run(run_pk, status="RUNNING", log_path=str(LOG_DIR / run_id))
         print(f"[pipeline:{run_id}] queued -> running ({trigger})")
 
-        stages = [single] if single else (["gee_fetch"] + STAGES if with_fetch else STAGES)
+        stages = [single] if single else (["gee_fetch"] + STAGES if with_fetch else [s for s in STAGES if s != "surface_water"])
         stage_results: list[dict] = []
         warnings: list[str] = []
         errors: list[str] = []
@@ -418,29 +436,25 @@ def main() -> None:
         stale_data = False  # when True, sync marks indicators STALE instead of VALID
 
         for stage in stages:
-            if stage == "gee_fetch":
-                log = LOG_DIR / run_id / "gee_fetch.log"
-                if not gee_configured():
-                    # No credentials: honest SKIPPED (never a silent FAILED+continue).
-                    log.parent.mkdir(parents=True, exist_ok=True)
-                    age = csv_age_days()
-                    if age is None:
-                        reason = "no GEE credentials and no cached CSV"
-                    else:
-                        reason = f"no GEE credentials; using cached CSV (age {age:.1f}d)"
-                    log.write_text(f"[gee_fetch] SKIPPED - {reason}\n")
-                    warnings.append(f"gee_fetch: {reason}")
-                    record_skipped_stage(run_pk, run_id, "gee_fetch", str(log), reason)
-                    if age is None or age > MAX_CACHE_DAYS:
-                        stale_data = True
-                        warnings.append(f"data source STALE (CSV age {age:.1f}d > "
-                                        f"{MAX_CACHE_DAYS}d); indicators will be marked STALE")
-                    continue
+            if stage in GEE_STAGES and not gee_configured():
+                log = LOG_DIR / run_id / f"{stage}.log"
+                log.parent.mkdir(parents=True, exist_ok=True)
+                age = csv_age_days()
+                reason = gee_skip_reason(False, age) or "no GEE credentials"
+                log.write_text(f"[{stage}] SKIPPED - {reason}\n")
+                warnings.append(f"{stage}: {reason}")
+                record_skipped_stage(run_pk, run_id, stage, str(log), reason)
+                if stage == "gee_fetch" and indicators_are_stale(age):
+                    stale_data = True
+                    warnings.append(
+                        f"data source STALE (CSV age {age}d > {MAX_CACHE_DAYS}d); "
+                        "indicators will be marked STALE"
+                    )
+                continue
 
-                # Real GEE fetch. If it does not refresh the CSV, treat as stale.
+            if stage == "gee_fetch":
                 before = csv_mtime()
-                summary = run_stage(run_pk, run_id, "gee_fetch",
-                                    module="gee.gee_fetch")
+                summary = run_stage(run_pk, run_id, "gee_fetch", module=STAGE_MODULES["gee_fetch"])
                 after = csv_mtime()
                 if summary["status"] != "SUCCESS":
                     warnings.append("gee_fetch failed; using cached CSV")
@@ -454,6 +468,7 @@ def main() -> None:
 
             summary = run_stage(
                 run_pk, run_id, stage,
+                module=STAGE_MODULES.get(stage),
                 env_extra={"SYNC_DATA_STATUS": "STALE"} if (stage == "sync_indicators" and stale_data) else None,
             )
             stage_results.append(summary)

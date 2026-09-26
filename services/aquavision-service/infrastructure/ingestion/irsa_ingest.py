@@ -297,7 +297,17 @@ def ingest_irsa_pdf(pdf_path: str, target_date: date, source_url: str = "") -> d
         "raw_record_id": raw_record_id,
         "thresholds": threshold_result,
         "ot_anchor": _reanchor_soft_ot("irsa-ingest"),
+        "ot_series": _append_ot_series(observations, target_date, source_url),
     }
+
+
+def _append_ot_series(observations, target_date: date, source_url: str) -> dict:
+    try:
+        from infrastructure.ingestion.ot_series_append import append_irsa_observations
+        return append_irsa_observations(observations, target_date, source_url)
+    except Exception as exc:
+        logger.warning("Soft OT series append skipped: %s", exc)
+        return {"csv_rows": 0, "writes_observations": False, "error": str(exc)}
 
 
 if __name__ == "__main__":

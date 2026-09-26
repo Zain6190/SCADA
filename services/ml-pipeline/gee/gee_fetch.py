@@ -5,10 +5,12 @@ AquaVision - Fetch region-level feature time-series from Google Earth Engine.
 For each administrative region in shared.regions (SRID 4326 polygons),
 pull MONTHLY aggregates from:
   - CHIRPS      precipitation  (mm / month)          "UCSB-CHG/CHIRPS/DAILY"
-  - ERA5-Land   evapotranspiration (mm / month)      "ECMWF/ERA5_LAND/MONTHLY"
+  - MOD16       evapotranspiration (mm / month)      "MODIS/061/MOD16A2"
   - JRC GSW     surface water extent (%)             "JRC/GSW1_4/MonthlyHistory"
   - Sentinel-2  NDVI (median, cloud-filtered)        "COPERNICUS/S2_HARMONIZED"
   - SMAP L4     soil moisture (vol. fraction)        "NASA/SMAP/SPL4SMGP/008"
+
+The default window is the last 12 weeks. --backfill restores the long training range.
 
 Writes long-format CSV -> Data/raw/region_features.csv
 """
@@ -25,8 +27,30 @@ DB_URL = os.getenv("DATABASE_URL", "")
 SERVICE_ACCOUNT_KEY = Path(__file__).resolve().parent / "service-account.json"
 # psycopg2 needs the plain postgresql:// DSN, not the SQLAlchemy dialect form.
 _PSYCOPG2_DSN = DB_URL.replace("postgresql+psycopg2://", "postgresql://")
-START_DATE = os.getenv("GEE_START_DATE", "2021-01-01")
-END_DATE = os.getenv("GEE_END_DATE", "2026-07-31")
+BACKFILL_START = os.getenv("GEE_BACKFILL_START", "2021-01-01")
+BACKFILL_END = os.getenv("GEE_BACKFILL_END", "2026-07-31")
+SOURCE_VERSION = "GEE-CHIRPS/MOD16-JRC"
+
+RESERVOIRS = (
+    {"asset_id": 1, "name": "Tarbela", "lon": 72.6837, "lat": 34.0887},
+    {"asset_id": 2, "name": "Mangla", "lon": 73.6437, "lat": 33.1387},
+)
+
+
+def recent_window(today: date | None = None, weeks: int = 12) -> tuple[str, str]:
+    today = today or date.today()
+    start = (today - timedelta(weeks=weeks)).replace(day=1)
+    return start.isoformat(), today.isoformat()
+
+
+def resolve_window(backfill: bool = False, today: date | None = None) -> tuple[str, str]:
+    if backfill:
+        return BACKFILL_START, BACKFILL_END
+    start = os.getenv("GEE_START_DATE")
+    end = os.getenv("GEE_END_DATE")
+    if start and end:
+        return start, end
+    return recent_window(today)
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "Data" / "raw"
 
@@ -44,7 +68,7 @@ def load_regions() -> list[dict]:
     cur = conn.cursor()
     cur.execute(
         "SELECT id, name, type, ST_AsGeoJSON(geom) AS geojson "
-        "FROM shared.regions ORDER BY id"
+        "FROM shared.regions WHERE type = 'district' ORDER BY id"
     )
     rows = []
     for rid, name, rtype, geojson in cur.fetchall():
@@ -92,23 +116,19 @@ def _precip_ic(month_ranges: list[tuple[str, str]]) -> ee.ImageCollection:
 
 
 def _et_ic(month_ranges: list[tuple[str, str]]) -> ee.ImageCollection:
-    """ERA5-Land monthly ET: total_evaporation_sum (m) -> mm (absolute)."""
-    et = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR").select(
-        "total_evaporation_sum"
-    )
+    """MODIS MOD16 8-day ET summed to mm for the month. Scale factor is 0.1."""
+    et = ee.ImageCollection("MODIS/061/MOD16A2").select("ET")
     imgs = []
     for s, e in month_ranges:
-        coll = et.filterDate(s, e).map(
-            lambda img: img.abs().multiply(1000).rename("et_mm")
-        )
+        coll = et.filterDate(s, e).map(lambda img: img.multiply(0.1).rename("et_mm"))
         img = ee.Image(
             ee.Algorithms.If(
                 coll.size().gt(0),
-                coll.first(),
+                coll.sum(),
                 ee.Image.constant(0.0).rename("et_mm"),
             )
         )
-        imgs.append(img.set("month", s))
+        imgs.append(img.rename("et_mm").set("month", s))
     return ee.ImageCollection(imgs)
 
 
@@ -184,15 +204,74 @@ def _first_or_fill(
     )
 
 
-def main() -> None:
-    import json as _json
+def initialize_ee() -> None:
+    if SERVICE_ACCOUNT_KEY.exists():
+        credentials = ee.ServiceAccountCredentials(
+            None,
+            key_data=SERVICE_ACCOUNT_KEY.read_text(),
+        )
+        ee.Initialize(credentials, project=PROJECT)
+        print(f"[gee_fetch] Authenticated with service account for project {PROJECT}")
+        return
+    ee.Initialize(project=PROJECT)
+    print(f"[gee_fetch] Authenticated with Earth Engine user credentials for project {PROJECT}")
 
-    credentials = ee.ServiceAccountCredentials(
-        None,
-        key_data=SERVICE_ACCOUNT_KEY.read_text(),
+
+def sample_reservoirs(end_date: str) -> list[dict]:
+    """NDWI water area inside an 8 km buffer around Tarbela and Mangla."""
+    start = (date.fromisoformat(end_date) - timedelta(weeks=12)).isoformat()
+    s2 = ee.ImageCollection("COPERNICUS/S2_HARMONIZED").filter(
+        ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 40)
     )
-    ee.Initialize(credentials, project=PROJECT)
-    print(f"[gee_fetch] Authenticated with service account for project {PROJECT}")
+    rows = []
+    for spec in RESERVOIRS:
+        geom = ee.Geometry.Point([spec["lon"], spec["lat"]]).buffer(8000)
+        coll = s2.filterDate(start, end_date).filterBounds(geom).map(
+            lambda img: img.normalizedDifference(["B3", "B8"]).rename("ndwi").updateMask(
+                img.normalizedDifference(["B3", "B8"]).gt(0.3)
+            )
+        )
+        area = ee.Image(
+            ee.Algorithms.If(
+                coll.size().gt(0),
+                coll.median().multiply(ee.Image.pixelArea()).rename("area"),
+                ee.Image.constant(0).rename("area"),
+            )
+        )
+        total = area.reduceRegion(ee.Reducer.sum(), geom, 30).get("area")
+        km2 = float(total.getInfo() or 0) / 1e6
+        rows.append({
+            "asset_id": spec["asset_id"],
+            "name": spec["name"],
+            "observed_on": end_date,
+            "area_km2": round(km2, 3),
+            "source_authority": "GEE",
+            "method": "NDWI",
+            "writes_irsa_level": False,
+        })
+    return rows
+
+
+def _write_reservoirs(rows: list[dict]) -> None:
+    import csv
+
+    path = RAW_DIR / "reservoir_surface.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=[
+            "asset_id", "name", "observed_on", "area_km2",
+            "source_authority", "method", "writes_irsa_level",
+        ])
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[gee_fetch] Wrote {len(rows)} reservoir area rows -> {path}")
+
+
+def main() -> None:
+    import sys
+
+    backfill = "--backfill" in sys.argv
+    start_date, end_date = resolve_window(backfill=backfill)
+    initialize_ee()
     regions = load_regions()
     regions_fc = ee.FeatureCollection(
         {
@@ -200,8 +279,8 @@ def main() -> None:
             "features": regions,
         }
     )
-    months = month_ranges(START_DATE, END_DATE)
-    print(f"[gee_fetch] {len(months)} months ({START_DATE} -> {END_DATE})")
+    months = month_ranges(start_date, end_date)
+    print(f"[gee_fetch] {len(months)} months ({start_date} -> {end_date}) source {SOURCE_VERSION}")
 
     datasets = {
         "rainfall_mm": _precip_ic(months),
@@ -246,6 +325,10 @@ def main() -> None:
         for row in results:
             writer.writerow(row)
     print(f"[gee_fetch] Wrote {len(results)} rows -> {path}")
+    try:
+        _write_reservoirs(sample_reservoirs(end_date))
+    except Exception as exc:
+        print(f"[gee_fetch] reservoir area sample skipped: {exc}")
 
 
 def _set_nested(rows: list, rid: int, feat: str, month: str, value) -> None:

@@ -58,7 +58,7 @@ export default function PredictionsPage() {
       <div className="space-y-6">
         <PageHeader
           title="Predictions"
-          description="ML-powered forecasts for flood risk and water stress"
+          description="Two-week class from the published weekly satellite index, plus flood forecasts."
           icon={<TrendingUp className="h-6 w-6" />}
         />
 

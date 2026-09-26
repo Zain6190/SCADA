@@ -362,6 +362,21 @@ export const waterApi = {
     return data
   },
 
+  getSatelliteReportSection: async (): Promise<any> => {
+    const { data } = await waterClient.get('/reports/satellite-section')
+    return data
+  },
+
+  getNdvi: async (): Promise<any> => {
+    const { data } = await waterClient.get('/indicators/ndvi')
+    return data
+  },
+
+  getSatelliteArea: async (assetId: number): Promise<any> => {
+    const { data } = await waterClient.get(`/operational/assets/${assetId}/satellite-area`)
+    return data
+  },
+
   getOtDevices: async (): Promise<any[]> => {
     const { data } = await waterClient.get('/ot/devices')
     return data
@@ -447,15 +462,6 @@ export const waterApi = {
     return data
   },
 
-  otFault: async (assetId: number, kind: string): Promise<any> => {
-    const { data } = await waterClient.post('/ot/hmi/fault', {
-      asset_id: assetId,
-      kind,
-      actor: 'virtual-hmi',
-    })
-    return data
-  },
-
   issueInstruction: async (
     alertId: number,
     payload: {
@@ -489,11 +495,6 @@ export const waterApi = {
       report_text: reportText,
       report_data: reportData,
     })
-    return data
-  },
-
-  anchorOt: async (): Promise<any> => {
-    const { data } = await waterClient.post('/ot/anchor')
     return data
   },
 

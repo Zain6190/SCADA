@@ -34,10 +34,12 @@ from gee.build_labels import compute_wai, classify
 
 ML_ROOT = Path(__file__).resolve().parent.parent
 RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
+SURFACE_CSV = RAW_CSV.parent / "surface_water.csv"
 DB_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
 )
-SOURCE_VERSION = os.getenv("GEE_SOURCE_VERSION", "GEE-CHIRPS/ERA5-JRC-2026.8")
+SOURCE_VERSION = os.getenv("GEE_SOURCE_VERSION", "GEE-CHIRPS/MOD16-JRC-2026.9")
+PUBLISHED_TABLES = ("aquavision.water_indicators_weekly",)
 MODEL_VERSION = os.getenv("GEE_WAI_VERSION", "composite-v1.0")
 # Set by the orchestrator when the source CSV could not be refreshed: rows are
 # published as quality_status='STALE' + data_status='Stale' instead of VALID so
@@ -57,7 +59,7 @@ def engine():
 def district_ids() -> list[int]:
     with engine().connect() as conn:
         rows = conn.execute(
-            text("SELECT id FROM shared.regions WHERE geom IS NOT NULL ORDER BY id")
+            text("SELECT id FROM shared.regions WHERE type = 'district' AND geom IS NOT NULL ORDER BY id")
         ).fetchall()
     return [int(r.id) for r in rows]
 
@@ -198,6 +200,39 @@ def build_rows(feats: pd.DataFrame, districts: list[int]) -> tuple[list[dict], i
     return rows, skipped
 
 
+def attach_surface_area(rows: list[dict], surface_path: Path = SURFACE_CSV) -> list[dict]:
+    """Fill area and change from the NDWI file when that district-month has a sample."""
+    if not surface_path.exists():
+        return rows
+    latest: dict[tuple[int, str], dict] = {}
+    frame = pd.read_csv(surface_path)
+    for record in frame.to_dict(orient="records"):
+        week = str(record.get("week_start_date") or "")[:10]
+        if not week or record.get("region_id") in (None, ""):
+            continue
+        area = record.get("water_area_km2")
+        if area is None or (isinstance(area, float) and np.isnan(area)):
+            continue
+        month = f"{week[:7]}-01"
+        key = (int(record["region_id"]), month)
+        current = latest.get(key)
+        if current is None or week > current["week"]:
+            change = record.get("change_pct")
+            latest[key] = {
+                "week": week,
+                "area": float(area),
+                "change": None if change is None or (isinstance(change, float) and np.isnan(change)) else float(change),
+            }
+    for row in rows:
+        hit = latest.get((row["region_id"], row["week_start_date"].strftime("%Y-%m-01")))
+        if hit is None:
+            continue
+        row["surface_water_area_km2"] = hit["area"]
+        if hit["change"] is not None:
+            row["surface_water_change_pct"] = hit["change"]
+    return rows
+
+
 def upsert_rows(rows: list[dict]) -> None:
     eng = engine()
     with eng.begin() as conn:
@@ -296,6 +331,7 @@ def run() -> dict:
         raise RuntimeError("No districts found in shared.regions")
 
     rows, skipped = build_rows(feats, districts)
+    attach_surface_area(rows)
     if not rows:
         raise RuntimeError("No valid district-months to sync")
 

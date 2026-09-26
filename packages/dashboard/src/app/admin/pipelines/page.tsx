@@ -2,6 +2,7 @@
 // Pipeline Status Viewer - shows IRSA and FFD pipeline health details.
 'use client'
 
+import type { ReactNode } from 'react'
 import { Server, RefreshCw, Clock, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
@@ -9,6 +10,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState } from '@/components/ui/state'
 import { usePipelineHealth } from '@/features/water/hooks'
+import type { PipelineRunSummary } from '@/features/water/types'
 import { timeAgo } from '@/lib/format'
 
 const AMBER = 'bg-warn-soft text-warn'
@@ -38,6 +40,7 @@ function statusLabel(status: string | null | undefined): string {
     case 'FAILED': return 'Failed'
     case 'RUNNING': return 'Running'
     case 'QUEUED': return 'Queued'
+    case 'SKIPPED': return 'Skipped'
     case 'ready': return 'Ready'
     case 'not_ready': return 'Not Ready'
     case 'running': return 'Running'
@@ -45,6 +48,59 @@ function statusLabel(status: string | null | undefined): string {
     case 'unhealthy': return 'Unhealthy'
     default: return status ?? 'Unknown'
   }
+}
+
+function RunCard({
+  title,
+  subtitle,
+  icon,
+  accent,
+  run,
+  empty,
+}: {
+  title: string
+  subtitle: string
+  icon: ReactNode
+  accent: string
+  run: PipelineRunSummary | null | undefined
+  empty: string
+}) {
+  return (
+    <Card>
+      <CardHeader title={title} subtitle={subtitle} icon={icon} accent={accent} />
+      <CardBody>
+        {run ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-slate-500">Status</p>
+                <Badge tone={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Started</p>
+                <p className="text-sm text-slate-300">{timeAgo(run.started_at)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Completed</p>
+                <p className="text-sm text-slate-300">{timeAgo(run.completed_at)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Records stored</p>
+                <p className="text-sm font-semibold text-slate-200">{run.records_stored ?? '—'}</p>
+              </div>
+            </div>
+            {run.error_message ? (
+              <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                {run.error_message}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="py-8 text-center text-sm text-slate-500">{empty}</div>
+        )}
+      </CardBody>
+    </Card>
+  )
 }
 
 export default function PipelinesPage() {
@@ -56,7 +112,7 @@ export default function PipelinesPage() {
       <div className="space-y-6">
         <PageHeader
           title="Pipeline Status"
-          description="Monitor IRSA and FFD data ingestion pipelines, scheduler health, and data freshness."
+          description="Latest IRSA, FFD, and weekly water-index pipeline runs, with start time and error text."
           icon={<Server className="h-6 w-6" />}
           accent={AMBER}
           action={
@@ -122,109 +178,30 @@ export default function PipelinesPage() {
               </Card>
             </div>
 
-            {/* IRSA Pipeline */}
-            <Card>
-              <CardHeader
-                title="IRSA Data Pipeline"
-                subtitle="Ingests daily PDF from pakirsa.gov.pk, parses observations, stores to database"
-                icon={<Server className="h-5 w-5" />}
-                accent="bg-brand-soft text-brand"
-              />
-              <CardBody>
-                {health?.last_irsa_run ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                      <div>
-                        <p className="text-xs text-ink-subtle">Status</p>
-                        <Badge tone={statusTone(health.last_irsa_run.status)}>
-                          {statusLabel(health.last_irsa_run.status)}
-                        </Badge>
-                      </div>
-                      <div>
-                        <p className="text-xs text-ink-subtle">Run ID</p>
-                        <p className="font-mono text-sm text-ink-muted">{health.last_irsa_run.run_id ?? '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-ink-subtle">Last Completed</p>
-                        <p className="text-sm text-ink-muted">{timeAgo(health.last_irsa_run.completed_at)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-ink-subtle">Records Stored</p>
-                        <p className="text-sm font-semibold text-ink">{health.last_irsa_run.records_stored ?? '—'}</p>
-                      </div>
-                    </div>
-                    {health.data_freshness.irsa_hours != null && (
-                      <div>
-                        <div className="mb-1 flex items-center justify-between text-xs">
-                          <span className="text-ink-subtle">Freshness</span>
-                          <span className="text-ink-muted">{health.data_freshness.irsa_hours.toFixed(1)}h since last update</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-surface-alt">
-                          <div
-                            className="h-full rounded-full bg-brand transition-all"
-                            style={{ width: `${Math.min(100, Math.max(5, 100 - health.data_freshness.irsa_hours * 4))}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center text-sm text-ink-subtle py-8">No IRSA pipeline runs recorded yet.</div>
-                )}
-              </CardBody>
-            </Card>
-
-            {/* FFD Pipeline */}
-            <Card>
-              <CardHeader
-                title="FFD Bulletin Pipeline"
-                subtitle="Scrapes PMD/FFD flood bulletin, parses status text, stores to database"
-                icon={<AlertTriangle className="h-5 w-5" />}
-                accent="bg-warn-soft text-warn"
-              />
-              <CardBody>
-                {health?.last_ffd_run ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                      <div>
-                        <p className="text-xs text-ink-subtle">Status</p>
-                        <Badge tone={statusTone(health.last_ffd_run.status)}>
-                          {statusLabel(health.last_ffd_run.status)}
-                        </Badge>
-                      </div>
-                      <div>
-                        <p className="text-xs text-ink-subtle">Run ID</p>
-                        <p className="font-mono text-sm text-ink-muted">{health.last_ffd_run.run_id ?? '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-ink-subtle">Last Completed</p>
-                        <p className="text-sm text-ink-muted">{timeAgo(health.last_ffd_run.completed_at)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-ink-subtle">Records Stored</p>
-                        <p className="text-sm font-semibold text-ink">{health.last_ffd_run.records_stored ?? '—'}</p>
-                      </div>
-                    </div>
-                    {health.data_freshness.ffd_hours != null && (
-                      <div>
-                        <div className="mb-1 flex items-center justify-between text-xs">
-                          <span className="text-ink-subtle">Freshness</span>
-                          <span className="text-ink-muted">{health.data_freshness.ffd_hours.toFixed(1)}h since last update</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-surface-alt">
-                          <div
-                            className="h-full rounded-full bg-warn transition-all"
-                            style={{ width: `${Math.min(100, Math.max(5, 100 - health.data_freshness.ffd_hours * 4))}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center text-sm text-ink-subtle py-8">No FFD pipeline runs recorded yet.</div>
-                )}
-              </CardBody>
-            </Card>
+            <RunCard
+              title="IRSA Data Pipeline"
+              subtitle="Daily PDF from pakirsa.gov.pk. Canal withdrawals stay on this feed."
+              icon={<Server className="h-5 w-5" />}
+              accent="bg-sky-500/10 text-sky-300"
+              run={health?.last_irsa_run}
+              empty="No IRSA pipeline runs recorded yet."
+            />
+            <RunCard
+              title="FFD Bulletin Pipeline"
+              subtitle="PMD/FFD flood bulletin stored beside the IRSA day."
+              icon={<AlertTriangle className="h-5 w-5" />}
+              accent="bg-amber-500/10 text-amber-300"
+              run={health?.last_ffd_run}
+              empty="No FFD pipeline runs recorded yet."
+            />
+            <RunCard
+              title="Weekly water index"
+              subtitle="Earth Engine rainfall, evapotranspiration, surface water, and NDVI."
+              icon={<Clock className="h-5 w-5" />}
+              accent="bg-violet-500/10 text-violet-300"
+              run={health?.last_wai_run}
+              empty="No weekly water-index run recorded yet."
+            />
           </>
         )}
       </div>

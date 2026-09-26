@@ -1177,3 +1177,16 @@ async def get_weekly_summary(
         ))
 
     return result
+
+
+@router.get("/operational/assets/{asset_id}/satellite-area")
+async def satellite_area(asset_id: int):
+    """Satellite surface area for Tarbela or Mangla. The IRSA level is unchanged."""
+    from infrastructure.ingestion.satellite_publish import latest_reservoir_area
+    row = latest_reservoir_area(asset_id)
+    return row or {
+        "asset_id": asset_id,
+        "area_km2": None,
+        "source_authority": "GEE",
+        "writes_irsa_level": False,
+    }

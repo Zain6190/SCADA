@@ -2,6 +2,7 @@
 // GeoVision NDVI Analysis - vegetation greenness trends and scale.
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import { Leaf, Activity, Layers } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -11,7 +12,6 @@ import {
   YAxis,
   Tooltip as RTooltip,
   CartesianGrid,
-  Legend,
 } from 'recharts'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
@@ -19,23 +19,10 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge, SeverityBadge } from '@/components/ui/badge'
 import { ProgressBar } from '@/components/ui/progress'
 import { fmtNumber } from '@/lib/format'
+import { waterApi } from '@/features/water/api'
+import { EmptyState } from '@/components/ui/state'
 
 const VIOLET = 'bg-brand-soft text-brand'
-
-const cropSeries = [
-  { month: 'Jan', wheat: 0.31, rice: 0.0, pasture: 0.18 },
-  { month: 'Feb', wheat: 0.4, rice: 0.0, pasture: 0.22 },
-  { month: 'Mar', wheat: 0.58, rice: 0.0, pasture: 0.3 },
-  { month: 'Apr', wheat: 0.72, rice: 0.12, pasture: 0.44 },
-  { month: 'May', wheat: 0.55, rice: 0.38, pasture: 0.51 },
-  { month: 'Jun', wheat: 0.3, rice: 0.62, pasture: 0.46 },
-  { month: 'Jul', wheat: 0.22, rice: 0.74, pasture: 0.39 },
-  { month: 'Aug', wheat: 0.24, rice: 0.68, pasture: 0.36 },
-  { month: 'Sep', wheat: 0.35, rice: 0.51, pasture: 0.42 },
-  { month: 'Oct', wheat: 0.46, rice: 0.3, pasture: 0.5 },
-  { month: 'Nov', wheat: 0.5, rice: 0.15, pasture: 0.47 },
-  { month: 'Dec', wheat: 0.38, rice: 0.0, pasture: 0.35 },
-]
 
 const ndviBands = [
   { label: 'Bare / water', range: '< 0.1', color: '#ef4444' },
@@ -44,57 +31,81 @@ const ndviBands = [
   { label: 'Dense vegetation', range: '> 0.6', color: '#22c55e' },
 ]
 
-const districtTiles = [
-  { name: 'Multan', ndvi: 0.62, severity: 'Normal' },
-  { name: 'Peshawar', ndvi: 0.71, severity: 'Normal' },
-  { name: 'Lahore', ndvi: 0.66, severity: 'Normal' },
-  { name: 'Faisalabad', ndvi: 0.55, severity: 'Moderate' },
-  { name: 'Hyderabad', ndvi: 0.48, severity: 'Moderate' },
-  { name: 'Khairpur', ndvi: 0.41, severity: 'Moderate' },
-  { name: 'Sukkur', ndvi: 0.34, severity: 'Stressed' },
-  { name: 'Dera Ghazi Khan', ndvi: 0.29, severity: 'Warning' },
-  { name: 'Quetta', ndvi: 0.18, severity: 'Severe' },
-  { name: 'Gwadar', ndvi: 0.09, severity: 'Critical' },
-]
+function ndviSeverity(value: number): string {
+  if (value < 0.2) return 'Severe'
+  if (value < 0.4) return 'Stressed'
+  if (value < 0.6) return 'Moderate'
+  return 'Normal'
+}
 
 export default function NdviAnalysisPage() {
+  const [latest, setLatest] = useState<any[]>([])
+  const [history, setHistory] = useState<any[]>([])
+
+  useEffect(() => {
+    waterApi.getNdvi()
+      .then((payload) => {
+        setLatest(payload?.latest || [])
+        setHistory(payload?.history || [])
+      })
+      .catch(() => {
+        setLatest([])
+        setHistory([])
+      })
+  }, [])
+
+  const chartRows = useMemo(() => {
+    const byMonth = new Map<string, { month: string; ndvi: number; count: number }>()
+    for (const row of history) {
+      const current = byMonth.get(row.month) || { month: row.month, ndvi: 0, count: 0 }
+      current.ndvi += Number(row.ndvi)
+      current.count += 1
+      byMonth.set(row.month, current)
+    }
+    return Array.from(byMonth.values())
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((row) => ({ month: row.month.slice(0, 7), ndvi: row.ndvi / row.count }))
+  }, [history])
+
+  const imageWeek = latest[0]?.month
   return (
     <AppShell>
       <div className="space-y-6">
         <PageHeader
           title="NDVI Analysis"
-          description="Normalized Difference Vegetation Index — greenness and vegetation density from satellite imagery."
-          badge={<Badge tone="slate">Simulation data</Badge>}
+          description="Sentinel-2 NDVI for the districts published by the weekly satellite fetch."
+          badge={<Badge tone="slate">{imageWeek ? `Image week ${imageWeek}` : 'Awaiting fetch'}</Badge>}
           icon={<Leaf className="h-6 w-6" />}
           accent={VIOLET}
         />
 
         <Card>
           <CardHeader
-            title="Monthly NDVI by Crop"
-            subtitle="Wheat, rice, and pasture growing cycles"
+            title="District NDVI"
+            subtitle="Mean Sentinel-2 NDVI across the published districts"
             icon={<Activity className="h-5 w-5" />}
             accent={VIOLET}
-            action={<Badge tone="violet">Jan – Dec</Badge>}
+            action={<Badge tone="violet">{chartRows.length ? `${chartRows.length} months` : 'No rows'}</Badge>}
           />
           <CardBody>
             <div className="h-72">
+              {chartRows.length === 0 ? (
+                <EmptyState title="No Sentinel-2 NDVI yet" message="The weekly Earth Engine fetch has not written district NDVI." />
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={cropSeries} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                <LineChart data={chartRows} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#64748b' }} />
-                  <YAxis domain={[0, 1]} tick={{ fontSize: 10, fill: '#64748b' }} />
+                  <YAxis domain={[-0.2, 1]} tick={{ fontSize: 10, fill: '#64748b' }} />
                   <RTooltip
                     contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, fontSize: 12 }}
                     labelStyle={{ color: '#94a3b8' }}
-                    formatter={(v: any, n: any) => [Number(v).toFixed(2), n]}
+                    formatter={(v: any) => [Number(v).toFixed(2), 'NDVI']}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
-                  <Line type="monotone" dataKey="wheat" stroke="#a78bfa" strokeWidth={2} dot={false} name="Wheat" />
-                  <Line type="monotone" dataKey="rice" stroke="#34d399" strokeWidth={2} dot={false} name="Rice" />
-                  <Line type="monotone" dataKey="pasture" stroke="#fbbf24" strokeWidth={2} dot={false} name="Pasture" />
+                  <Line type="monotone" dataKey="ndvi" stroke="#a78bfa" strokeWidth={2} dot={false} name="NDVI" />
                 </LineChart>
               </ResponsiveContainer>
+              )}
             </div>
           </CardBody>
         </Card>
@@ -140,25 +151,29 @@ export default function NdviAnalysisPage() {
               subtitle="Current scene greenness per district"
               icon={<Leaf className="h-5 w-5" />}
               accent={VIOLET}
-              action={<Badge tone="violet">{districtTiles.length} districts</Badge>}
+              action={<Badge tone="violet">{latest.length} districts</Badge>}
             />
             <CardBody>
+              {latest.length === 0 ? (
+                <EmptyState title="No district NDVI" message="Published Sentinel-2 rows will appear here after the weekly fetch." />
+              ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {districtTiles.map((d) => (
-                  <div key={d.name} className="rounded-xl border border-line bg-canvas p-4">
+                {latest.map((d) => (
+                  <div key={d.region_id} className="rounded-xl border border-line bg-canvas p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-ink">{d.name}</p>
-                      <SeverityBadge severity={d.severity} />
+                      <SeverityBadge severity={ndviSeverity(Number(d.ndvi))} />
                     </div>
                     <p className="mt-2 text-2xl font-semibold text-ink">
                       {fmtNumber(d.ndvi, 2)}
                     </p>
                     <div className="mt-2">
-                      <ProgressBar value={d.ndvi} max={1} severity={d.severity} />
+                      <ProgressBar value={Math.max(0, Number(d.ndvi))} max={1} severity={ndviSeverity(Number(d.ndvi))} />
                     </div>
                   </div>
                 ))}
               </div>
+              )}
             </CardBody>
           </Card>
         </div>

@@ -77,7 +77,7 @@ export default function StressAlertsPage() {
       <div className="space-y-6">
         <PageHeader
           title="Water Stress Alerts"
-          description="Region-level WAI alerts from the prediction pipeline"
+          description="Model alerts written from the published weekly rainfall, ET, and surface-water rows."
           icon={<AlertTriangle className="h-6 w-6" />}
           accent="bg-warn-soft text-warn"
           action={

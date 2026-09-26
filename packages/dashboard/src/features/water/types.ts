@@ -451,21 +451,21 @@ export interface ModelPerformance {
 
 // ─── Admin Types ──────────────────────────────────────────────────────────
 
+export interface PipelineRunSummary {
+  status: string | null
+  run_id: string | null
+  started_at: string | null
+  completed_at: string | null
+  records_stored: number | null
+  error_message: string | null
+}
+
 export interface PipelineHealth {
   api_status: string
   scheduler_status: string
-  last_irsa_run: {
-    status: string | null
-    run_id: string | null
-    completed_at: string | null
-    records_stored: number | null
-  } | null
-  last_ffd_run: {
-    status: string | null
-    run_id: string | null
-    completed_at: string | null
-    records_stored: number | null
-  } | null
+  last_irsa_run: PipelineRunSummary | null
+  last_ffd_run: PipelineRunSummary | null
+  last_wai_run: PipelineRunSummary | null
   data_freshness: {
     irsa_hours: number | null
     ffd_hours: number | null

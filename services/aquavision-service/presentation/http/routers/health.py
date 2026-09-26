@@ -61,6 +61,7 @@ async def pipeline_health(session: Session = Depends(get_session)):
             "scheduler_status": "unknown",
             "last_irsa_run": None,
             "last_ffd_run": None,
+            "last_wai_run": None,
             "data_freshness": {"irsa_hours": None, "ffd_hours": None},
         }
 
@@ -71,8 +72,10 @@ async def pipeline_health(session: Session = Depends(get_session)):
         return {
             "status": run.status,
             "run_id": run.run_id,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
             "records_stored": stages[-1].records_stored if stages else None,
+            "error_message": run.error_message,
         }
 
     def get_freshness(run):
@@ -102,6 +105,15 @@ async def pipeline_health(session: Session = Depends(get_session)):
     except Exception:
         last_ffd = None
 
+    try:
+        last_wai = session.execute(
+            select(PipelineRun).where(
+                PipelineRun.pipeline_type == "WAI_PIPELINE"
+            ).order_by(PipelineRun.started_at.desc())
+        ).scalar_one_or_none()
+    except Exception:
+        last_wai = None
+
     scheduler_status = "unknown"
     try:
         heartbeat = session.execute(
@@ -126,6 +138,7 @@ async def pipeline_health(session: Session = Depends(get_session)):
         "scheduler_status": scheduler_status,
         "last_irsa_run": safe_run_info(last_irsa),
         "last_ffd_run": safe_run_info(last_ffd),
+        "last_wai_run": safe_run_info(last_wai),
         "data_freshness": {
             "irsa_hours": get_freshness(last_irsa),
             "ffd_hours": get_freshness(last_ffd),

@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  FileText, Layers, Map, Building2, Globe2, Download, FileJson,
+  FileText, Layers, Map as MapIcon, Building2, Globe2, Download, FileJson,
   FileSpreadsheet, RefreshCw, ShieldCheck, FileCheck2,
 } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
@@ -43,7 +43,8 @@ function OtReportCard() {
   }, [])
   if (!section) return null
   const rows = Array.from(
-    new Map([...(section.open_interlocks || []), ...(section.scenarios || [])].map((row) => [row.device_code, row])).values()
+    new globalThis.Map([...(section.open_interlocks || []), ...(section.scenarios || [])]
+      .map((row: any) => [row.device_code, row] as [string, any])).values()
   )
   return (
     <Card>
@@ -61,6 +62,34 @@ function OtReportCard() {
           <p key={row.device_code}>
             {row.device_code} {row.mode} · official {row.official_on || '—'}
             {row.interlock_reasons?.length ? ` · ${row.interlock_reasons.join(', ')}` : ''}
+          </p>
+        ))}
+      </CardBody>
+    </Card>
+  )
+}
+
+function SatelliteReportCard() {
+  const [section, setSection] = useState<any>(null)
+  useEffect(() => {
+    waterApi.getSatelliteReportSection().then(setSection).catch(() => setSection(null))
+  }, [])
+  if (!section) return null
+  return (
+    <Card>
+      <CardHeader
+        title="Satellite section"
+        subtitle={section.image_week ? `Image week ${section.image_week}` : 'Weekly Earth Engine rows'}
+        icon={<FileText className="h-5 w-5" />}
+        accent={AMBER}
+      />
+      <CardBody className="space-y-2 text-sm text-slate-300">
+        <p>{section.districts || 0} districts in the published file.</p>
+        {(section.worst_districts || []).length === 0 ? (
+          <p className="text-slate-500">The weekly fetch has not published rainfall, ET, or surface water yet.</p>
+        ) : (section.worst_districts || []).map((row: any) => (
+          <p key={row.region_id}>
+            {row.name}: rain {row.rainfall_mm ?? '—'} mm, ET {row.et_mm ?? '—'} mm, surface water {row.surface_water_km2 ?? '—'} km²
           </p>
         ))}
       </CardBody>
@@ -193,12 +222,13 @@ export default function ReportsPage() {
             label="District"
             value={fmtNumber(district, 0)}
             detail="District-level deep dives"
-            icon={Map}
+            icon={MapIcon}
             accent={AMBER}
           />
         </div>
 
         <OtReportCard />
+        <SatelliteReportCard />
 
         <Card>
           <CardHeader
@@ -239,7 +269,7 @@ export default function ReportsPage() {
                   />
                   <ExportButton
                     label="Severity Choropleth GeoJSON"
-                    icon={<Map className="h-3.5 w-3.5" />}
+                    icon={<MapIcon className="h-3.5 w-3.5" />}
                     kind="regions-geojson"
                     busy={busy}
                     exporting={exporting}

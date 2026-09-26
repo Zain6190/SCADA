@@ -153,6 +153,7 @@ interface WAIIndicator {
   et_mm_8day: number | null
   et_anomaly: number | null
   surface_water_change_pct: number | null
+  surface_water_area_km2: number | null
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -209,8 +210,9 @@ function WAISummarySection() {
           )}
         </div>
         <div>
-          <div className="text-ink-subtle">Surface Water</div>
-          <div className="font-mono text-ink">{latest.surface_water_change_pct != null ? `${latest.surface_water_change_pct > 0 ? '+' : ''}${latest.surface_water_change_pct.toFixed(1)}%` : '—'}</div>
+          <div className="text-ink-subtle">Surface water</div>
+          <div className="font-mono text-ink">{latest.surface_water_area_km2 != null ? `${latest.surface_water_area_km2.toFixed(1)} km²` : '—'}</div>
+          <div className="text-[10px] text-ink-muted">{latest.surface_water_change_pct != null ? `${latest.surface_water_change_pct > 0 ? '+' : ''}${latest.surface_water_change_pct.toFixed(1)}%` : '—'}</div>
         </div>
         <div>
           <div className="text-ink-subtle">Week</div>
