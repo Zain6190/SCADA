@@ -152,6 +152,7 @@ async def log_requests(request: Request, call_next):
 
 # ─── Routers ───────────────────────────────────────────────────────────────
 from presentation.http.routers import (  # noqa: E402
+    alert_workflow,
     auth,
     channels,
     health,
@@ -193,6 +194,16 @@ app.include_router(sensors.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(channels.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(prediction_pipeline_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_api_router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(alert_workflow.router, prefix=WATER_PREFIX, tags=TAG)
+
+# Workflow domain errors -> HTTP status codes
+from infrastructure.alerts.workflow import WorkflowError  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+
+@app.exception_handler(WorkflowError)
+async def _workflow_error_handler(request: Request, exc: WorkflowError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 
 @app.get("/")

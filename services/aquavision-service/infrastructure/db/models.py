@@ -463,6 +463,8 @@ class WaterOperationalAlert(Base):
     acknowledged_by: Mapped[Optional[str]] = mapped_column(Text)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    escalated_to: Mapped[Optional[str]] = mapped_column(Text)
+    sla_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[Optional[str]] = mapped_column(Text)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     resolution: Mapped[Optional[str]] = mapped_column(Text)
@@ -507,7 +509,61 @@ class WaterAlertAuditLog(Base):
     new_status: Mapped[Optional[str]] = mapped_column(Text)
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Workflow enrichment (migration 008)
+    actor_role: Mapped[Optional[str]] = mapped_column(Text)
+    instruction_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("aquavision.alert_instructions.id")
+    )
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB)
+
     alert: Mapped[WaterOperationalAlert] = relationship("WaterOperationalAlert")
+
+
+class AlertInstruction(Base):
+    """Layer-2 work item: an instruction issued against an alert.
+
+    Lifecycle: ISSUED -> ACCEPTED -> IN_PROGRESS -> REPORTED -> VERIFIED
+              (+ REJECTED, OVERDUE, WAIVED).
+    """
+    __tablename__ = "alert_instructions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ISSUED','ACCEPTED','IN_PROGRESS','REPORTED',"
+            "'VERIFIED','REJECTED','OVERDUE','WAIVED')",
+            name="ck_alert_instruction_status",
+        ),
+        Index("ix_instr_assigned", "assigned_to", "status"),
+        Index("ix_instr_alert", "alert_id"),
+        {"schema": "aquavision"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("aquavision.water_operational_alerts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    asset_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("aquavision.water_assets.id"), nullable=False)
+
+    issued_by: Mapped[str] = mapped_column(Text, nullable=False)
+    issued_role: Mapped[str] = mapped_column(Text, nullable=False)
+    assigned_to: Mapped[str] = mapped_column(Text, nullable=False)
+    assigned_to_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("shared.users.id"))
+
+    instruction_text: Mapped[str] = mapped_column(Text, nullable=False)
+    template_key: Mapped[Optional[str]] = mapped_column(Text)
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="ISSUED")
+
+    report_text: Mapped[Optional[str]] = mapped_column(Text)
+    report_data: Mapped[Optional[dict]] = mapped_column(JSONB)
+    reported_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reported_by: Mapped[Optional[str]] = mapped_column(Text)
+    verified_by: Mapped[Optional[str]] = mapped_column(Text)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[Optional[str]] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class WaterAlertEpisode(Base):

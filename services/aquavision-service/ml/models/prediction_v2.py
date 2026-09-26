@@ -1003,6 +1003,7 @@ class AquaVisionPredictionModel:
             alerts.append({
                 "level": "CRITICAL",
                 "type": "WATER_STRESS",
+                "score": forecast.water_stress.value,
                 "message": f"{asset_name}: Water stress at {forecast.water_stress.value}/100 ({forecast.water_stress.category}). Supply restrictions may be needed in {lead_time} days.",
                 "action": "Contact IRD, prepare contingency plans",
                 "lead_time": f"{lead_time}_day",
@@ -1012,6 +1013,7 @@ class AquaVisionPredictionModel:
             alerts.append({
                 "level": "WARNING",
                 "type": "WATER_STRESS",
+                "score": forecast.water_stress.value,
                 "message": f"{asset_name}: Water stress at {forecast.water_stress.value}/100 ({forecast.water_stress.category}). Monitor conditions.",
                 "action": "Monitor rainfall trend",
                 "lead_time": f"{lead_time}_day",
@@ -1023,6 +1025,7 @@ class AquaVisionPredictionModel:
             alerts.append({
                 "level": "CRITICAL",
                 "type": "FLOOD_RISK",
+                "score": forecast.flood_risk.value,
                 "message": f"{asset_name}: Flood risk at {forecast.flood_risk.value}/100 ({forecast.flood_risk.category}). Prepare evacuation plans.",
                 "action": "Activate emergency protocols",
                 "lead_time": f"{lead_time}_day",
@@ -1032,6 +1035,7 @@ class AquaVisionPredictionModel:
             alerts.append({
                 "level": "HIGH",
                 "type": "FLOOD_RISK",
+                "score": forecast.flood_risk.value,
                 "message": f"{asset_name}: Flood risk at {forecast.flood_risk.value}/100 ({forecast.flood_risk.category}). Monitor weather forecasts.",
                 "action": "Prepare contingency plans",
                 "lead_time": f"{lead_time}_day",
@@ -1041,6 +1045,7 @@ class AquaVisionPredictionModel:
             alerts.append({
                 "level": "WARNING",
                 "type": "FLOOD_RISK",
+                "score": forecast.flood_risk.value,
                 "message": f"{asset_name}: Flood risk at {forecast.flood_risk.value}/100 ({forecast.flood_risk.category}).",
                 "action": "Monitor conditions",
                 "lead_time": f"{lead_time}_day",
@@ -1052,13 +1057,90 @@ class AquaVisionPredictionModel:
             alerts.append({
                 "level": "WARNING",
                 "type": "RAINFALL",
+                "score": forecast.rainfall.value_mm,
                 "message": f"{asset_name}: Heavy rainfall expected ({forecast.rainfall.value_mm:.0f}mm, {forecast.rainfall.probability:.0%} probability).",
                 "action": "Monitor river levels",
                 "lead_time": f"{lead_time}_day",
                 "timestamp": datetime.utcnow().isoformat(),
             })
 
+        self._persist_alerts(asset_id, lead_time, alerts)
         return alerts
+
+    def _persist_alerts(
+        self,
+        asset_id: int,
+        lead_time: int,
+        alerts: List[Dict],
+    ) -> None:
+        """Persist actionable v2 alerts into water_operational_alerts so they
+        enter the role-based workflow (UC-1). Dedup: one open alert per
+        (asset, type) — the DB unique index enforces it, we check first.
+        """
+        if self.session is None or not alerts:
+            return
+
+        try:
+            from datetime import timezone as _tz
+            from sqlalchemy import select
+            from infrastructure.alerts.workflow import OPEN_STATUSES, log_event, sla_due_at
+            from infrastructure.db.models import WaterOperationalAlert
+
+            persist_levels = {"CRITICAL", "HIGH"}
+            severity_map = {"CRITICAL": "CRITICAL", "HIGH": "WARNING", "WARNING": "WARNING"}
+
+            for a in alerts:
+                level = a.get("level", "")
+                atype = a.get("type", "")
+                # WATER_STRESS WARNING is routine (weekly WAI) -> skip;
+                # FLOOD_RISK/RAINFALL WARNING persists (UC-1 / UC-4).
+                if level not in persist_levels and not (
+                    level == "WARNING" and atype in ("FLOOD_RISK", "RAINFALL")
+                ):
+                    continue
+                if level == "WARNING" and atype == "WATER_STRESS":
+                    continue
+
+                db_type = f"ML_{atype}"
+                existing = self.session.execute(
+                    select(WaterOperationalAlert).where(
+                        WaterOperationalAlert.asset_id == asset_id,
+                        WaterOperationalAlert.alert_type == db_type,
+                        WaterOperationalAlert.status.in_(OPEN_STATUSES),
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    continue  # one open alert per (asset, type)
+
+                alert = WaterOperationalAlert(
+                    asset_id=asset_id,
+                    alert_type=db_type,
+                    severity=severity_map.get(level, "WARNING"),
+                    message=a.get("message", ""),
+                    status="NEW",
+                    alert_source="ML_V2",
+                    alert_domain="FORECAST",
+                    model_version="2.0",
+                    triggered_value=float(a["score"]) if a.get("score") is not None else None,
+                )
+                alert.sla_due_at = sla_due_at(alert.severity, datetime.now(_tz.utc))
+                self.session.add(alert)
+                self.session.flush()
+                log_event(
+                    self.session,
+                    alert_id=alert.id, action="CREATED",
+                    performed_by="SYSTEM", actor_role="SYSTEM",
+                    old_status=None, new_status="NEW",
+                    notes=alert.message,
+                    payload={"lead_time": lead_time, "level": level, "score": a.get("score")},
+                )
+                self.session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist v2 alert for asset {asset_id}: {e}")
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
 
     def _empty_prediction(
         self,

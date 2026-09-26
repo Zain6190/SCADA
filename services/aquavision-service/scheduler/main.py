@@ -410,6 +410,20 @@ def job_run_predictions():
         session.close()
 
 
+def job_alert_sla_scan():
+    """Every 5 min: ACK-SLA escalations, overdue instructions, UC-4 auto-close."""
+    session = get_db_session()
+    try:
+        from infrastructure.alerts.workflow import scan_slas
+        summary = scan_slas(session)
+        if any(summary.values()):
+            logger.info(f"Alert SLA scan: {summary}")
+    except Exception as e:
+        logger.exception(f"Alert SLA scan error: {e}")
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     # Schedule: daily at 06:30 PKT (01:30 UTC)
     schedule.every().day.at("01:30").do(job_ingest_irsa)
@@ -443,6 +457,9 @@ if __name__ == "__main__":
 
     # Heartbeat: every 5 minutes
     schedule.every(5).minutes.do(update_heartbeat)
+
+    # Alert workflow: SLA breaches / overdue instructions / auto-close (every 5 min)
+    schedule.every(5).minutes.do(job_alert_sla_scan)
 
     logger.info(f"Scheduler started (instance: {INSTANCE_ID})")
     logger.info(f"Next run: {schedule.next_run()}")

@@ -24,6 +24,8 @@ from infrastructure.db.models import (
     WaterRiverNetwork, WaterTravelTimeModel,
     WaterFFDObservation,
 )
+from infrastructure.alerts import workflow as alert_workflow
+from infrastructure.auth.jwt import get_current_user
 
 router = APIRouter()
 
@@ -99,7 +101,13 @@ class AlertResponse(BaseModel):
     rate_of_change_ft_6h: Optional[float]
     created_at: datetime
     acknowledged_at: Optional[datetime]
+    acknowledged_by: Optional[str] = None
     resolved_at: Optional[datetime]
+    resolution: Optional[str] = None
+    assigned_to: Optional[str] = None
+    sla_due_at: Optional[datetime] = None
+    escalated_at: Optional[datetime] = None
+    escalated_to: Optional[str] = None
     notes: Optional[str]
     episode_id: Optional[int] = None
     downstream_impact_summary: Optional[str] = None
@@ -191,7 +199,13 @@ def _build_alert_response(alert: WaterOperationalAlert, asset: WaterAsset = None
         rate_of_change_ft_6h=float(alert.rate_of_change_ft_6h) if alert.rate_of_change_ft_6h else None,
         created_at=alert.created_at,
         acknowledged_at=alert.acknowledged_at,
+        acknowledged_by=alert.acknowledged_by,
         resolved_at=alert.resolved_at,
+        resolution=alert.resolution,
+        assigned_to=alert.assigned_to,
+        sla_due_at=alert.sla_due_at,
+        escalated_at=alert.escalated_at,
+        escalated_to=alert.escalated_to,
         notes=alert.notes,
         episode_id=alert.episode_id,
         downstream_impact_summary=alert.downstream_impact_summary,
@@ -509,33 +523,15 @@ async def list_alerts(
 async def investigate_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Start investigating an alert (ACKNOWLEDGED -> INVESTIGATING)."""
+    """Start investigating an alert (NEW|ACKNOWLEDGED|ESCALATED -> INVESTIGATING)."""
     alert = session.get(WaterOperationalAlert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    if alert.status not in ("ACKNOWLEDGED",):
-        raise HTTPException(status_code=409, detail=f"Cannot investigate alert in status '{alert.status}'")
-
-    old_status = alert.status
-    alert.status = "INVESTIGATING"
-    alert.acknowledged_by = payload.performed_by
-    if not alert.acknowledged_at:
-        alert.acknowledged_at = datetime.utcnow()
-    if payload.notes:
-        alert.notes = payload.notes
-
-    audit = WaterAlertAuditLog(
-        alert_id=alert.id,
-        action="INVESTIGATING",
-        performed_by=payload.performed_by,
-        old_status=old_status,
-        new_status="INVESTIGATING",
-        notes=payload.notes,
-    )
-    session.add(audit)
-    session.commit()
+    actor = alert_workflow.actor_from_token(user)
+    alert_workflow.investigate_alert(session, alert, actor, notes=payload.notes)
 
     asset = session.get(WaterAsset, alert.asset_id)
     return _build_alert_response(alert, asset)
@@ -545,30 +541,15 @@ async def investigate_alert(
 async def escalate_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Escalate an alert (INVESTIGATING -> ESCALATED)."""
+    """Escalate an alert (NEW|ACKNOWLEDGED|INVESTIGATING -> ESCALATED)."""
     alert = session.get(WaterOperationalAlert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    if alert.status not in ("INVESTIGATING",):
-        raise HTTPException(status_code=409, detail=f"Cannot escalate alert in status '{alert.status}'")
-
-    old_status = alert.status
-    alert.status = "ESCALATED"
-    if payload.notes:
-        alert.notes = payload.notes
-
-    audit = WaterAlertAuditLog(
-        alert_id=alert.id,
-        action="ESCALATED",
-        performed_by=payload.performed_by,
-        old_status=old_status,
-        new_status="ESCALATED",
-        notes=payload.notes,
-    )
-    session.add(audit)
-    session.commit()
+    actor = alert_workflow.actor_from_token(user)
+    alert_workflow.escalate_alert(session, alert, actor, notes=payload.notes)
 
     asset = session.get(WaterAsset, alert.asset_id)
     return _build_alert_response(alert, asset)
@@ -578,32 +559,15 @@ async def escalate_alert(
 async def acknowledge_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Acknowledge an alert (NEW -> ACKNOWLEDGED)."""
+    """Acknowledge an alert (NEW -> ACKNOWLEDGED). Role-guarded, SLA-logged."""
     alert = session.get(WaterOperationalAlert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    if alert.status not in ("NEW",):
-        raise HTTPException(status_code=409, detail=f"Cannot acknowledge alert in status '{alert.status}'")
-
-    old_status = alert.status
-    alert.status = "ACKNOWLEDGED"
-    alert.acknowledged_by = payload.performed_by
-    alert.acknowledged_at = datetime.utcnow()
-    if payload.notes:
-        alert.notes = payload.notes
-
-    audit = WaterAlertAuditLog(
-        alert_id=alert.id,
-        action="ACKNOWLEDGED",
-        performed_by=payload.performed_by,
-        old_status=old_status,
-        new_status="ACKNOWLEDGED",
-        notes=payload.notes,
-    )
-    session.add(audit)
-    session.commit()
+    actor = alert_workflow.actor_from_token(user)
+    alert_workflow.ack_alert(session, alert, actor, notes=payload.notes)
 
     asset = session.get(WaterAsset, alert.asset_id)
     return _build_alert_response(alert, asset)
@@ -613,32 +577,19 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Resolve an alert (NEW|ACKNOWLEDGED|INVESTIGATING|ESCALATED -> RESOLVED)."""
+    """Resolve an alert (NEW|ACKNOWLEDGED|INVESTIGATING|ESCALATED -> RESOLVED).
+
+    Blocked while instructions are open (admins may waive via
+    /water/instructions/{id}/waive instead of forcing closure)."""
     alert = session.get(WaterOperationalAlert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    if alert.status not in ("NEW", "ACKNOWLEDGED", "INVESTIGATING", "ESCALATED"):
-        raise HTTPException(status_code=409, detail=f"Cannot resolve alert in status '{alert.status}'")
-
-    old_status = alert.status
-    alert.status = "RESOLVED"
-    alert.resolved_by = payload.performed_by
-    alert.resolved_at = datetime.utcnow()
-    if payload.notes:
-        alert.notes = payload.notes
-
-    audit = WaterAlertAuditLog(
-        alert_id=alert.id,
-        action="RESOLVED",
-        performed_by=payload.performed_by,
-        old_status=old_status,
-        new_status="RESOLVED",
-        notes=payload.notes,
-    )
-    session.add(audit)
-    session.commit()
+    actor = alert_workflow.actor_from_token(user)
+    resolution = payload.notes or "Resolved from console"
+    alert_workflow.resolve_alert(session, alert, actor, resolution=resolution)
 
     asset = session.get(WaterAsset, alert.asset_id)
     return _build_alert_response(alert, asset)
