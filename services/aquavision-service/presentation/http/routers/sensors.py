@@ -89,6 +89,12 @@ SENSOR_AUTHORITIES = {
         "update_frequency": "REALTIME",
         "description": "USGS NWIS instantaneous values - proxy gauge telemetry",
     },
+    "SOFT_OT": {
+        "source_url": "soft-ot-runtime",
+        "source_type": "SIMULATED_OT",
+        "update_frequency": "SUB_DAILY",
+        "description": "Software PLC/RTU runtime — simulated telemetry, never displaces IRSA/FFD",
+    },
 }
 
 

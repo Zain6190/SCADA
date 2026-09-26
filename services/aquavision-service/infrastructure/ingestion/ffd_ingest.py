@@ -17,6 +17,15 @@ from infrastructure.ingestion.pmd_scraper import PMDScraper, PMDObservation
 
 logger = logging.getLogger("aquavision.ffd_ingest")
 
+
+def _reanchor_soft_ot(reason: str) -> dict:
+    try:
+        from infrastructure.ot.persist import reanchor_soft_ot_from_ingest
+        return reanchor_soft_ot_from_ingest(reason)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Soft OT re-anchor after %s failed: %s", reason, exc)
+        return {"applied": False, "error": str(exc)}
+
 FFD_ARCHIVE_DIR = Path(__file__).parent / "raw_archive" / "ffl"
 
 
@@ -191,6 +200,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         "stored": stored,
         "skipped": skipped,
         "fetch_status": fetch_status,
+        "ot_anchor": _reanchor_soft_ot("ffd-ingest"),
     }
 
 

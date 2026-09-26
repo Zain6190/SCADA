@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Radio, Send, ExternalLink } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
@@ -35,6 +36,7 @@ export default function SensorsPage() {
   const [error, setError] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [otDevices, setOtDevices] = useState<any[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -48,6 +50,7 @@ export default function SensorsPage() {
       setError(e.message)
       setLoading(false)
     })
+    fetch(`${API}/water/ot/devices`).then(r => r.ok ? r.json() : []).then(setOtDevices).catch(() => setOtDevices([]))
   }, [])
 
   const sendTestReading = async () => {
@@ -112,30 +115,49 @@ export default function SensorsPage() {
               />
             </div>
 
-            {/* Test Ingestion */}
             <Card>
               <CardHeader
-                title="Test Sensor Ingestion"
-                subtitle="Send a test reading to verify the API endpoint is working"
+                title="Software PLC / RTU"
+                subtitle="Live Soft OT devices replace one-off test POSTs. Setpoints stay in the simulator."
                 icon={<Send className="h-5 w-5" />}
-                accent="bg-sky-500/10 text-sky-300"
+                accent="bg-amber-500/10 text-amber-300"
               />
-              <CardBody>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={sendTestReading}
-                    disabled={sending}
-                    className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm font-medium text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
-                  >
-                    <Send className="h-4 w-4" />
-                    {sending ? 'Sending...' : 'Send Test Reading'}
-                  </button>
-                  {testResult && (
-                    <Badge tone={testResult.includes('Error') ? 'red' : 'emerald'}>
-                      {testResult}
-                    </Badge>
-                  )}
+              <CardBody className="flex flex-wrap items-center gap-3">
+                <Link
+                  href="/water/ot"
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 hover:bg-amber-500/20"
+                >
+                  Open Soft OT runtime
+                </Link>
+                <div className="w-full overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-slate-800/50">
+                      {otDevices.map((device) => (
+                        <tr key={device.id || device.device_code}>
+                          <td className="py-2 pr-3 font-mono text-sky-300">
+                            <Link href={`/water/ot/${device.id}`}>{device.device_code}</Link>
+                          </td>
+                          <td className="py-2 pr-3 text-slate-400">{device.kind}</td>
+                          <td className="py-2 pr-3 text-slate-300">{device.asset_name}</td>
+                          <td className="py-2 text-slate-400">{device.mode || device.live?.mode || 'TRACK'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {otDevices.length === 0 && <p className="text-xs text-slate-500">OT devices appear when the API is up.</p>}
                 </div>
+                <button
+                  onClick={sendTestReading}
+                  disabled={sending}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {sending ? 'Sending...' : 'Legacy SENSOR_API ping'}
+                </button>
+                {testResult && (
+                  <Badge tone={testResult.includes('Error') ? 'red' : 'emerald'}>
+                    {testResult}
+                  </Badge>
+                )}
               </CardBody>
             </Card>
 

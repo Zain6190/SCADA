@@ -81,6 +81,7 @@ export function AssetDetailClient() {
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [noteText, setNoteText] = useState('')
+  const [otRow, setOtRow] = useState<any>(null)
 
   const notesQuery = useAssetNotes(assetId)
   const addNote = useAddAssetNote()
@@ -96,6 +97,13 @@ export function AssetDetailClient() {
       .then(([a, o, al]) => { setAsset(a); setObservations(o); setAlerts(al) })
       .finally(() => setLoading(false))
   }, [assetId, days])
+
+  useEffect(() => {
+    if (!assetId) return
+    waterApi.getOtProcessView()
+      .then((view) => setOtRow((view?.assets || []).find((row: any) => row.asset_id === assetId) || null))
+      .catch(() => setOtRow(null))
+  }, [assetId])
 
   const chartData = [...observations].reverse().map((obs) => ({
     date: new Date(obs.observed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -153,6 +161,24 @@ export function AssetDetailClient() {
             </div>
           }
         />
+
+        {otRow && (
+          <Card>
+            <CardHeader
+              title="Soft OT"
+              subtitle={`${otRow.device_code} · ${otRow.mode} · official ${otRow.official_on || '—'}`}
+            />
+            <CardBody className="flex flex-wrap items-center gap-4 text-sm text-slate-300">
+              <span>Comms {otRow.comms_ok ? 'OK' : 'DOWN'}</span>
+              <span>Gate cmd {otRow.ot?.gate_cmd_pct != null ? `${fmtNumber(otRow.ot.gate_cmd_pct)}%` : '—'}</span>
+              <span>Feedback {otRow.ot?.gate_pos_pct != null ? `${fmtNumber(otRow.ot.gate_pos_pct)}%` : '—'}</span>
+              {otRow.interlock_reasons?.length > 0 && (
+                <span className="text-amber-300">Interlocks: {otRow.interlock_reasons.join(', ')}</span>
+              )}
+              <Link href={`/water/ot?asset=${assetId}`} className="text-sky-300 hover:underline">Open device</Link>
+            </CardBody>
+          </Card>
+        )}
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <TelemetryCard label="Water Level" value={asset.current_level_ft} unit="ft" accent="text-sky-400" />

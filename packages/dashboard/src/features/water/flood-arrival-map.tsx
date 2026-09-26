@@ -5,6 +5,7 @@ import {
   MapContainer,
   TileLayer,
   Polyline,
+  Polygon,
   CircleMarker,
   Tooltip,
   useMap,
@@ -17,6 +18,52 @@ import 'leaflet/dist/leaflet.css'
 import '@/app/water/flood-map/flood-map.css'
 
 import { RIVER_GEOMETRY, SEGMENT_RIVER } from './rivers'
+import type { FloodTerritoryFeature } from './use-flood-map-state'
+
+const TERRITORY_STYLE: Record<string, { fill: string; opacity: number }> = {
+  NONE: { fill: '#64748b', opacity: 0.12 },
+  LOW: { fill: '#3b82f6', opacity: 0.28 },
+  MODERATE: { fill: '#f59e0b', opacity: 0.42 },
+  HIGH: { fill: '#f97316', opacity: 0.52 },
+  EXTREME: { fill: '#ef4444', opacity: 0.58 },
+  CRITICAL: { fill: '#ef4444', opacity: 0.58 },
+}
+
+function ringsForGeometry(geometry: { type?: string; coordinates?: any } | undefined): [number, number][][] {
+  if (!geometry?.coordinates) return []
+  const coords = geometry.coordinates
+  if (geometry.type === 'Polygon') {
+    const rings = coords as any[]
+    const normalized = Array.isArray(rings[0]?.[0]) ? rings : [rings]
+    return normalized.map((ring: any) =>
+      ring.map((pt: any) => [pt[1], pt[0]] as [number, number])
+    )
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return (coords as any[]).flatMap((poly: any) =>
+      poly.map((ring: any) => ring.map((pt: any) => [pt[1], pt[0]] as [number, number]))
+    )
+  }
+  return []
+}
+
+const INSIDE_STYLE: Record<string, { color: string; label: string }> = {
+  town: { color: '#fbbf24', label: 'Town' },
+  bridge: { color: '#fb923c', label: 'Bridge' },
+  hospital: { color: '#f87171', label: 'Hospital' },
+  asset: { color: '#38bdf8', label: 'Asset' },
+}
+
+function isThreatened(severity: string | undefined, alert: boolean | undefined): boolean {
+  const level = (severity || 'NONE').toUpperCase()
+  return Boolean(alert) || ['MODERATE', 'HIGH', 'EXTREME', 'CRITICAL'].includes(level)
+}
+
+function formatPeople(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
+  if (count >= 1_000) return `${Math.round(count / 1_000)}k`
+  return count.toLocaleString()
+}
 
 const ASSET_COORDS: Record<number, [number, number]> = {
   1: [34.086, 72.716], 2: [33.215, 73.640], 3: [32.485, 71.480],
@@ -128,6 +175,10 @@ interface FloodArrivalMapProps {
   showImpact?: boolean
   showRainfall?: boolean
   showFloodExtents?: boolean
+  showTerritories?: boolean
+  territories?: FloodTerritoryFeature[]
+  selectedDistrict?: string | null
+  onDistrictClick?: (district: string | null) => void
   timeSlider?: number
 }
 
@@ -168,6 +219,25 @@ function getPulseClass(hours: number): string {
   if (hours <= 6) return 'flood-pulse-critical'
   if (hours > 24) return 'flood-pulse-slow'
   return 'flood-pulse'
+}
+
+function FocusDistrict({
+  district,
+  territories,
+}: {
+  district: string
+  territories: FloodTerritoryFeature[]
+}) {
+  const map = useMap()
+  const ready = territories.some((feature) => feature.properties.district === district)
+  useEffect(() => {
+    if (!ready) return
+    const feature = territories.find((item) => item.properties.district === district)
+    const positions = ringsForGeometry(feature?.geometry).flat()
+    if (!positions.length) return
+    map.fitBounds(positions, { padding: [48, 48], maxZoom: 8 })
+  }, [district, ready, map])
+  return null
 }
 
 function midPt(a: [number, number], b: [number, number]): [number, number] {
@@ -288,6 +358,10 @@ export function FloodArrivalMap({
   showImpact = true,
   showRainfall = false,
   showFloodExtents = false,
+  showTerritories = true,
+  territories = [],
+  selectedDistrict = null,
+  onDistrictClick,
   timeSlider = 48,
 }: FloodArrivalMapProps) {
   const [mounted, setMounted] = useState(false)
@@ -354,6 +428,83 @@ export function FloodArrivalMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
+
+        {showTerritories && territories.map((feature) => {
+          const rings = ringsForGeometry(feature.geometry)
+          const props = feature.properties
+          if (!rings.length || !props || !isThreatened(props.flood_severity, props.alert)) return null
+          const severity = (props.flood_severity || 'NONE').toUpperCase()
+          const style = TERRITORY_STYLE[severity] || TERRITORY_STYLE.MODERATE
+          const selected = selectedDistrict === props.district
+          const inside = props.inside || []
+          return rings.map((ring, ringIndex) => (
+            <Polygon
+              key={`territory-${props.district}-${ringIndex}`}
+              positions={ring}
+              pathOptions={{
+                color: selected ? '#7dd3fc' : style.fill,
+                weight: selected ? 3.5 : 2.5,
+                fillColor: style.fill,
+                fillOpacity: selected ? Math.min(style.opacity + 0.12, 0.72) : style.opacity,
+                className: 'territory-alert',
+              }}
+              eventHandlers={{
+                click: () => onDistrictClick?.(props.district),
+              }}
+            >
+              <Tooltip>
+                <div className="p-1">
+                  <p className="text-sm font-semibold text-slate-900 m-0">{props.district} danger zone</p>
+                  <p className="text-xs text-slate-700 m-0">
+                    {severity} · {Math.round((props.flood_probability || 0) * 100)}% · {formatPeople(props.population_exposed || 0)} people
+                  </p>
+                  <p className="text-xs text-slate-700 m-0">{inside.length} places inside</p>
+                </div>
+              </Tooltip>
+              <Popup>
+                <div className="space-y-1 min-w-[180px]">
+                  <p className="text-xs font-bold m-0">{props.district}</p>
+                  <p className="text-[10px] text-slate-400 m-0">{props.province} · threatened area</p>
+                  <p className="text-[10px] m-0">
+                    Prediction: <span className="font-semibold">{severity}</span>
+                    {' '}({Math.round((props.flood_probability || 0) * 100)}%)
+                  </p>
+                  <p className="text-[10px] m-0">Population: <span className="font-semibold">{(props.population_exposed || 0).toLocaleString()}</span></p>
+                  <p className="text-[10px] m-0">Bridges: <span className="font-semibold">{props.bridges}</span> · Hospitals: <span className="font-semibold">{props.hospitals}</span></p>
+                  {inside.length > 0 && (
+                    <p className="text-[10px] m-0">Inside: {inside.map((place) => place.name).slice(0, 6).join(', ')}{inside.length > 6 ? '…' : ''}</p>
+                  )}
+                  {props.recommendation && <p className="text-[10px] m-0">{props.recommendation}</p>}
+                  <p className="text-[10px] text-slate-400 m-0">Source: {props.source_asset_name}</p>
+                </div>
+              </Popup>
+            </Polygon>
+          ))
+        })}
+
+        {showTerritories && territories.flatMap((feature) => {
+          const props = feature.properties
+          if (!props || !isThreatened(props.flood_severity, props.alert)) return []
+          return (props.inside || []).map((place) => {
+            const style = INSIDE_STYLE[place.kind] || INSIDE_STYLE.town
+            return (
+              <CircleMarker
+                key={`inside-${props.district}-${place.kind}-${place.name}`}
+                center={[place.lat, place.lng]}
+                radius={place.kind === 'town' || place.kind === 'asset' ? 7 : 5}
+                pathOptions={{ color: style.color, fillColor: style.color, fillOpacity: 0.9, weight: 1.5 }}
+              >
+                <Tooltip>
+                  <span className="text-xs">{style.label}: {place.name}<br />{props.district} danger zone</span>
+                </Tooltip>
+              </CircleMarker>
+            )
+          })
+        })}
+
+        {showTerritories && selectedDistrict && (
+          <FocusDistrict district={selectedDistrict} territories={territories} />
+        )}
 
         {showRivers && RIVER_GEOMETRY.map((river) => (
           <Polyline

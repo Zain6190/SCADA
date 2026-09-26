@@ -9,8 +9,9 @@ import socket
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-# Ensure aquavision-service is on the path
+# Ensure aquavision-service and ot-runtime are on the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aquavision-service"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ot-runtime"))
 
 import schedule
 from sqlalchemy import text
@@ -387,6 +388,31 @@ def job_run_predictions():
         session.close()
 
 
+def job_ot_tick():
+    """Advance the software PLC/RTU plant and publish SIMULATED telemetry.
+
+    Does not write a pipeline_runs row per tick — 15s cadence would flood the table.
+    Device last_scan_at is the heartbeat.
+    """
+    pipeline_type = "SOFT_OT"
+    session = get_db_session()
+    try:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            return
+        from infrastructure.ot.persist import run_ot_tick
+        result = run_ot_tick(evaluate_thresholds=True)
+        logger.info(
+            "Soft OT tick %s published=%s",
+            result.get("ticks"),
+            (result.get("publish") or {}).get("accepted"),
+        )
+    except Exception as e:
+        logger.exception("Soft OT tick error: %s", e)
+    finally:
+        release_pipeline_lock(session, pipeline_type)
+        session.close()
+
+
 if __name__ == "__main__":
     # Schedule: daily at 06:30 PKT (01:30 UTC)
     schedule.every().day.at("01:30").do(job_ingest_irsa)
@@ -418,6 +444,9 @@ if __name__ == "__main__":
     # Run prediction pipeline daily (02:30 UTC, after backfill)
     schedule.every().day.at("02:30").do(job_run_predictions)
 
+    # Soft PLC/RTU: 15s wall clock = 15 simulated minutes
+    schedule.every(15).seconds.do(job_ot_tick)
+
     # Heartbeat: every 5 minutes
     schedule.every(5).minutes.do(update_heartbeat)
 
@@ -433,4 +462,4 @@ if __name__ == "__main__":
 
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(5)

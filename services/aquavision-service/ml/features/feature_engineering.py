@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
-from sqlalchemy import select, desc, and_, func, text
+from sqlalchemy import select, desc, and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from infrastructure.db.models import (
@@ -16,6 +16,30 @@ from infrastructure.db.models import (
 )
 
 logger = logging.getLogger("aquavision.ml.features")
+
+_OT_ORIGINS = {"SCENARIO", "OFFICIAL_REPLAY", "SYNTHETIC", "SYNTHETIC_HISTORICAL"}
+
+
+def usable_for_training(data_origin: Optional[str], source_authority: Optional[str]) -> bool:
+    """Soft OT replay and scenario rows never train the flood model."""
+    if source_authority == "SOFT_OT":
+        return False
+    origin = (data_origin or "REAL").upper()
+    if origin in _OT_ORIGINS:
+        return False
+    return origin == "REAL"
+
+
+def keep_training_row(data_origin: Optional[str], source_authority: Optional[str], real_only: bool) -> bool:
+    """Always drop Soft OT. Other synthetic rows remain only when real_only is off."""
+    if source_authority == "SOFT_OT":
+        return False
+    origin = (data_origin or "").upper()
+    if origin in {"SCENARIO", "OFFICIAL_REPLAY"}:
+        return False
+    if real_only:
+        return usable_for_training(data_origin, source_authority)
+    return True
 
 
 class FloodFeatureBuilder:
@@ -222,7 +246,10 @@ class FloodFeatureBuilder:
                 by_date[dt]["source"] = row.source
                 by_date[dt]["data_origin"] = row.data_origin or "REAL"
             
-            return list(by_date.values())
+            return [
+                row for row in by_date.values()
+                if keep_training_row(row.get("data_origin"), row.get("source"), real_only)
+            ]
         
         # Original query (all sources merged)
         q = select(WaterObservation).where(
@@ -235,14 +262,19 @@ class FloodFeatureBuilder:
             # single data_status value let other synthetic sources through -
             # historical_backfill writes SYNTHETIC_HISTORICAL, but the sensor
             # replay adapters write SIMULATED, and both must be excluded.
+            # SOFT_OT / SCENARIO / OFFICIAL_REPLAY are never training rows.
             q = q.where(
                 WaterObservation.data_origin == "REAL",
                 WaterObservation.data_status != "SYNTHETIC_HISTORICAL",
+                or_(
+                    WaterObservation.source_authority.is_(None),
+                    WaterObservation.source_authority != "SOFT_OT",
+                ),
             )
         
         rows = self.session.execute(q.order_by(WaterObservation.observed_at)).scalars().all()
         
-        return [
+        built = [
             {
                 "date": r.observed_at,
                 "level": float(r.water_level_ft) if r.water_level_ft else None,
@@ -253,6 +285,10 @@ class FloodFeatureBuilder:
                 "source": getattr(r, "source_authority", "UNKNOWN"),
             }
             for r in rows
+        ]
+        return [
+            row for row in built
+            if keep_training_row(row["data_origin"], row["source"], real_only)
         ]
     
     def _extract_features(

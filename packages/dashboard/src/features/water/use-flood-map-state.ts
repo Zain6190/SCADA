@@ -45,6 +45,53 @@ export interface Alert {
   downstream_population_exposed?: number
 }
 
+export interface ThreatenedPlace {
+  kind: 'town' | 'bridge' | 'hospital' | 'asset' | string
+  name: string
+  lat: number
+  lng: number
+  district: string
+}
+
+export interface FloodTerritoryProperties {
+  district: string
+  province: string
+  flood_probability: number
+  flood_severity: string
+  population_exposed: number
+  bridges: number
+  hospitals: number
+  recommendation: string
+  source_asset_id: number
+  source_asset_name: string
+  alert: boolean
+  ot_source?: string
+  ot_mode?: string
+  ot_device_code?: string
+  inside?: ThreatenedPlace[]
+}
+
+export interface FloodTerritoryFeature {
+  type: string
+  geometry: { type?: string; coordinates?: unknown }
+  properties: FloodTerritoryProperties
+}
+
+export interface RegionAlert {
+  district: string
+  province: string
+  severity: string
+  flood_probability: number
+  population_exposed: number
+  bridges: number
+  hospitals: number
+  recommendation: string
+  source_asset_id: number
+  source_asset_name: string
+  inside_count?: number
+  inside?: ThreatenedPlace[]
+}
+
 export const ASSET_MAP: Record<string, number> = {
   Tarbela: 1, Mangla: 2, Chashma: 3, Kalabagh: 4,
   Taunsa: 5, Guddu: 6, Sukkur: 7, Kotri: 8,
@@ -65,7 +112,8 @@ export const ASSET_NAMES: Record<number, string> = {
   9: 'Nowshera', 10: 'Marala', 11: 'Panjnad',
 }
 
-interface LayerState {
+export interface LayerState {
+  showTerritories: boolean
   showRivers: boolean
   showLabels: boolean
   showWarnings: boolean
@@ -84,6 +132,9 @@ export function useFloodMapState() {
   const [floodClassifications, setFloodClassifications] = useState<Record<number, { probability: number; severity: string; recommendation: string }>>({})
   const [ffdMarkers, setFfdMarkers] = useState<any[]>([])
   const [impactMarkers, setImpactMarkers] = useState<any[]>([])
+  const [territories, setTerritories] = useState<FloodTerritoryFeature[]>([])
+  const [regionAlerts, setRegionAlerts] = useState<RegionAlert[]>([])
+  const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null)
 
   // UI state
   const [loading, setLoading] = useState(true)
@@ -94,6 +145,7 @@ export function useFloodMapState() {
 
   // Layers
   const [layers, setLayers] = useState<LayerState>({
+    showTerritories: true,
     showRivers: true,
     showLabels: true,
     showWarnings: true,
@@ -115,12 +167,13 @@ export function useFloodMapState() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [impRes, alertRes, levelsRes, ffdRes, markersRes] = await Promise.all([
+        const [impRes, alertRes, levelsRes, ffdRes, markersRes, territoryRes] = await Promise.all([
           fetch(`${API_BASE}/water/impact/precalculated`),
           fetch(`${API_BASE}/water/operational/alerts?status=NEW`),
           fetch(`${API_BASE}/water/operational/assets`),
           fetch(`${API_BASE}/water/operational/ffd/markers`),
           fetch(`${API_BASE}/water/impact/markers`),
+          fetch(`${API_BASE}/water/flood-map/territory`),
         ])
 
         if (impRes.ok) {
@@ -185,6 +238,11 @@ export function useFloodMapState() {
 
         if (ffdRes.ok) setFfdMarkers(await ffdRes.json())
         if (markersRes.ok) setImpactMarkers(await markersRes.json())
+        if (territoryRes.ok) {
+          const territory = await territoryRes.json()
+          setTerritories(Array.isArray(territory.features) ? territory.features : [])
+          setRegionAlerts(Array.isArray(territory.alerts) ? territory.alerts : [])
+        }
       } catch (e: any) {
         setError(e.message)
       } finally {
@@ -255,6 +313,16 @@ export function useFloodMapState() {
     [displaySegments, timeSlider]
   )
 
+  const alertedPopulation = useMemo(
+    () => regionAlerts.reduce((sum, alert) => sum + (alert.population_exposed || 0), 0),
+    [regionAlerts],
+  )
+
+  const selectedTerritory = useMemo(
+    () => territories.find((feature) => feature.properties.district === selectedDistrict) ?? null,
+    [territories, selectedDistrict],
+  )
+
   const simImpact = useMemo(() => {
     const downstream = segments.filter(s => s.from_id === simAssetId)
     if (!downstream.length) return null
@@ -272,6 +340,7 @@ export function useFloodMapState() {
     // Data
     segments, alerts, impactSummary, currentLevels, ffdWarnings,
     floodClassifications, ffdMarkers, impactMarkers,
+    territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
     // UI
     loading, calculating, error, selectedAsset, mobileSidebarOpen,
     // Layers
@@ -281,6 +350,6 @@ export function useFloodMapState() {
     // Derived
     displaySegments, totals, visibleSegments, simImpact,
     // Actions
-    setSelectedAsset, setMobileSidebarOpen,
+    setSelectedAsset, setSelectedDistrict, setMobileSidebarOpen,
   }
 }

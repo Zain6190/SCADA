@@ -59,6 +59,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, section: 'aqua', group: 'Operational' },
       { label: 'Stress Alerts', href: '/water/stress-alerts', icon: AlertTriangle, section: 'aqua', group: 'Operational' },
       { label: 'Sensors', href: '/water/sensors', icon: Radio, section: 'aqua', group: 'Operational' },
+      { label: 'Soft OT (PLC/RTU)', href: '/water/ot', icon: Radio, section: 'aqua', group: 'Operational' },
       { label: 'Overview', href: '/water', icon: Droplets, section: 'aqua', group: 'Analysis' },
       { label: 'Analyst', href: '/water/analyst', icon: LineChart, section: 'aqua', group: 'Analysis' },
       { label: 'Indicators', href: '/water/indicators', icon: Activity, section: 'aqua', group: 'Analysis' },
