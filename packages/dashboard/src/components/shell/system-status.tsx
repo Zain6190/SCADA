@@ -28,17 +28,17 @@ export function SystemStatusIndicator() {
   })
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5">
+    <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5">
       <Activity
         className={cn(
           'h-4 w-4',
-          isError ? 'text-red-400' : isPending ? 'text-slate-500' : 'text-emerald-400'
+          isError ? 'text-crit' : isPending ? 'text-ink-subtle' : 'text-ok'
         )}
       />
       <span
         className={cn(
           'text-xs font-medium',
-          isError ? 'text-red-300' : isPending ? 'text-slate-400' : 'text-emerald-300'
+          isError ? 'text-crit' : isPending ? 'text-ink-muted' : 'text-ok'
         )}
       >
         {isError ? 'Offline' : isPending ? '…' : 'Backend Online'}

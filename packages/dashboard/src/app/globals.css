@@ -1,83 +1,197 @@
-﻿/* packages/dashboard/src/app/globals.css */
+/* packages/dashboard/src/app/globals.css
+ * IBCP-SCADA design tokens — "Indus Slate": river green on blue-grey paper.
+ *
+ * Every colour in the product comes from this file. Components reference the
+ * semantic Tailwind names (bg-surface, text-ink-muted, border-line, bg-crit…),
+ * never a raw palette class like bg-slate-900. Values are RGB triplets so
+ * Tailwind's opacity modifiers keep working: bg-brand/10, border-crit/25.
+ *
+ * The palette was authored in oklch on the landing and login pages; the
+ * sRGB triplets below are those same colours, with the status ramp darkened
+ * where needed so every badge clears 4.5:1 on its own soft background.
+ */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
+  /* ── Surfaces ─────────────────────────────────────────────────────── */
+  --canvas: 220 227 232;        /* #DCE3E8  blue-grey page paper       */
+  --surface: 241 244 243;       /* #F1F4F3  cards, bars, menus         */
+  --surface-alt: 228 235 233;   /* #E4EBE9  hover rows, inset panels   */
+  --surface-sunken: 212 222 219; /* #D4DEDB  track, wells, disabled     */
+
+  /* ── Lines ────────────────────────────────────────────────────────── */
+  --line: 193 205 206;          /* #C1CDCE  hairline borders           */
+  --line-strong: 157 177 175;   /* #9DB1AF  input & secondary button   */
+
+  /* ── Text ─────────────────────────────────────────────────────────── */
+  --ink: 36 52 49;              /* #243431  headings, values  11.8:1   */
+  --ink-muted: 70 91 87;        /* #465B57  body copy          6.6:1   */
+  --ink-subtle: 85 103 99;      /* #556763  labels, captions   5.4:1   */
+
+  /* ── Brand ────────────────────────────────────────────────────────── */
+  --brand: 36 103 92;           /* #24675C  primary action     6.0:1   */
+  --brand-hover: 27 80 71;      /* #1B5047                             */
+  --brand-soft: 220 232 226;    /* #DCE8E2  selected nav, soft fills   */
+  --brand-on: 241 244 243;      /* text on a brand surface             */
+
+  /* ── Status ───────────────────────────────────────────────────────────
+   * Semantic only. Never used for decoration — if something is green it
+   * means Normal, if it is red it means Critical. Always paired with text.
+   */
+  --ok: 25 112 55;              /* #197037 */
+  --ok-soft: 196 229 202;       /* #C4E5CA */
+  --warn: 140 80 0;             /* #8C5000 */
+  --warn-soft: 249 220 186;     /* #F9DCBA */
+  --crit: 172 39 34;            /* #AC2722 */
+  --crit-soft: 254 210 204;     /* #FED2CC */
+  --info: 36 103 92;            /* #24675C */
+  --info-soft: 220 232 226;     /* #DCE8E2 */
+
+  /* ── Severity ramp ────────────────────────────────────────────────────
+   * Six ordered levels shared by water, crop and geo. Hue walks green →
+   * olive → amber → orange → red; all clear 4.5:1 on their own soft.
+   */
+  --sev-normal: 25 112 55;        --sev-normal-soft: 196 229 202;
+  --sev-moderate: 75 108 33;      --sev-moderate-soft: 212 229 196;
+  --sev-stressed: 118 94 0;       --sev-stressed-soft: 232 222 185;
+  --sev-warning: 140 80 0;        --sev-warning-soft: 249 220 186;
+  --sev-severe: 159 61 0;         --sev-severe-soft: 252 212 195;
+  --sev-critical: 172 39 34;      --sev-critical-soft: 254 210 204;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+/* ── Inverted navigation surface ──────────────────────────────────────
+ * The deep-green rail. Same token names, redefined — so every component
+ * inside it (cards, badges, buttons) themes itself with no extra classes.
+ * Radix portals the mobile drawer outside the page, so the class carries
+ * the tokens rather than inheriting them.
+ */
+.nav-surface {
+  --canvas: 24 62 56;           /* #183E38 */
+  --surface: 24 62 56;
+  --surface-alt: 33 76 68;      /* #214C44 */
+  --surface-sunken: 43 86 77;   /* #2B564D */
+  --line: 55 88 80;             /* #375850 */
+  --line-strong: 90 124 112;    /* #5A7C70 */
+  --ink: 237 244 240;           /* #EDF4F0  10.5:1 */
+  --ink-muted: 202 220 211;     /* #CADCD3   8.2:1 */
+  --ink-subtle: 162 190 177;    /* #A2BEB1   5.9:1 */
+  --brand: 195 225 209;         /* #C3E1D1   8.4:1 */
+  --brand-hover: 220 237 228;
+  --brand-soft: 46 88 76;       /* #2E584C */
+  --brand-on: 24 62 56;
+  background-color: rgb(var(--surface));
+  color: rgb(var(--ink));
 }
 
-html {
-  scroll-behavior: smooth;
+.nav-surface ::selection {
+  background: rgb(var(--brand));
+  color: rgb(var(--brand-on));
 }
 
+.nav-surface ::-webkit-scrollbar-track {
+  background: rgb(var(--surface));
+}
+
+.nav-surface ::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border-color: rgb(var(--surface));
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: rgb(var(--canvas));
+    color: rgb(var(--ink));
+    font-feature-settings: 'cv05' 1; /* single-storey g, steadier at small sizes */
+  }
+
+  /* Readings must not jitter between refreshes. */
+  .tnum,
+  table td,
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* One focus treatment everywhere; never removed, only restyled. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: rgb(var(--brand-soft));
+    color: rgb(var(--brand));
+  }
+}
+
+@layer components {
+  /* Vertical rhythm for a data page: header, then bands of cards. */
+  .page-stack {
+    @apply space-y-5;
+  }
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--surface-alt));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border: 2px solid rgb(var(--surface-alt));
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--ink-subtle));
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────
+ * Kept from the original stylesheet: several pages still reference these.
+ * Durations stay short; anything decorative is disabled under
+ * prefers-reduced-motion below.
+ */
 @keyframes float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-16px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-16px); }
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes imageFade {
-  0%, 10% {
-    opacity: 0;
-    transform: scale(1.05);
-  }
-  15%, 35% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  40%, 100% {
-    opacity: 0;
-    transform: scale(0.95);
-  }
+  0%, 10% { opacity: 0; transform: scale(1.05); }
+  15%, 35% { opacity: 1; transform: scale(1); }
+  40%, 100% { opacity: 0; transform: scale(0.95); }
 }
 
 @keyframes radarSweep {
-  0% {
-    opacity: 0.12;
-    transform: rotate(0deg) translateX(-50%) scale(1);
-  }
-  100% {
-    opacity: 0.12;
-    transform: rotate(360deg) translateX(-50%) scale(1);
-  }
+  0% { opacity: 0.12; transform: rotate(0deg) translateX(-50%) scale(1); }
+  100% { opacity: 0.12; transform: rotate(360deg) translateX(-50%) scale(1); }
 }
 
 @keyframes pulseRing {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-  100% {
-    transform: scale(1.7);
-    opacity: 0;
-  }
+  0% { transform: scale(0.8); opacity: 0.5; }
+  100% { transform: scale(1.7); opacity: 0; }
 }
 
-.animate-float-slow {
-  animation: float 10s ease-in-out infinite;
-}
+.animate-float-slow { animation: float 10s ease-in-out infinite; }
+.animate-fade-in-up { animation: fadeInUp 0.4s ease-out both; }
+.pulse-ring { animation: pulseRing 1.4s infinite; }
+.image-fade { opacity: 0; animation: imageFade 12s ease-in-out infinite; }
+.animation-delay-500 { animation-delay: 0.5s; }
 
 .radar-sweep::before {
   content: '';
@@ -87,40 +201,18 @@ html {
   top: 50%;
   width: 240%;
   height: 240%;
-  background: radial-gradient(circle, rgba(56,189,248,0.14) 0%, transparent 55%);
+  background: radial-gradient(circle, rgb(var(--brand) / 0.10) 0%, transparent 55%);
   transform-origin: center;
   animation: radarSweep 10s linear infinite;
 }
 
-.pulse-ring {
-  animation: pulseRing 1.4s infinite;
-}
-
-.animate-fade-in-up {
-  animation: fadeInUp 0.9s ease-out both;
-}
-
-.image-fade {
-  opacity: 0;
-  animation: imageFade 12s ease-in-out infinite;
-}
-
-.animation-delay-500 {
-  animation-delay: 0.5s;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-}
-::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.8);
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(56, 189, 248, 0.55);
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.85);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

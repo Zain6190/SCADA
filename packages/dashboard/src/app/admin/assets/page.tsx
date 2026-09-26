@@ -14,7 +14,7 @@ import { useWaterAssets } from '@/features/water/hooks'
 import { fmtNumber, timeAgo } from '@/lib/format'
 import type { AssetSummaryVM } from '@/features/water/types'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 export default function AdminAssetsPage() {
   const [search, setSearch] = useState('')
@@ -45,12 +45,12 @@ export default function AdminAssetsPage() {
         {/* Search + type filter */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search assets..."
-              className="w-full rounded-lg border border-slate-800 bg-slate-900 pl-9 pr-3 py-2 text-xs text-slate-300 placeholder:text-slate-600 focus:border-sky-500/50 focus:outline-none"
+              className="w-full rounded-lg border border-line bg-surface pl-9 pr-3 py-2 text-xs text-ink-muted placeholder:text-ink-subtle focus:border-brand/25 focus:outline-none"
             />
           </div>
           <div className="flex gap-1.5">
@@ -58,8 +58,8 @@ export default function AdminAssetsPage() {
               onClick={() => setTypeFilter('ALL')}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 typeFilter === 'ALL'
-                  ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
-                  : 'text-slate-400 hover:bg-slate-800 border border-transparent'
+                  ? 'bg-brand-soft text-brand border border-brand/25'
+                  : 'text-ink-muted hover:bg-surface-alt border border-transparent'
               }`}
             >
               All
@@ -70,8 +70,8 @@ export default function AdminAssetsPage() {
                 onClick={() => setTypeFilter(t)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition ${
                   typeFilter === t
-                    ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
-                    : 'text-slate-400 hover:bg-slate-800 border border-transparent'
+                    ? 'bg-brand-soft text-brand border border-brand/25'
+                    : 'text-ink-muted hover:bg-surface-alt border border-transparent'
                 }`}
               >
                 {t}
@@ -99,7 +99,7 @@ export default function AdminAssetsPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800/70 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                       <th className="px-5 py-3 font-medium">Asset</th>
                       <th className="px-5 py-3 font-medium">Type</th>
                       <th className="px-5 py-3 font-medium">Level</th>
@@ -110,7 +110,7 @@ export default function AdminAssetsPage() {
                       <th className="px-5 py-3 font-medium"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-line">
                     {filtered.map((asset) => (
                       <AssetRow key={asset.id} asset={asset} />
                     ))}
@@ -128,32 +128,32 @@ export default function AdminAssetsPage() {
 function AssetRow({ asset }: { asset: AssetSummaryVM }) {
   const latest = asset.latest
   return (
-    <tr className="transition-colors hover:bg-slate-800/20">
+    <tr className="transition-colors hover:bg-surface-alt">
       <td className="px-5 py-3">
-        <p className="font-medium text-slate-200">{asset.name}</p>
+        <p className="font-medium text-ink">{asset.name}</p>
       </td>
       <td className="px-5 py-3">
         <Badge tone="slate">{asset.assetType}</Badge>
       </td>
-      <td className="px-5 py-3 font-mono text-slate-300">
+      <td className="px-5 py-3 font-mono text-ink-muted">
         {latest?.reservoirLevelM != null ? `${fmtNumber(latest.reservoirLevelM)} m` : '—'}
       </td>
-      <td className="px-5 py-3 font-mono text-slate-300">
+      <td className="px-5 py-3 font-mono text-ink-muted">
         {latest?.storagePct != null ? `${fmtNumber(latest.storagePct)}%` : '—'}
       </td>
-      <td className="px-5 py-3 font-mono text-slate-300">
+      <td className="px-5 py-3 font-mono text-ink-muted">
         {latest?.inflowCumecs != null ? `${fmtNumber(latest.inflowCumecs)} m³/s` : '—'}
       </td>
-      <td className="px-5 py-3 font-mono text-slate-300">
+      <td className="px-5 py-3 font-mono text-ink-muted">
         {latest?.dischargeCumecs != null ? `${fmtNumber(latest.dischargeCumecs)} m³/s` : '—'}
       </td>
-      <td className="px-5 py-3 text-xs text-slate-500">
+      <td className="px-5 py-3 text-xs text-ink-subtle">
         {timeAgo(latest?.recordedAt)}
       </td>
       <td className="px-5 py-3">
         <Link
           href={`/water/operator/assets/${asset.id}`}
-          className="text-slate-500 hover:text-sky-400 transition"
+          className="text-ink-subtle hover:text-brand transition"
         >
           <ExternalLink className="h-4 w-4" />
         </Link>

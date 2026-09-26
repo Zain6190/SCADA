@@ -1,9 +1,6 @@
 # ml/prediction_api.py
-# API endpoints for ML predictions.
-# GET  /water/ml/predictions/{asset_id}  - Get flood predictions
-# POST /water/ml/train                    - Trigger model training
-#
-# Phase 2B: Updated field names, added model_status, EXPERIMENTAL labels.
+# Operational ML endpoints (predictions, train, anomalies, classification, performance).
+# v2 predictions (4-metric, CI) live at GET /water/v2/predict/{asset_id}.
 
 import logging
 from datetime import datetime
@@ -23,13 +20,10 @@ router = APIRouter()
 
 
 def _regenerate_model_metadata():
-    """Try to regenerate model_metadata.json after training.
-
-    This only works when sklearn/xgboost are installed (local dev or full container).
-    In slim containers, it logs a warning and the JSON stays stale until next local run.
-    """
+    """Try to regenerate model_metadata.json after training."""
     try:
         import subprocess
+        from pathlib import Path
         script = Path(__file__).parent.parent / "scripts" / "generate_model_metadata.py"
         if script.exists():
             result = subprocess.run(
@@ -62,6 +56,7 @@ class PredictionResponse(BaseModel):
     model_status: str
     feature_importance: dict
     target_field: str = "level"  # "level", "inflow", or "discharge"
+    ci_method: Optional[str] = None  # interval provenance (quantile/residual/r2 band)
 
 
 class TrainRequest(BaseModel):
@@ -187,6 +182,7 @@ async def get_predictions(
                     model_status=pred.model_status,
                     feature_importance=pred.feature_importance,
                     target_field=target_field,
+                    ci_method=pred.ci_method,
                 ))
 
         return predictions
@@ -219,10 +215,7 @@ async def get_anomalies(
     top_n: int = Query(5, ge=1, le=20),
     session: Session = Depends(get_session),
 ):
-    """Get anomalous observations for an asset.
-
-    WARNING: This model is EXPERIMENTAL. Anomaly scores are advisory only.
-    """
+    """Get anomalous observations for an asset."""
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -286,10 +279,7 @@ async def get_flood_classification(
     asset_id: int,
     session: Session = Depends(get_session),
 ):
-    """Get flood probability classification for an asset.
-
-    Returns flood_probability (0.0-1.0), severity, and recommendation.
-    """
+    """Get flood probability classification for an asset."""
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -314,7 +304,6 @@ async def get_flood_classification(
     try:
         clf = FloodClassifier.load(asset_id, model_path)
 
-        # Load recent observations
         from sqlalchemy import text
         from infrastructure.db.engine import engine as sa_engine
 
@@ -390,27 +379,23 @@ async def train_flood_classifiers():
 class ModelPerformance(BaseModel):
     asset_id: int
     asset_name: str
-    model_type: str  # "flood_predictor" | "flood_classifier" | "anomaly_detector"
+    model_type: str
     model_status: str
     trained_at: Optional[str] = None
     saved_at: Optional[str] = None
     samples: Optional[int] = None
     train_samples: Optional[int] = None
     test_samples: Optional[int] = None
-    # Regression metrics
     r2: Optional[float] = None
     mae: Optional[float] = None
     rmse: Optional[float] = None
     mape: Optional[float] = None
-    # Classification metrics
     accuracy: Optional[float] = None
     auc: Optional[float] = None
     f1: Optional[float] = None
     precision: Optional[float] = None
     recall: Optional[float] = None
-    # Feature importance (top 10)
     feature_importance: dict = {}
-    # Extra info
     horizon_days: Optional[int] = None
     model_version: Optional[str] = None
     model_file: str = ""
@@ -418,19 +403,68 @@ class ModelPerformance(BaseModel):
 
 @router.get("/ml/model-performance", response_model=List[ModelPerformance])
 async def get_model_performance():
-    """Read model performance metadata from pre-generated JSON.
-
-    Run `scripts/generate_model_metadata.py` locally to produce the JSON
-    after training models. This avoids needing sklearn/xgboost in the API container.
-    """
+    """Read model performance from the single canonical metadata file."""
     import json
     from pathlib import Path
 
-    metadata_path = Path(__file__).parent.parent / "data" / "model_metadata.json"
+    metadata_path = Path(__file__).parent.parent / "data" / "models" / "model_metadata.json"
     if not metadata_path.exists():
         return []
 
     with open(metadata_path) as f:
         raw = json.load(f)
 
-    return [ModelPerformance(**item) for item in raw]
+    if isinstance(raw, list):
+        return [ModelPerformance(**item) for item in raw]
+
+    results: List[ModelPerformance] = []
+    for aid, asset in (raw.get("assets") or {}).items():
+        raw_aid = asset.get("asset_id")
+        if raw_aid is None:
+            try:
+                asset_id = int(aid)
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                asset_id = int(raw_aid)
+            except (TypeError, ValueError):
+                continue
+        asset_name = asset.get("asset_name") or f"Asset {asset_id}"
+        for key, m in (asset.get("models") or {}).items():
+            results.append(
+                ModelPerformance(
+                    asset_id=asset_id,
+                    asset_name=asset_name,
+                    model_type=m.get("model_type") or key,
+                    model_status=m.get("status") or m.get("model_status") or "UNKNOWN",
+                    trained_at=m.get("trained_at"),
+                    saved_at=m.get("saved_at"),
+                    samples=m.get("samples"),
+                    train_samples=m.get("train_samples"),
+                    test_samples=m.get("test_samples"),
+                    r2=_opt_float(m.get("r2")),
+                    mae=_opt_float(m.get("mae")),
+                    rmse=_opt_float(m.get("rmse")),
+                    mape=_opt_float(m.get("mape")),
+                    accuracy=_opt_float(m.get("accuracy")),
+                    auc=_opt_float(m.get("auc")),
+                    f1=_opt_float(m.get("f1")),
+                    precision=_opt_float(m.get("precision")),
+                    recall=_opt_float(m.get("recall")),
+                    feature_importance=m.get("feature_importance") or m.get("top_features") or {},
+                    horizon_days=m.get("horizon") or m.get("horizon_days"),
+                    model_version=raw.get("model_version") or m.get("model_version"),
+                    model_file=m.get("model_file", ""),
+                )
+            )
+    return results
+
+
+def _opt_float(v):
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None

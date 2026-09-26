@@ -1,0 +1,63 @@
+# Title:                 GRDC STATION DATA FILE
+#                        --------------
+# Format:                DOS-ASCII
+# Field delimiter:       ;
+# missing values are indicated by -999.000
+#
+# file generation date:  2026-09-20
+#
+# GRDC-No.:              2336300
+# River:                 KANSI RIVER
+# Station:               NEAR PALOTE
+# Country:               PK
+# Latitude (DD):       34.33
+# Longitude (DD):      73.05
+# Catchment area (km²):      1111.0
+# Altitude (m ASL):        -999.00
+# Next downstream station:      2337100
+# Remarks:               
+# Owner of original data: Initial dataset collected in the framework of the First GARP Global Experiment (FGGE)
+#************************************************************
+#
+# Data Set Content:      MEAN MONTHLY DISCHARGE (MQ)
+#                        --------------------
+# Unit of measure:                  m³/s
+# Time series:           1979 - 1980
+# No. of years:          2
+# Last update:           2018-05-29
+#
+# Table Header:
+#     YYYY-MM-DD - Date (DD=00)
+#     hh:mm      - Time
+#     Original   - original (provided) data
+#     Calculated - GRDC calculated from daily data
+#     Flag       - percentage of valid values used for calculation from daily data
+#************************************************************
+#
+# Data lines: 24
+# DATA
+YYYY-MM-DD;hh:mm; Original; Calculated; Flag
+1979-01-01;--:--;      2.000;      2.742; 100
+1979-02-01;--:--;      4.000;      5.214; 100
+1979-03-01;--:--;      7.000;      7.258; 100
+1979-04-01;--:--;      1.000;      1.733; 100
+1979-05-01;--:--;      0.000;      0.806; 100
+1979-06-01;--:--;      0.000;      0.967; 100
+1979-07-01;--:--;      7.000;      7.032; 100
+1979-08-01;--:--;     14.000;     14.613; 100
+1979-09-01;--:--;      8.000;      8.967; 100
+1979-10-01;--:--;      2.000;      2.032; 100
+1979-11-01;--:--;      0.000;      0.967; 100
+1979-12-01;--:--;      1.000;      1.000; 100
+1980-01-01;--:--;      9.000;      9.581; 100
+1980-02-01;--:--;      1.000;      1.793; 100
+1980-03-01;--:--;      3.000;      3.065; 100
+1980-04-01;--:--;      1.000;      1.367; 100
+1980-05-01;--:--;      0.000;      0.194; 100
+1980-06-01;--:--;      9.000;     10.310;  97
+1980-07-01;--:--;     25.000;     25.710; 100
+1980-08-01;--:--;     13.000;     13.433;  97
+1980-09-01;--:--;      3.000;      3.367; 100
+1980-10-01;--:--;      0.000;      0.194; 100
+1980-11-01;--:--;      0.000;      0.000; 100
+1980-12-01;--:--;      0.000;      0.000; 100

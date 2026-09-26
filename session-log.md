@@ -1,5 +1,11 @@
 # IBCP-SCADA — Session Conversation Log
 
+> **Layout note (current):** `packages/backend` and `services/scheduler` were
+> later deleted/merged; the single backend is `services/aquavision-service`
+> (with `scheduler/` folded in) and the ML scripts live in `services/ml-pipeline`.
+> Entries below reference the old paths for historical accuracy — see `README.md`
+> for the live structure.
+
 ## Session 1: Admin Pipeline Endpoints (Completed)
 
 **Prompt:** Continue with next steps (admin endpoints for pipeline-runs, pipeline-health)

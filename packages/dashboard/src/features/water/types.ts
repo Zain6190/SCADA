@@ -227,7 +227,13 @@ export interface OperationalAlert {
   rate_of_change_ft_6h?: number | null
   created_at: string
   acknowledged_at?: string | null
+  acknowledged_by?: string | null
   resolved_at?: string | null
+  resolution?: string | null
+  assigned_to?: string | null
+  sla_due_at?: string | null
+  escalated_at?: string | null
+  escalated_to?: string | null
   notes?: string | null
   episode_id?: number | null
   alert_source?: string | null
@@ -464,4 +470,224 @@ export interface PipelineHealth {
     irsa_hours: number | null
     ffd_hours: number | null
   }
+}
+
+// ─── AquaVision v2 Prediction Types ────────────────────────────────────────
+
+export interface V2DischargePrediction {
+  value_m3s: number
+  confidence_lower_m3s: number
+  confidence_upper_m3s: number
+  value_cusecs: number
+  confidence_lower_cusecs: number
+  confidence_upper_cusecs: number
+  unit: string
+  // Interval provenance: quantile_q10_q90 | residual_p90 | r2_band |
+  // physics_band | pct_heuristic (null = no prediction)
+  ci_method?: string | null
+}
+
+export interface V2WaterStressPrediction {
+  value: number
+  category: string
+  trend: number
+  components: Record<string, number>
+}
+
+export interface V2FloodRiskPrediction {
+  value: number
+  category: string
+  confidence: number | null
+  drivers: Array<{ name: string; value: string; impact: string }>
+}
+
+export interface V2RainfallPrediction {
+  value_mm: number
+  probability: number
+  unit: string
+}
+
+export interface V2LeadTimeForecast {
+  lead_time_days: number
+  water_stress: V2WaterStressPrediction
+  flood_risk: V2FloodRiskPrediction
+  discharge: V2DischargePrediction
+  rainfall: V2RainfallPrediction
+  confidence: number | null
+}
+
+export interface V2AssetPrediction {
+  asset_id: number
+  asset_name: string
+  asset_type: string
+  timestamp: string
+  predictions: Record<string, V2LeadTimeForecast>
+  alerts: Array<{
+    level: string
+    type: string
+    message: string
+    action: string
+    lead_time: string
+    timestamp: string
+  }>
+  model_metadata: {
+    model_version: string
+    last_training: string | null
+    accuracy_3day: number | null
+    accuracy_7day: number | null
+    accuracy_14day: number | null
+    features_used: number | null
+    prediction_method: string
+    accuracy_status?: string
+    // holdout coverage of the q10-q90 interval per horizon (3/7/14);
+    // null for physics assets / models without quantile intervals
+    ci_coverage_80?: Record<string, number> | null
+  }
+}
+
+export interface V2NationalOverview {
+  timestamp: string
+  national_wai: number
+  national_status: string
+  provinces: Array<{
+    province: string
+    wai_score: number
+    category: string
+    assets: V2AssetPrediction[]
+  }>
+  critical_alerts: Array<{
+    level: string
+    type: string
+    message: string
+    action: string
+    lead_time: string
+    timestamp: string
+  }>
+  assets_monitored: number
+}
+
+// GET /water/v2/asset/{id}/forecast-chart — 30d actual + 3/7/14 forecast points
+export interface V2ForecastChart {
+  dates: string[]
+  actual: Array<number | null>
+  forecast_3d: Array<number | null>
+  forecast_7d: Array<number | null>
+  forecast_14d: Array<number | null>
+  confidence_lower: Array<number | null>
+  confidence_upper: Array<number | null>
+  warning_level: number | null
+  danger_level: number | null
+}
+
+// ─── Alert workflow (instructions, queue, timeline, KPIs) ──────────────────
+export interface WorkflowInstruction {
+  id: number
+  alert_id: number
+  asset_id: number
+  asset_name?: string | null
+  alert_type?: string | null
+  alert_severity?: string | null
+  alert_status?: string | null
+  alert_message?: string | null
+  issued_by: string
+  issued_role: string
+  assigned_to: string
+  instruction_text: string
+  template_key?: string | null
+  due_at?: string | null
+  status: string
+  report_text?: string | null
+  report_data?: Record<string, unknown> | null
+  reported_at?: string | null
+  reported_by?: string | null
+  verified_by?: string | null
+  verified_at?: string | null
+  decision_note?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface QueueAlertMini {
+  id: number
+  asset_id: number
+  asset_name?: string | null
+  alert_type: string
+  severity: string
+  status: string
+  message: string
+  alert_source?: string | null
+  created_at: string
+  sla_due_at?: string | null
+  sla_breached: boolean
+  acknowledged_by?: string | null
+  assigned_to?: string | null
+  escalated_to?: string | null
+  escalated_at?: string | null
+  episode_id?: number | null
+  flood_probability?: number | null
+}
+
+export interface AlertQueue {
+  scope: string
+  role: string
+  instructions_my: WorkflowInstruction[]
+  instructions_to_verify: WorkflowInstruction[]
+  alerts_new: QueueAlertMini[]
+  alerts_escalated: QueueAlertMini[]
+  counts: {
+    instructions_my: number
+    instructions_to_verify: number
+    alerts_new: number
+    alerts_escalated: number
+    alerts_sla_breached: number
+    badge: number
+  }
+}
+
+export interface TimelineItem {
+  kind: 'event' | 'instruction'
+  at: string
+  action: string
+  actor: string
+  actor_role?: string | null
+  old_status?: string | null
+  new_status?: string | null
+  notes?: string | null
+  instruction_id?: number | null
+  payload?: Record<string, unknown> | null
+  instruction?: WorkflowInstruction | null
+}
+
+export interface EscalationsBoard {
+  escalated: QueueAlertMini[]
+  sla_breached: QueueAlertMini[]
+  instructions_overdue: WorkflowInstruction[]
+  counts: { escalated: number; sla_breached: number; instructions_overdue: number }
+}
+
+export interface AlertKpis {
+  open_total: number
+  open_by_severity: Record<string, number>
+  open_by_status: Record<string, number>
+  mttr_hours_30d: number | null
+  ack_sla_compliance_pct: number | null
+  ack_sla_window_30d: number
+  overdue_instructions: number
+  open_instructions: number
+  escalations_7d: number
+  generated_at: string
+}
+
+export interface AssignableUser {
+  id: number
+  name: string
+  email: string
+  username: string
+  role: string
+}
+
+export interface InstructionTemplate {
+  title: string
+  text: string
+  report_fields: string[]
 }

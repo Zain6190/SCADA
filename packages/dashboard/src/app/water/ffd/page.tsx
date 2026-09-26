@@ -23,21 +23,21 @@ const STATUS_BADGE_TONE: Record<string, 'emerald' | 'sky' | 'amber' | 'violet' |
 }
 
 const RIVER_ACCENT: Record<string, string> = {
-  Indus: 'border-l-sky-400',
-  Kabul: 'border-l-cyan-400',
-  Jhelum: 'border-l-teal-400',
-  Chenab: 'border-l-emerald-400',
-  Ravi: 'border-l-amber-400',
-  Sutlej: 'border-l-orange-400',
+  Indus: 'border-l-[#15467E]',
+  Kabul: 'border-l-[#0E7490]',
+  Jhelum: 'border-l-[#0F766E]',
+  Chenab: 'border-l-[#15693C]',
+  Ravi: 'border-l-[#9A5B06]',
+  Sutlej: 'border-l-[#A8470E]',
 }
 
 const RIVER_DOT: Record<string, string> = {
-  Indus: 'bg-sky-400',
-  Kabul: 'bg-cyan-400',
-  Jhelum: 'bg-teal-400',
-  Chenab: 'bg-emerald-400',
-  Ravi: 'bg-amber-400',
-  Sutlej: 'bg-orange-400',
+  Indus: 'bg-brand',
+  Kabul: 'bg-brand',
+  Jhelum: 'bg-ok',
+  Chenab: 'bg-ok',
+  Ravi: 'bg-warn',
+  Sutlej: 'bg-sev-severe',
 }
 
 export default function FFDPage() {
@@ -94,12 +94,12 @@ export default function FFDPage() {
           title="FFD Flood Bulletins"
           description="Pakistan Meteorological Department — Flood Forecasting Division"
           icon={<CloudRain className="h-6 w-6" />}
-          accent="bg-cyan-500/10 text-cyan-300"
+          accent="bg-brand-soft text-brand"
           action={
             <button
               onClick={handleIngest}
               disabled={ingesting}
-              className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm font-medium text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-soft px-4 py-2.5 text-sm font-medium text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
             >
               <Download className="h-4 w-4" />
               {ingesting ? 'Ingesting...' : 'Ingest Latest Bulletin'}
@@ -108,7 +108,7 @@ export default function FFDPage() {
         />
 
         {lastIngest && (
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-300">{lastIngest}</div>
+          <div className="rounded-xl border border-ok/25 bg-ok-soft p-4 text-sm text-ok">{lastIngest}</div>
         )}
 
         {error && <ErrorState title="Failed to load FFD data" message={error} onRetry={fetchData} />}
@@ -123,12 +123,12 @@ export default function FFDPage() {
                 {Object.entries(statusCounts).map(([status, count]) => {
                   const tone = STATUS_BADGE_TONE[status] || 'slate'
                   const accentMap: Record<string, string> = {
-                    emerald: 'bg-emerald-500/10 text-emerald-300',
-                    sky: 'bg-sky-500/10 text-sky-300',
-                    amber: 'bg-amber-500/10 text-amber-300',
-                    violet: 'bg-violet-500/10 text-violet-300',
-                    red: 'bg-red-500/10 text-red-300',
-                    slate: 'bg-slate-500/10 text-slate-300',
+                    emerald: 'bg-ok-soft text-ok',
+                    sky: 'bg-brand-soft text-brand',
+                    amber: 'bg-warn-soft text-warn',
+                    violet: 'bg-brand-soft text-brand',
+                    red: 'bg-crit-soft text-crit',
+                    slate: 'bg-surface-sunken text-ink-muted',
                   }
                   return (
                     <KpiCard
@@ -146,35 +146,35 @@ export default function FFDPage() {
             {/* River Groups */}
             {Object.entries(byRiver).map(([river, obs]) => (
               <div key={river} className="space-y-3">
-                <h2 className="flex items-center gap-2.5 text-lg font-semibold text-slate-200">
-                  <span className={`h-6 w-1.5 rounded-full ${RIVER_DOT[river] || 'bg-slate-500'}`} />
+                <h2 className="flex items-center gap-2.5 text-lg font-semibold text-ink">
+                  <span className={`h-6 w-1.5 rounded-full ${RIVER_DOT[river] || 'bg-surface-sunken'}`} />
                   {river} River
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {obs.map(o => (
-                    <Card key={o.id} className={`border-l-4 ${RIVER_ACCENT[river] || 'border-l-slate-500'}`}>
+                    <Card key={o.id} className={`border-l-4 ${RIVER_ACCENT[river] || 'border-l-line-strong'}`}>
                       <CardBody>
                         <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold text-slate-100">{o.station_name}</h3>
+                          <h3 className="font-semibold text-ink">{o.station_name}</h3>
                           <Badge tone={STATUS_BADGE_TONE[o.flood_status] || 'slate'}>
                             {o.flood_status.replace(/_/g, ' ')}
                           </Badge>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-3">
                           <div>
-                            <div className="text-[11px] text-slate-500">Inflow</div>
-                            <div className="text-lg font-bold text-slate-100">
-                              {o.discharge_cusecs ? `${(o.discharge_cusecs / 1000).toFixed(1)}K` : '—'} <span className="text-[11px] text-slate-500">cusecs</span>
+                            <div className="text-[11px] text-ink-subtle">Inflow</div>
+                            <div className="text-lg font-bold text-ink">
+                              {o.discharge_cusecs ? `${(o.discharge_cusecs / 1000).toFixed(1)}K` : '—'} <span className="text-[11px] text-ink-subtle">cusecs</span>
                             </div>
                           </div>
                           <div>
-                            <div className="text-[11px] text-slate-500">Gauge Level</div>
-                            <div className="text-lg font-bold text-slate-100">
-                              {o.gauge_level_ft?.toFixed(1) || '—'} <span className="text-[11px] text-slate-500">ft</span>
+                            <div className="text-[11px] text-ink-subtle">Gauge Level</div>
+                            <div className="text-lg font-bold text-ink">
+                              {o.gauge_level_ft?.toFixed(1) || '—'} <span className="text-[11px] text-ink-subtle">ft</span>
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <div className="flex items-center justify-between text-[11px] text-ink-subtle">
                           <span>Trend: {o.forecast_trend}</span>
                           <span>{o.observed_at}</span>
                         </div>

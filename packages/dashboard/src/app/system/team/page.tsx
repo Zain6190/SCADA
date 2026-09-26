@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { useSupervisorTeam, useUpdateOperator } from '@/features/admin/hooks'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 const ACCESS_TONE: Record<string, 'emerald' | 'sky' | 'amber' | 'red' | 'slate'> = {
   ACTIVE: 'emerald',
@@ -25,14 +25,14 @@ const ACCESS_TONE: Record<string, 'emerald' | 'sky' | 'amber' | 'red' | 'slate'>
 }
 
 function ScopeLabel({ scope }: { scope: { scope_type: string | null; region_ids?: number[] | null } }) {
-  if (!scope?.scope_type) return <span className="text-slate-600">No scope</span>
+  if (!scope?.scope_type) return <span className="text-ink-subtle">No scope</span>
   if (scope.scope_type === 'NATIONAL')
     return (
-      <span className="inline-flex items-center gap-1 text-emerald-300">
+      <span className="inline-flex items-center gap-1 text-ok">
         <Globe className="h-3 w-3" /> National
       </span>
     )
-  return <span className="font-mono text-[11px] text-slate-400">{scope.scope_type}</span>
+  return <span className="font-mono text-[11px] text-ink-muted">{scope.scope_type}</span>
 }
 
 export default function TeamPage() {
@@ -69,7 +69,7 @@ export default function TeamPage() {
           action={
             <Link
               href="/system/team/new"
-              className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/25"
+              className="inline-flex items-center gap-2 rounded-lg bg-warn-soft px-4 py-2 text-sm font-medium text-warn transition-colors hover:bg-warn-soft"
             >
               <UserPlus className="h-4 w-4" /> Add Operator
             </Link>
@@ -77,7 +77,7 @@ export default function TeamPage() {
         />
 
         {pending > 0 && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+          <div className="rounded-xl border border-warn/25 bg-warn-soft p-3 text-sm text-warn">
             {pending} pending operator request{pending === 1 ? '' : 's'} awaiting your approval.
           </div>
         )}
@@ -104,7 +104,7 @@ export default function TeamPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800/70 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                       <th className="px-5 py-3 font-medium">Operator</th>
                       <th className="px-5 py-3 font-medium">Role</th>
                       <th className="px-5 py-3 font-medium">Status</th>
@@ -112,12 +112,12 @@ export default function TeamPage() {
                       <th className="px-5 py-3" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-line">
                     {team.map((u) => (
-                      <tr key={u.id} className="transition-colors hover:bg-slate-800/20">
+                      <tr key={u.id} className="transition-colors hover:bg-surface-alt">
                         <td className="px-5 py-3">
-                          <p className="font-medium text-slate-200">{u.full_name}</p>
-                          <p className="font-mono text-[11px] text-slate-500">{u.email}</p>
+                          <p className="font-medium text-ink">{u.full_name}</p>
+                          <p className="font-mono text-[11px] text-ink-subtle">{u.email}</p>
                         </td>
                         <td className="px-5 py-3">
                           <Badge tone="slate">{u.role}</Badge>
@@ -134,7 +134,7 @@ export default function TeamPage() {
                               <button
                                 onClick={() => act(u.id, 'ACTIVE')}
                                 disabled={working === u.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-lg border border-ok/25 bg-ok-soft px-3 py-1.5 text-xs font-medium text-ok transition-colors hover:bg-ok-soft disabled:opacity-50"
                               >
                                 <Check className="h-3.5 w-3.5" /> Approve
                               </button>
@@ -143,7 +143,7 @@ export default function TeamPage() {
                               <button
                                 onClick={() => act(u.id, 'SUSPENDED')}
                                 disabled={working === u.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-lg border border-crit/25 bg-crit-soft px-3 py-1.5 text-xs font-medium text-crit transition-colors hover:bg-crit-soft disabled:opacity-50"
                               >
                                 <Ban className="h-3.5 w-3.5" /> Suspend
                               </button>
@@ -152,7 +152,7 @@ export default function TeamPage() {
                               <button
                                 onClick={() => act(u.id, 'ACTIVE')}
                                 disabled={working === u.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700/60 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-lg border border-line-strong bg-surface-alt px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-surface-sunken disabled:opacity-50"
                               >
                                 <Undo2 className="h-3.5 w-3.5" /> Restore
                               </button>
@@ -169,7 +169,7 @@ export default function TeamPage() {
         </Card>
 
         {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>
+          <div className="rounded-xl border border-crit/25 bg-crit-soft p-3 text-sm text-crit">{error}</div>
         )}
       </div>
     </AppShell>

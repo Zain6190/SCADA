@@ -22,7 +22,7 @@ import { usePipelineHealth, useOperationalAlerts, useWaterAssets } from '@/featu
 import { fmtNumber } from '@/lib/format'
 import { timeAgo } from '@/lib/format'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 function statusTone(status: string | null | undefined): 'emerald' | 'amber' | 'red' | 'slate' {
   switch (status) {
@@ -102,21 +102,21 @@ export default function AdminDashboardPage() {
             value={openAlerts.length}
             detail={`${newAlerts.length} new · ${criticalAlerts.length} critical`}
             icon={Bell}
-            accent="bg-amber-500/10 text-amber-300"
+            accent="bg-warn-soft text-warn"
           />
           <KpiCard
             label="Assets"
             value={assets.length}
             detail="Water infrastructure monitored"
             icon={Database}
-            accent="bg-sky-500/10 text-sky-300"
+            accent="bg-brand-soft text-brand"
           />
           <KpiCard
             label="IRSA Freshness"
             value={health?.data_freshness?.irsa_hours != null ? `${health.data_freshness.irsa_hours.toFixed(1)}h` : '—'}
             detail="Hours since last IRSA data"
             icon={Clock}
-            accent="bg-violet-500/10 text-violet-300"
+            accent="bg-brand-soft text-brand"
           />
         </div>
 
@@ -132,7 +132,7 @@ export default function AdminDashboardPage() {
                 <button
                   onClick={() => healthQuery.refetch()}
                   disabled={healthQuery.isPending}
-                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition"
+                  className="rounded-lg p-1.5 text-ink-muted hover:bg-surface-alt hover:text-ink transition"
                 >
                   <RefreshCw className={`h-4 w-4 ${healthQuery.isPending ? 'animate-spin' : ''}`} />
                 </button>
@@ -166,7 +166,7 @@ export default function AdminDashboardPage() {
               title="Alert Summary"
               subtitle="Active alert distribution by severity"
               icon={<Bell className="h-5 w-5" />}
-              accent="bg-red-500/10 text-red-300"
+              accent="bg-crit-soft text-crit"
               action={<Badge tone="slate">{alerts.length} total</Badge>}
             />
             <CardBody className="space-y-3">
@@ -176,12 +176,12 @@ export default function AdminDashboardPage() {
                 { label: 'WATCH', count: alerts.filter((a) => (a.severity as string) === 'WATCH' && a.status !== 'RESOLVED').length, color: 'sky' },
                 { label: 'Resolved (today)', count: alerts.filter((a) => a.status === 'RESOLVED').length, color: 'emerald' },
               ].map((row) => (
-                <div key={row.label} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                <div key={row.label} className="flex items-center justify-between rounded-xl border border-line bg-canvas p-3">
                   <div className="flex items-center gap-2">
                     <span className={`h-2 w-2 rounded-full bg-${row.color}-400`} />
-                    <span className="text-sm text-slate-300">{row.label}</span>
+                    <span className="text-sm text-ink-muted">{row.label}</span>
                   </div>
-                  <span className="font-mono text-sm font-semibold text-slate-200">{row.count}</span>
+                  <span className="font-mono text-sm font-semibold text-ink">{row.count}</span>
                 </div>
               ))}
             </CardBody>
@@ -194,15 +194,15 @@ export default function AdminDashboardPage() {
             title="Recent Alerts"
             subtitle="Latest operational alerts across all assets"
             icon={<AlertTriangle className="h-5 w-5" />}
-            accent="bg-amber-500/10 text-amber-300"
+            accent="bg-warn-soft text-warn"
           />
           <CardBody className="p-0">
             {alertsQuery.isPending ? (
               <div className="p-8"><Spinner /></div>
             ) : alerts.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">No alerts in the system.</div>
+              <div className="p-8 text-center text-sm text-ink-subtle">No alerts in the system.</div>
             ) : (
-              <div className="divide-y divide-slate-800/70">
+              <div className="divide-y divide-line">
                 {alerts.slice(0, 10).map((a) => (
                   <div key={a.id} className="flex items-center justify-between gap-4 px-5 py-3">
                     <div className="min-w-0">
@@ -210,9 +210,9 @@ export default function AdminDashboardPage() {
                         <Badge tone={(a.severity as string) === 'CRITICAL' ? 'red' : (a.severity as string) === 'WARNING' ? 'amber' : 'sky'}>
                           {a.severity}
                         </Badge>
-                        <span className="truncate text-sm text-slate-300">{a.alert_type}</span>
+                        <span className="truncate text-sm text-ink-muted">{a.alert_type}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-slate-500">{timeAgo(a.created_at)}</p>
+                      <p className="mt-0.5 text-xs text-ink-subtle">{timeAgo(a.created_at)}</p>
                     </div>
                     <Badge tone={a.status === 'RESOLVED' ? 'emerald' : a.status === 'ACKNOWLEDGED' ? 'sky' : 'amber'}>
                       {a.status}
@@ -239,11 +239,11 @@ function PipelineRow({
 }) {
   const tone = statusTone(run?.status)
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+    <div className="rounded-xl border border-line bg-canvas p-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-200">{name}</p>
-          <p className="text-xs text-slate-500">
+          <p className="text-sm font-medium text-ink">{name}</p>
+          <p className="text-xs text-ink-subtle">
             {run?.completed_at ? `Last run: ${timeAgo(run.completed_at)}` : 'No runs yet'}
           </p>
         </div>
@@ -251,13 +251,13 @@ function PipelineRow({
       </div>
       {freshnessHours != null && (
         <div className="mt-2 flex items-center gap-2">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-alt">
             <div
               className={`h-full rounded-full bg-${tone === 'emerald' ? 'emerald' : tone === 'amber' ? 'amber' : 'red'}-500`}
               style={{ width: `${Math.min(100, Math.max(5, 100 - freshnessHours * 2))}%` }}
             />
           </div>
-          <span className="text-[10px] text-slate-500">{freshnessHours.toFixed(1)}h ago</span>
+          <span className="text-[10px] text-ink-subtle">{freshnessHours.toFixed(1)}h ago</span>
         </div>
       )}
     </div>

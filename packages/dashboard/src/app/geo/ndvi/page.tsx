@@ -20,7 +20,7 @@ import { Badge, SeverityBadge } from '@/components/ui/badge'
 import { ProgressBar } from '@/components/ui/progress'
 import { fmtNumber } from '@/lib/format'
 
-const VIOLET = 'bg-violet-500/10 text-violet-300'
+const VIOLET = 'bg-brand-soft text-brand'
 
 const cropSeries = [
   { month: 'Jan', wheat: 0.31, rice: 0.0, pasture: 0.18 },
@@ -108,7 +108,7 @@ export default function NdviAnalysisPage() {
               accent={VIOLET}
             />
             <CardBody>
-              <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <div className="flex items-center justify-between text-[11px] text-ink-subtle">
                 <span>0.0</span>
                 <span>0.5</span>
                 <span>1.0</span>
@@ -122,12 +122,12 @@ export default function NdviAnalysisPage() {
               />
               <div className="mt-5 space-y-3">
                 {ndviBands.map((b) => (
-                  <div key={b.label} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+                  <div key={b.label} className="flex items-center justify-between rounded-xl border border-line bg-canvas px-4 py-3">
                     <div className="flex items-center gap-3">
                       <span className="h-3 w-3 rounded-full" style={{ backgroundColor: b.color }} />
-                      <span className="text-sm font-medium text-slate-200">{b.label}</span>
+                      <span className="text-sm font-medium text-ink">{b.label}</span>
                     </div>
-                    <span className="text-xs text-slate-500">{b.range}</span>
+                    <span className="text-xs text-ink-subtle">{b.range}</span>
                   </div>
                 ))}
               </div>
@@ -145,12 +145,12 @@ export default function NdviAnalysisPage() {
             <CardBody>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {districtTiles.map((d) => (
-                  <div key={d.name} className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                  <div key={d.name} className="rounded-xl border border-line bg-canvas p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-slate-200">{d.name}</p>
+                      <p className="text-sm font-medium text-ink">{d.name}</p>
                       <SeverityBadge severity={d.severity} />
                     </div>
-                    <p className="mt-2 text-2xl font-semibold text-slate-100">
+                    <p className="mt-2 text-2xl font-semibold text-ink">
                       {fmtNumber(d.ndvi, 2)}
                     </p>
                     <div className="mt-2">

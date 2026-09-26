@@ -19,7 +19,7 @@ import { Badge, SeverityBadge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { fmtNumber, fmtPct } from '@/lib/format'
 
-const CROP = 'bg-emerald-500/10 text-emerald-300'
+const CROP = 'bg-ok-soft text-ok'
 
 type RegionSeverity = 'Normal' | 'Moderate' | 'Stressed' | 'Severe'
 
@@ -89,14 +89,14 @@ export default function CropOverviewPage() {
             value={fmtNumber(ndviMean, 2)}
             detail="Normalized Difference Vegetation Index"
             icon={Sprout}
-            accent="bg-teal-500/10 text-teal-300"
+            accent="bg-ok-soft text-ok"
           />
           <KpiCard
             label="Stressed Crops"
             value={stressed}
             detail="Regions below healthy threshold"
             icon={AlertTriangle}
-            accent="bg-amber-500/10 text-amber-300"
+            accent="bg-warn-soft text-warn"
           />
         </div>
 
@@ -130,18 +130,18 @@ export default function CropOverviewPage() {
             action={<Badge tone="slate">{REGIONS.length} regions</Badge>}
           />
           <CardBody className="p-0">
-            <div className="divide-y divide-slate-800/70">
+            <div className="divide-y divide-line">
               {REGIONS.map((region) => (
                 <div key={region.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-200">{region.name}</p>
-                    <p className="text-[11px] text-slate-500">{region.crop} · {region.hectares.toLocaleString()} ha</p>
+                    <p className="text-sm font-medium text-ink">{region.name}</p>
+                    <p className="text-[11px] text-ink-subtle">{region.crop} · {region.hectares.toLocaleString()} ha</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-slate-400">NDVI <span className="font-semibold text-slate-100">{fmtNumber(region.ndvi, 2)}</span></p>
+                    <p className="text-sm text-ink-muted">NDVI <span className="font-semibold text-ink">{fmtNumber(region.ndvi, 2)}</span></p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className={`text-xs font-semibold ${region.changePct >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                    <span className={`text-xs font-semibold ${region.changePct >= 0 ? 'text-ok' : 'text-crit'}`}>
                       {fmtPct(region.changePct)}
                     </span>
                     <SeverityBadge severity={region.severity} />

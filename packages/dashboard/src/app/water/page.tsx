@@ -9,7 +9,6 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { SeverityBadge, Badge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
-import { DataFreshness } from '@/components/ui/data-freshness'
 import {
   useWaterOverview,
   useWaterAlerts,
@@ -25,7 +24,7 @@ import { useAuth } from '@/context/AuthContext'
 import { canSeeAnalysis } from '@/lib/permissions'
 import Link from 'next/link'
 
-const AQUA = 'bg-sky-500/10 text-sky-300'
+const AQUA = 'bg-brand-soft text-brand'
 
 export default function WaterOverviewPage() {
   const { user } = useAuth()
@@ -71,15 +70,14 @@ export default function WaterOverviewPage() {
           }
           icon={<Droplets className="h-6 w-6" />}
           updatedAt={overview.data?.week_start_date}
-          action={
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] font-medium text-sky-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-              Scope: {scopeBadge}
-            </span>
-          }
+          action={<Badge tone="brand">{scopeBadge}</Badge>}
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Two bands: what the basin is doing right now, then the inputs the
+            index is derived from. Four and three fill their rows exactly. */}
+        <section className="space-y-2.5">
+          <h2 className="text-micro font-semibold uppercase text-ink-subtle">Basin status</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             label="Regions Monitored"
             value={overview.data?.regions_monitored ?? '—'}
@@ -93,7 +91,7 @@ export default function WaterOverviewPage() {
               overview.data?.avg_wai_score != null ? (
                 <>
                   {fmtNumber(overview.data.avg_wai_score)}
-                  <span className="text-sm text-slate-500"> / 100</span>
+                  <span className="text-sm text-ink-subtle"> / 100</span>
                 </>
               ) : (
                 '—'
@@ -108,23 +106,29 @@ export default function WaterOverviewPage() {
             value={overview.data?.critical_regions ?? '—'}
             detail="Highest-priority regions"
             icon={AlertCircle}
-            accent="bg-red-500/10 text-red-300"
+            accent="bg-crit-soft text-crit"
           />
           <KpiCard
             label="Open Alert Queue"
             value={openAlerts.length}
             detail={`${openAlerts.filter((a) => a.status === 'New').length} New ready to ack`}
             icon={Bell}
-            accent="bg-amber-500/10 text-amber-300"
+            accent="bg-warn-soft text-warn"
             onClick={() => (window.location.href = '/water/alerts')}
           />
+          </div>
+        </section>
+
+        <section className="space-y-2.5">
+          <h2 className="text-micro font-semibold uppercase text-ink-subtle">Observed inputs</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <KpiCard
             label="Reservoir / Storage"
             value={
               latestRow?.surfaceWaterAreaKm2 != null ? (
                 <>
                   {fmtNumber(latestRow.surfaceWaterAreaKm2)}
-                  <span className="text-sm text-slate-500"> km²</span>
+                  <span className="text-sm text-ink-subtle"> km²</span>
                 </>
               ) : (
                 '—'
@@ -132,7 +136,7 @@ export default function WaterOverviewPage() {
             }
             detail={
               latestRow?.surfaceWaterChangePct != null ? (
-                <span className={latestRow.surfaceWaterChangePct < 0 ? 'text-red-300' : 'text-emerald-300'}>
+                <span className={latestRow.surfaceWaterChangePct < 0 ? 'text-crit' : 'text-ok'}>
                   Δ {fmtPct(latestRow.surfaceWaterChangePct)} vs prior week
                 </span>
               ) : (
@@ -140,7 +144,7 @@ export default function WaterOverviewPage() {
               )
             }
             icon={Warehouse}
-            accent="bg-cyan-500/10 text-cyan-300"
+            accent="bg-brand-soft text-brand"
           />
           <KpiCard
             label="Rainfall (30d)"
@@ -149,13 +153,13 @@ export default function WaterOverviewPage() {
               analyst
                 ? latestRow?.rainfallAnomaly != null ? `${fmtPct(latestRow.rainfallAnomaly)} anomaly` : 'Rainfall anomaly'
                 : (
-                  <span className="inline-flex items-center gap-1 text-amber-300/90">
+                  <span className="inline-flex items-center gap-1 text-warn">
                     <ShieldCheck className="h-3 w-3" /> Analyst access required
                   </span>
                 )
             }
             icon={CloudRain}
-            accent="bg-sky-500/10 text-sky-300"
+            accent="bg-brand-soft text-brand"
           />
           <KpiCard
             label="ET (8-day)"
@@ -164,26 +168,31 @@ export default function WaterOverviewPage() {
               analyst
                 ? latestRow?.etAnomaly != null ? `Δ ${fmtPct(latestRow.etAnomaly)} anomaly` : 'Evapotranspiration'
                 : (
-                  <span className="inline-flex items-center gap-1 text-amber-300/90">
+                  <span className="inline-flex items-center gap-1 text-warn">
                     <ShieldCheck className="h-3 w-3" /> Analyst access required
                   </span>
                 )
             }
             icon={Wind}
-            accent="bg-violet-500/10 text-violet-300"
+            accent="bg-brand-soft text-brand"
           />
-        </div>
+          </div>
+        </section>
 
-        {/* Data freshness + source / quality strip */}
+        {/* Provenance of the latest indicator row. Freshness itself lives in
+            the page header, so this strip only appears when there is a row to
+            describe — otherwise it rendered as a lone "Live" pill. */}
+        {latestRow && (
         <Card>
-          <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-3 py-3">
-            <DataFreshness
-              updatedAt={overview.data?.week_start_date}
-              source={latestRow?.dataSourceVersion}
-            />
+          <CardBody className="flex flex-wrap items-center gap-x-5 gap-y-2 py-2.5">
+            {latestRow.dataSourceVersion && (
+              <span className="text-caption text-ink-subtle">
+                Source {latestRow.dataSourceVersion}
+              </span>
+            )}
             {latestRow?.dataProvider && (
-              <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                <Database className="h-3 w-3 text-slate-600" /> Provider: {latestRow.dataProvider}
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-subtle">
+                <Database className="h-3 w-3 text-ink-subtle" /> Provider: {latestRow.dataProvider}
               </span>
             )}
             {latestRow?.dataStatus && (
@@ -193,10 +202,11 @@ export default function WaterOverviewPage() {
               <Badge tone={qualBadgeTone}>Quality: {latestRow.dataQuality}</Badge>
             )}
             {latestRow?.waiModelVersion && (
-              <Badge tone="violet">WAI {latestRow.waiModelVersion}</Badge>
+              <Badge tone="brand">WAI {latestRow.waiModelVersion}</Badge>
             )}
           </CardBody>
         </Card>
+        )}
 
         {/* Map */}
         <Card className="overflow-hidden">
@@ -242,17 +252,17 @@ export default function WaterOverviewPage() {
                   {sortBySeverity(predictions.data.slice(), (p) => p.predictedSeverity)
                     .slice(0, 5)
                     .map((p) => (
-                      <div key={p.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                      <div key={p.id} className="flex items-center justify-between rounded-xl border border-line bg-canvas p-3">
                         <div>
-                          <p className="text-sm font-medium text-slate-200">
+                          <p className="text-sm font-medium text-ink">
                             {regionNameById(regions.data ?? [], p.regionId)}
                           </p>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="text-[11px] text-ink-subtle">
                             {fmtDate(p.targetWeekStart)} · {p.modelVersion}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-slate-100">
+                          <p className="text-sm font-semibold text-ink">
                             WAI {p.predictedWaiScore ?? '—'}
                           </p>
                           <SeverityBadge severity={p.predictedSeverity} className="mt-1" />
@@ -271,7 +281,7 @@ export default function WaterOverviewPage() {
               title="Latest Alerts"
               subtitle="Auto-generated early-warning events"
               icon={<AlertTriangle size={18} />}
-              accent="bg-amber-500/10 text-amber-300"
+              accent="bg-warn-soft text-warn"
               action={<Link href="/water/operator/alerts"><Badge tone="amber">Manage →</Badge></Link>}
             />
             <CardBody>
@@ -282,10 +292,10 @@ export default function WaterOverviewPage() {
               ) : openAlerts.length ? (
                 <div className="space-y-3">
                   {openAlerts.slice(0, 5).map((a) => (
-                    <div key={a.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                    <div key={a.id} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-canvas p-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-200">{a.asset_name ? `${a.asset_name} · ` : ''}{a.alert_type}</p>
-                        <p className="text-[11px] text-slate-500">
+                        <p className="truncate text-sm font-medium text-ink">{a.asset_name ? `${a.asset_name} · ` : ''}{a.alert_type}</p>
+                        <p className="text-[11px] text-ink-subtle">
                           {a.created_at ? fmtDate(a.created_at) : '—'}
                         </p>
                       </div>

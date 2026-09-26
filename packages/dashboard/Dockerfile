@@ -8,7 +8,10 @@ RUN npm install
 
 COPY . .
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://aquavision:8100
+# The static export is consumed by the BROWSER on the host, so the default
+# must be host-reachable - docker-internal names like aquavision don't resolve
+# there and every auth/API call silently fails.
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8100
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 RUN npm run build

@@ -9,7 +9,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { fmtDateTime } from '@/lib/format'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 type AuditEntry = {
   id: number
@@ -67,16 +67,16 @@ export default function AuditLogPage() {
             action={<Badge tone="slate">{AUDIT_TRAIL.length} entries</Badge>}
           />
           <CardBody className="max-h-[600px] overflow-y-auto p-0">
-            <div className="divide-y divide-slate-800/70">
+            <div className="divide-y divide-line">
               {AUDIT_TRAIL.map((entry) => (
                 <div
                   key={entry.id}
-                  className="grid grid-cols-1 gap-2 px-5 py-3 transition-colors hover:bg-slate-800/20 lg:grid-cols-[auto_auto_auto_1fr] lg:items-center lg:gap-6"
+                  className="grid grid-cols-1 gap-2 px-5 py-3 transition-colors hover:bg-surface-alt lg:grid-cols-[auto_auto_auto_1fr] lg:items-center lg:gap-6"
                 >
-                  <span className="w-40 shrink-0 font-mono text-xs text-slate-500">
+                  <span className="w-40 shrink-0 font-mono text-xs text-ink-subtle">
                     {fmtDateTime(entry.timestamp)}
                   </span>
-                  <span className="w-28 shrink-0 truncate font-mono text-xs text-slate-300">
+                  <span className="w-28 shrink-0 truncate font-mono text-xs text-ink-muted">
                     {entry.actor}
                   </span>
                   <span className="shrink-0">
@@ -84,7 +84,7 @@ export default function AuditLogPage() {
                   </span>
                   <span className="min-w-0">
                     <span className="mb-1 inline-block"><Badge tone="slate">{entry.module}</Badge></span>
-                    <p className="text-xs text-slate-400">{entry.detail}</p>
+                    <p className="text-xs text-ink-muted">{entry.detail}</p>
                   </span>
                 </div>
               ))}

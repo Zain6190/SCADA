@@ -19,7 +19,7 @@ import { Badge, SeverityBadge } from '@/components/ui/badge'
 import { KpiCard } from '@/components/ui/kpi'
 import { fmtNumber } from '@/lib/format'
 
-const CROP = 'bg-emerald-500/10 text-emerald-300'
+const CROP = 'bg-ok-soft text-ok'
 
 type RegionSeverity = 'Normal' | 'Moderate' | 'Stressed' | 'Severe'
 
@@ -66,9 +66,9 @@ export default function CropRegionsPage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard label="Regions Forecast" value={REGIONS.length} detail="Provincial administrative areas" icon={MapPin} accent={CROP} />
-          <KpiCard label="Healthy Regions" value={healthyCount} detail="Within nominal NDVI band" icon={Gauge} accent="bg-teal-500/10 text-teal-300" />
+          <KpiCard label="Healthy Regions" value={healthyCount} detail="Within nominal NDVI band" icon={Gauge} accent="bg-ok-soft text-ok" />
           <KpiCard label="Avg Forecast" value={fmtNumber(avgForecast)} detail="Tonnes per hectare" icon={TrendingUp} accent={CROP} />
-          <KpiCard label="Total Area" value={`${(REGIONS.reduce((s, r) => s + r.areaHa, 0) / 1_000_000).toFixed(1)}M`} detail="Hectares under crop cover" icon={Gauge} accent="bg-emerald-500/10 text-emerald-300" />
+          <KpiCard label="Total Area" value={`${(REGIONS.reduce((s, r) => s + r.areaHa, 0) / 1_000_000).toFixed(1)}M`} detail="Hectares under crop cover" icon={Gauge} accent="bg-ok-soft text-ok" />
         </div>
 
         <Card>
@@ -80,14 +80,14 @@ export default function CropRegionsPage() {
             action={<Badge tone="emerald">Kharif 2026</Badge>}
           />
           <CardBody className="p-0">
-            <div className="divide-y divide-slate-800/70">
+            <div className="divide-y divide-line">
               {REGIONS.map((region) => {
                 const trendData = region.trend.map((v, i) => ({ season: `S${i + 1}`, value: v }))
                 return (
                   <div key={region.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-200">{region.name}</p>
-                      <p className="text-[11px] text-slate-500">{region.primaryCrop} · {region.areaHa.toLocaleString()} ha</p>
+                      <p className="text-sm font-medium text-ink">{region.name}</p>
+                      <p className="text-[11px] text-ink-subtle">{region.primaryCrop} · {region.areaHa.toLocaleString()} ha</p>
                     </div>
 
                     <div className="hidden h-12 w-32 sm:block">
@@ -105,7 +105,7 @@ export default function CropRegionsPage() {
                     </div>
 
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-100">{fmtNumber(region.forecastTPerHa)} <span className="text-[11px] font-normal text-slate-500">t/ha</span></p>
+                      <p className="text-sm font-semibold text-ink">{fmtNumber(region.forecastTPerHa)} <span className="text-[11px] font-normal text-ink-subtle">t/ha</span></p>
                     </div>
 
                     <div className="flex items-center gap-2">

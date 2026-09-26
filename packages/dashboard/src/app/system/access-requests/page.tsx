@@ -12,7 +12,7 @@ import { useAdminUsers, useUpdateUser } from '@/features/admin/hooks'
 import { fmtDateTime } from '@/lib/format'
 import type { AdminUser } from '@/features/admin/api'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 export default function AccessRequestsPage() {
   const usersQuery = useAdminUsers()
@@ -54,7 +54,7 @@ export default function AccessRequestsPage() {
                 <EmptyState title="No pending requests" message="All portal access has been decided." />
               </div>
             ) : (
-              <div className="divide-y divide-slate-800/70">
+              <div className="divide-y divide-line">
                 {requests.map((u) => (
                   <div
                     key={u.id}
@@ -62,13 +62,13 @@ export default function AccessRequestsPage() {
                   >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-slate-200">{u.full_name}</p>
+                        <p className="font-medium text-ink">{u.full_name}</p>
                         <Badge tone={u.access_status === 'REJECTED' ? 'red' : 'amber'}>
                           {u.access_status}
                         </Badge>
                       </div>
-                      <p className="mt-0.5 font-mono text-[11px] text-slate-500">{u.email}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-600">
+                      <p className="mt-0.5 font-mono text-[11px] text-ink-subtle">{u.email}</p>
+                      <p className="mt-0.5 text-[11px] text-ink-subtle">
                         Role {u.role} · requested {u.access_requested_at ? fmtDateTime(u.access_requested_at) : '—'}
                       </p>
                     </div>
@@ -76,14 +76,14 @@ export default function AccessRequestsPage() {
                       <button
                         onClick={() => decide(u, 'APPROVED')}
                         disabled={updateUser.isPending}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-500/25 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-ok-soft px-3 py-1.5 text-xs font-medium text-ok transition-colors hover:bg-ok-soft disabled:opacity-50"
                       >
                         <CheckCircle2 className="h-4 w-4" /> Approve
                       </button>
                       <button
                         onClick={() => decide(u, 'REJECTED')}
                         disabled={updateUser.isPending}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-medium text-red-200 transition-colors hover:bg-red-500/25 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-crit-soft px-3 py-1.5 text-xs font-medium text-crit transition-colors hover:bg-crit-soft disabled:opacity-50"
                       >
                         <XCircle className="h-4 w-4" /> Reject
                       </button>

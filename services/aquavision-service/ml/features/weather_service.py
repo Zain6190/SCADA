@@ -55,6 +55,10 @@ class WeatherService:
                     "latitude": lat,
                     "longitude": lon,
                     "daily": "precipitation_sum,temperature_2m_max,temperature_2m_min,relative_humidity_2m_mean,wind_speed_10m_max",
+                    # past_days bridges the archive API's ~3-day latency so
+                    # horizon-0 (daily) rows stay continuous through today;
+                    # training features read those daily values.
+                    "past_days": 7,
                     "forecast_days": 16,
                     "timezone": "auto",
                 },
@@ -94,13 +98,27 @@ class WeatherService:
         if not forecast or not forecast["dates"]:
             return {}
 
+        # Forecasts are stored for forecast_date=today and must cover the
+        # FUTURE window only — slice from today onward (past_days prepends
+        # a week of history that belongs to horizon-0 rows, not aggregates).
+        today_iso = date.today().isoformat()
+        start = 0
+        for i, d in enumerate(forecast["dates"]):
+            if d >= today_iso:
+                start = i
+                break
+        future = {k: v[start:] for k, v in forecast.items() if isinstance(v, list)}
+        future_dates = future.get("dates", [])
+        if not future_dates:
+            return {}
+
         # Slice to horizon
-        n = min(horizon_days, len(forecast["dates"]))
-        precip = forecast["precip_sum"][:n]
-        tmax = forecast["temp_max"][:n]
-        tmin = forecast["temp_min"][:n]
-        humidity = forecast["humidity_mean"][:n]
-        wind = forecast["wind_speed"][:n]
+        n = min(horizon_days, len(future_dates))
+        precip = future.get("precip_sum", [])[:n]
+        tmax = future.get("temp_max", [])[:n]
+        tmin = future.get("temp_min", [])[:n]
+        humidity = future.get("humidity_mean", [])[:n]
+        wind = future.get("wind_speed", [])[:n]
 
         def safe_sum(vals):
             return round(sum(v for v in vals if v is not None), 2)
@@ -201,6 +219,27 @@ class WeatherService:
             aid = asset["id"]
             lat = float(asset["latitude"])
             lon = float(asset["longitude"])
+
+            # Horizon-0 daily rows for past_days..today: these keep the
+            # daily scale continuous (archive backfill + this bridge), which
+            # is the scale training features were built on.
+            forecast = self.get_forecast(aid, lat, lon)
+            if forecast and forecast.get("dates"):
+                for i, d in enumerate(forecast["dates"]):
+                    if d > today.isoformat():
+                        break
+                    try:
+                        day = date.fromisoformat(d)
+                    except ValueError:
+                        continue
+                    self.store_forecast(aid, day, 0, {
+                        "precip_sum_mm": forecast["precip_sum"][i],
+                        "temp_max_c": forecast["temp_max"][i],
+                        "temp_min_c": forecast["temp_min"][i],
+                        "humidity_mean_pct": forecast["humidity_mean"][i],
+                        "wind_speed_kmh": forecast["wind_speed"][i],
+                    })
+                    count += 1
 
             for horizon in [7, 14, 16]:
                 data = self.get_forecasts_for_horizon(aid, lat, lon, horizon)

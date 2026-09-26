@@ -1,0 +1,220 @@
+# Prediction Module Completion Plan
+# ================================
+# Created: 2026-09-21
+# Updated: 2026-09-26
+# Status: APPROVED — Scenario 3 (PARALLEL)
+# Rating: 8.5/10
+# Companion: docs/prediction-module-guide.md (how it works, all rules/metrics)
+
+## The Problem
+ML models predict water_level_ft, but dashboard needs discharge (m³/s).
+No paired level+discharge data for rating curves.
+
+## Architecture: Physics-First + ML Discharge (Path A)
+
+Don't convert level→discharge. Instead:
+- Reservoirs (1,2): Mass balance → inflow = outflow + Δstorage/Δt
+- Barrages (3-8,11): Upstream routing → discharge from upstream observations
+- Headwaters (9,10): ML predicts discharge directly (has discharge data)
+
+## Asset Data Sufficiency
+
+| Asset | Data | Rows | Years | Rating | Method | Status |
+|-------|------|------|-------|--------|--------|--------|
+| 1 Tarbela | Level+Inflow | 1,749 | 4.5 | ✅✅✅ EXCELLENT | ML level + mass balance | READY |
+| 2 Mangla | Level+Outflow | 1,691 | 5 | ✅✅ GOOD | ML outflow + persistence blend | READY |
+| 9 Kabul | Discharge | 9,398 | 67 | ✅✅✅✅✅ GOLD | ML discharge | READY |
+| 10 Chenab | Discharge | 1,701 | 4.5 | ✅✅✅ GOOD | ML discharge | READY |
+| 3-8,11 Barrages | Discharge only | 13 each | 0.2 | ❌ INSUFFICIENT | Physics routing | PARTIAL |
+
+## Scenario 3: PARALLEL (RECOMMENDED) ⭐
+
+### Week 1-2: CODE (primary) + DATA (background)
+
+**Code tasks (Abeera — primary focus):**
+- [x] Step 1: Retrain ML models targeting DISCHARGE/FLOW (assets 1,2 → outflow; 9,10 → discharge; verified 2026-09-24: retrain 81 success/0 failed, holdout ledger 360 rows)
+- [x] Step 2: Fix prediction_v2.py discharge logic (verified 2026-09-24: ml_xgboost_outflow/discharge labels live, forecasts table 0 all-NULL rows, 168 tests)
+- [x] Step 3: Add 3-day horizon to training (verified 2026-09-24: retrain_all_models horizons [3,7,14,30]; 77 models in models/flood_xgb/)
+- [x] Step 4: Fix confidence intervals (verified 2026-09-24: quantile q10/q90 for 100+ sample assets, live ci_method labels, measured holdout coverage in metadata, 183 tests)
+- [x] Step 5: Real-time WAI computation (verified 2026-09-24: ml/models/wai_computer.py; live asset 9 WAI=19 Severe; 144 tests, tsc OK)
+- [x] Step 6: Frontend dashboard components (verified 2026-09-24: national overview + alert panel + forecast chart + CI badges on v2 tab, all 11 assets, tsc clean, dev server page 200)
+
+**Data tasks (background — can be parallel):**
+- [x] Ingest GRDC files (already on disk, 41 stations) — DONE 2026-09-26
+- [ ] Email WAPDA for barrage historical data
+- [x] Setup Open-Meteo rainfall auto-fetch (verified 2026-09-26: archive backfill
+  19,030 rows horizon-0 through today + 6h forecast refresh, both legs live)
+- [ ] Setup GEE Sentinel-2 auto-fetch
+
+### Week 3: INTEGRATION
+- [ ] Barrage data arrives → plug into routing
+- [ ] Test full pipeline end-to-end
+- [ ] Deploy v2.1
+
+## Implementation Steps (Detailed)
+
+### Step 1: Retrain ML Targeting Discharge (Day 1) — DONE 2026-09-24
+Targets per ml/targets.py (data-driven): assets 1,2 → **outflow** (discharge_cusecs only
+2 REAL rows; storage_volume 100% empty → true mass balance impossible — documented deviation
+from "Tarbela mass balance" below), assets 9,10 → **discharge**, barrages 3-8,11 → **inflow**
+explicit fallback (inference uses physics routing).
+- ml/targets.py → resolve_target_field / flow_baseline_cusecs (never returns "auto")
+- scripts/retrain_all_models.py → both predictors use resolve_target_field
+- flood_predictor.py → output-field routing per saved target_field; HighFlowPredictor target_field param
+- engine.py → store concrete predicted_* field (fixes all-NULL rows for assets 9,10); horizons [3,7,14,30]
+- Retrain: 81 success / 7 skipped / 0 failed; holdout MAPE: asset 1=33%, 9=22%, 10=29%, 2=112% (Mangla outflow near-zero denominators — honest, no dummy values)
+
+### Step 2: Fix prediction_v2.py Discharge (Day 1) — DONE 2026-09-24
+- ML assets 1,2: outflow model → discharge lead-time values; method `ml_xgboost_outflow`
+- ML assets 9,10: discharge model; method `ml_xgboost_discharge`; level-only models excluded
+  (legacy level-as-cusecs unit bug removed)
+- Physics assets 3-8,11: upstream routing; method `physics_routing`
+- flow baseline + stress trend target-aware via ml.targets.flow_baseline_cusecs
+- compute_accuracy/seed/evaluate: predicted_outflow matching added; seeds aligned to resolve_target_field
+- Verified live: asset 1 3d=121,017 cusecs (0.725), 9=13,855 (0.777), 10=15,057 (0.744), 5 physics NOT_VALIDATED
+
+### Step 3: Add 3-Day Horizon (Day 1) — DONE 2026-09-24
+- scripts/retrain_all_models.py → horizons [3,7,14,30]
+- flood_predictor train(persist=True) guard so seed does not pollute models
+- 81 success / 7 skipped / 0 failed; host-persisted via docker cp
+
+### Step 4: Fix Confidence Intervals (Day 2) — DONE 2026-09-24
+- Quantile regression (q10/q90, `reg:quantileerror`) for assets with 100+ samples and
+  persist=True → assets 1,2,9,10 × horizons [3,7,14,30] = 16 `{key}_interval.joblib` files;
+  barrages (~30-60 rows) and holdout seeds skip them
+- predict() CI chain: quantile → residual_p90 band → legacy R² band (last resort);
+  every prediction carries `ci_method` (`quantile_q10_q90` | `residual_p90` | `r2_band` |
+  `physics_band` | `pct_heuristic`) through prediction_v2 → DischargeResponse API schema
+- Measured holdout coverage recorded honestly: raw q10-q90 coverage observed 0.33-0.81
+  vs 0.80 target (kept as `ci_coverage_80_raw`); `ci_coverage_90` for residual bands
+  (~0.90 by construction)
+- **Conformal calibration (rec #1, 2026-09-24):** split-conformal inflation on the holdout
+  (80th pct of nonconformity scores, additive, original units) so shipped bands reach the
+  0.80 coverage target; raw coverage kept as `ci_coverage_80_raw`, offset as `ci_inflation`;
+  legacy interval files load with inflation=0
+- forecast-chart endpoint: CI band fixed for 7d/14d points (was 3d-only); ft-vs-cusecs
+  threshold unit bug removed (no rating curve ⇒ None, never mixes units)
+- Fixes dual-use training_mae bug (load path now fills dedicated residual_p90 dict)
+- compose: models/ bind-mounted to /app/models so container recreates never wipe models
+- Verified: 183 tests (new tests/unit/test_confidence_intervals.py, 15 cases);
+  live assets 1,9,10 → quantile_q10_q90 + coverage, asset 5 → physics_band
+
+### Step 5: Real-Time WAI (Day 2) — DONE 2026-09-24
+- ml/models/wai_computer.py → flow 0.50 / storage 0.30 / trend 0.20 from water_observations (90d)
+- Stale weekly indicator only as fallback; never invents a default score
+- prediction_v2._get_wai_data rewired; no-WAI → category "No Data"
+- rain/et anomalies honest None (weather_forecasts empty)
+
+### Step 6: Frontend Dashboard (Days 3-5) — DONE 2026-09-24
+- water/predictions v2 tab: National Overview card (national WAI, status, assets
+  monitored, province chips, critical-alert panel) from GET /water/v2/national-overview
+- Forecast chart (recharts): 30-day actual + 3/7/14 lead-time forecast + q10-q90
+  interval band from GET /water/v2/asset/{id}/forecast-chart
+- CI provenance badges per lead-time card (Quantile 80% CI / Residual ±p90 / Physics band /
+  ±15% heuristic) + holdout coverage % from model_metadata.ci_coverage_80
+- All 11 assets in selector (added 3 Chashma, 4 Kalabagh, 11 Panjnad)
+- waterApi.getV2ForecastChart() + V2ForecastChart/V2DischargePrediction.ci_method types
+- Verified: tsc --noEmit clean; dev server /water/predictions 200; endpoints smoke-tested
+
+### Recommendation #2 — Mangla model fix (persistence blend) — DONE 2026-09-25
+- **Diagnosis:** Mangla's outflow autocorrelation dies out by lag 14 (lag-7=0.68,
+  lag-14=0.44, lag-30=0.14), so XGBoost leaned on calendar seasonality (month/day_cos
+  importances ~0.48) and LOST to naive "hold today's value" on holdout: 7d R² 0.19 vs
+  persistence 0.30, accuracy ledger -0.12. Data itself was fine — 1,689 REAL outflow rows,
+  zero nulls/zeros, 2022-2026 (the "48 years / OUTSTANDING" table claim was wrong).
+- **Fix (ml/models/flood_predictor.py):** train() fits one closed-form convex weight
+  `alpha = argmin MSE(alpha*xgb + (1-alpha)*current_value)` on the holdout; alpha=1 when
+  the model already beats persistence (Tarbela etc.) so the legacy path is unchanged.
+  Headline r2/mae/mape are now the BLENDED (served) values; raw model kept as
+  `r2_xgb_raw`/`mae_xgb_raw`, baseline as `r2_persistence`/`mae_persistence`.
+- Quantile bounds are blended the same way BEFORE conformal calibration so the stored
+  inflation matches what predict() serves; the residual band keeps its width around the
+  blended centre; model files without `blend_alpha` load as alpha=1 (legacy).
+- **Results (retrain 81/7/0):** Mangla 3d R² 0.48→0.55, 7d 0.19→0.25 (MAE 10045→8534);
+  every asset >= max(model, persistence) by construction (Tarbela 7d 0.77→0.81,
+  14d 0.56→0.73); coverage still 0.798-0.801 across all 16 models.
+- **Verified:** 191 tests (new tests/unit/test_persistence_blend.py, 4 cases);
+  live /water/v2/predict/{1,2,9,10} → sane cusecs, quantile_q10_q90, cov {3:0.801,
+  7:0.800, 14:0.799}, method ml_xgboost_outflow.
+
+## Data Gap Solutions
+
+### GAP 1: Barrage History → Email WAPDA
+- Need: 5+ years discharge for assets 3-8,11
+- Solution: Formal request to WAPDA Head Office Lahore
+- Priority: MEDIUM (routing works without it)
+
+### GAP 2: GRDC → Ingest Existing Files — DONE 2026-09-26
+- **Schema (migration 007):** `grdc_stations` registry + `grdc_observations`
+  (grdc_no, obs_date, freq D/M) — station-level, NEVER merged into
+  water_observations: upstream/foreign gauges are not the asset gauge (the old
+  ingest_grdc_useful.py mapped 4 Kabul tributaries onto asset 9; removed)
+- **Ingested:** 41 stations, 86,247 daily + 2,051 monthly rows (1936–1982),
+  idempotent via `docker exec -w /app ibcp-api python -m scripts.ingest_grdc`
+- **Monthly rescued the mainstem:** Indus @ Attock/Kotri, Chenab @ Panjnad have
+  EMPTY daily files but monthly series — Kotri covers 1936–10→1979-12 (44 yrs,
+  366 real months after -999 gaps). Catchments parsed for all 41 (old scripts: 0)
+- Old ingest_grdc.py was triple-broken (parsed time column as value → 0 rows
+  ever; queried non-existent water_sources.name; catchment key never matched)
+- Tests: 204 (new tests/unit/test_ingest_grdc.py, 8 cases incl. real files)
+
+### GAP 3: Rainfall → Open-Meteo Auto-Fetch — DONE 2026-09-26
+- **History:** scripts/backfill_weather.py rewritten (old version targeted the
+  dropped `precip_mm` column — dead). Now writes `weather_forecasts` horizon-0
+  daily rows from the Archive API: 19,030 rows, 11 assets, 2022-01-01→today
+- **Live leg:** WeatherService.refresh_all_assets (scheduler, every 6h) now also
+  upserts horizon-0 bridge rows for past_days..today (closes the archive's 3-day
+  latency) and slices 7/14/16 forward aggregates from TODAY onward (past_days
+  must never leak into them)
+- Feature lookup orders horizon_days ASC so daily actuals win; inference reads
+  the same daily scale training was built on (was a ×7 precip scale mismatch)
+- Retrain 81/7/0: weather now in top-10 importances (total 0.73 across 16
+  models; largest at 30d leads) — R² net ≈ flat vs pre-weather (Mangla 30d
+  0.19→0.26), coverage 0.798-0.801; rainfall alerts no longer blind
+- Tests: 196 (new tests/unit/test_weather_features.py, 5 cases)
+
+### GAP 4: Satellite → GEE Sentinel-2
+- Have: Service account configured
+- Solution: Auto-fetch MNDWI weekly
+- Priority: MEDIUM (nice-to-have)
+
+### GAP 5: Sensors → Skip for Now
+- Option C: Use existing WAPDA daily reports
+- Priority: LOW (can skip for FYP)
+
+## Architecture Diagram
+
+```
+                    ┌─────────────────────────────┐
+                    │    AquaVision v2 API         │
+                    │  GET /water/v2/predict/{id}  │
+                    └──────────┬──────────────────┘
+                               │
+                    ┌──────────▼──────────────────┐
+                    │  AquaVisionPredictionModel   │
+                    │     prediction_v2.py         │
+                    └──────────┬──────────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+    ┌─────────▼────────┐ ┌────▼─────┐ ┌────────▼────────┐
+    │  ML Predictor    │ │ Physics  │ │  WAI Computer   │
+    │ (assets 2,9,10)  │ │ Routing  │ │ (live from DB)  │
+    │ discharge direct │ │ (3-8,11) │ │                 │
+    └─────────┬────────┘ └────┬─────┘ └────────┬────────┘
+              │                │                │
+    ┌─────────▼────────┐ ┌────▼─────┐ ┌────────▼────────┐
+    │ XGBoost .joblib  │ │ Upstream │ │ indicators      │
+    │ (retrained for   │ │ Obs +    │ │ _weekly +       │
+    │  discharge)      │ │ Travel   │ │ weather         │
+    │                  │ │ Times    │ │ forecasts       │
+    └──────────────────┘ └──────────┘ └─────────────────┘
+```
+
+## Timeline
+
+| Week | Focus | Deliverable |
+|------|-------|-------------|
+| Week 1 | ML retrain + v2 fix | 4 assets predicting discharge |
+| Week 2 | CI + WAI + Frontend | Dashboard showing predictions |
+| Week 3 | Integration + testing | Full production system |

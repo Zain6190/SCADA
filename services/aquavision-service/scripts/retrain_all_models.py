@@ -34,12 +34,13 @@ def get_db():
 
 
 def get_active_assets():
-    """Get all active assets with observations."""
+    """Get all active assets with observations, including REAL observation count."""
     engine = get_db()
     with engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT wa.id, wa.canonical_name, wa.asset_type,
-                   COUNT(wo.id) as obs_count
+                   COUNT(wo.id) as obs_count,
+                   COUNT(wo.id) FILTER (WHERE wo.data_origin = 'REAL') as real_count
             FROM aquavision.water_assets wa
             LEFT JOIN aquavision.water_observations wo ON wo.asset_id = wa.id
             WHERE wa.is_active = true
@@ -50,7 +51,7 @@ def get_active_assets():
     return [dict(r) for r in rows]
 
 
-def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
+def train_flood_predictor(asset_id: int, asset_name: str, horizons=[3, 7, 14, 30]):
     """Train FloodPredictor for an asset across all horizons."""
     from sqlalchemy.orm import Session
     from infrastructure.db.engine import SessionLocal
@@ -63,23 +64,15 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
 
-        # Detect best target field for this asset
-        from sqlalchemy import text as sql_text
-        has_inflow = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
-            {"aid": asset_id}
-        ).scalar()
-        total = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
-            {"aid": asset_id}
-        ).scalar()
-        
-        if has_inflow > total * 0.3:
-            target_field = "auto"
-        else:
-            # Assets 9,10 (Kabul, Chenab): no inflow data, use discharge
-            target_field = "discharge"
-            logger.info(f"Asset {asset_name}: no inflow data, using target_field='discharge'")
+        # Concrete per-asset target (ml/targets.py is the single source of truth):
+        #   1,2 (Tarbela, Mangla): outflow  — reservoir release; discharge column
+        #        is empty and storage_volume is empty so mass-balance dS/dt is
+        #        impossible; outflow IS the reservoir's discharge.
+        #   9,10 (Kabul, Chenab):  discharge — direct flow observations.
+        #   3-8,11 (barrages):     inflow fallback; inference uses physics routing.
+        from ml.targets import resolve_target_field
+        target_field = resolve_target_field(session, asset_id)
+        logger.info(f"Asset {asset_name}: target_field='{target_field}'")
 
         for horizon in horizons:
             end_date = datetime.utcnow()
@@ -107,6 +100,7 @@ def train_flood_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30]):
                 asset_id=asset_id, X=X, y=y,
                 feature_names=feature_names, horizon=horizon,
                 sample_weights=weights,
+                target_field=target_field,  # NEW: pass target field
             )
 
             if "error" not in metrics:
@@ -138,21 +132,9 @@ def train_highflow_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
 
-        # Detect best target field for this asset
-        from sqlalchemy import text as sql_text
-        has_inflow = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid AND inflow_cusecs IS NOT NULL"),
-            {"aid": asset_id}
-        ).scalar()
-        total = session.execute(
-            sql_text("SELECT COUNT(*) FROM aquavision.water_observations WHERE asset_id = :aid"),
-            {"aid": asset_id}
-        ).scalar()
-        
-        if has_inflow > total * 0.3:
-            target_field = "auto"
-        else:
-            target_field = "discharge"
+        # Same concrete target map as FloodPredictor — never 'auto'.
+        from ml.targets import resolve_target_field
+        target_field = resolve_target_field(session, asset_id)
 
         for horizon in horizons:
             end_date = datetime.utcnow()
@@ -179,6 +161,7 @@ def train_highflow_predictor(asset_id: int, asset_name: str, horizons=[7, 14, 30
                 asset_id=asset_id, X=X, y=y,
                 feature_names=feature_names, horizon=horizon,
                 sample_weights=weights,
+                target_field=target_field,
             )
 
             if "error" not in metrics:
@@ -253,6 +236,8 @@ def generate_model_metadata(all_results: list) -> dict:
 
     for r in all_results:
         aid = r.get("asset_id")
+        if aid is None:
+            continue
         if aid not in metadata["assets"]:
             metadata["assets"][aid] = {
                 "asset_id": aid,
@@ -295,8 +280,19 @@ def main():
         aid = asset["id"]
         name = asset["canonical_name"]
         obs_count = asset["obs_count"]
+        real_count = asset.get("real_count", 0) or 0
 
-        logger.info(f"\n--- Training {name} (ID={aid}, observations={obs_count}) ---")
+        # Gate: require at least 30 REAL observations for meaningful training
+        if real_count < 30:
+            logger.warning(f"Skipping {name}: only {real_count} REAL observations (need 30)")
+            all_results.append({
+                "asset_id": aid, "asset_name": name,
+                "horizon": 7, "status": "SKIPPED",
+                "reason": f"insufficient_real_data: {real_count}/30 REAL observations"
+            })
+            continue
+
+        logger.info(f"\n--- Training {name} (ID={aid}, total={obs_count}, real={real_count}) ---")
 
         # FloodPredictor (7d, 14d, 30d)
         results = train_flood_predictor(aid, name)

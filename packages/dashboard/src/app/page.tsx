@@ -1,160 +1,379 @@
 // packages/dashboard/src/app/page.tsx
-// Command Center - a portal launcher (not a data dashboard). Each approved,
-// authenticated user may open it, but only sees the portal cards granted by
-// their role and permissions. Portal data lives in each portal, not here.
+// Public landing page. No auth gate, API calls or AppShell.
 'use client'
 
 import Link from 'next/link'
-import { Droplets, Sprout, Layers, ShieldCheck, LayoutDashboard } from 'lucide-react'
-import { AppShell } from '@/components/shell/app-shell'
-import { PageHeader } from '@/components/ui/page-header'
-import { Card, CardBody } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import {
+  Activity,
+  ArrowRight,
+  Bell,
+  Database,
+  Radio,
+  Satellite,
+  ShieldCheck,
+  Waves,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { modulesForUser, type PortalUserLike } from '@/lib/rbac'
+import styles from './landing.module.css'
 
-const AQUA = 'bg-sky-500/10 text-sky-300'
-const CROP = 'bg-emerald-500/10 text-emerald-300'
-const GEO = 'bg-violet-500/10 text-violet-300'
-const SYS = 'bg-amber-500/10 text-amber-300'
+const FLOW: Array<{
+  step: string
+  title: string
+  detail: string
+  source: string
+  icon: LucideIcon
+}> = [
+  {
+    step: '01',
+    title: 'Observations',
+    detail: 'River levels, reservoir inflow and outflow, satellite rainfall, surface water and field telemetry enter one traceable record.',
+    source: 'IRSA · PMD/FFD · GEE · field sensors',
+    icon: Radio,
+  },
+  {
+    step: '02',
+    title: 'Analysis',
+    detail: 'Readings are checked for freshness and provenance, then compared with asset thresholds and regional water-stress indicators.',
+    source: 'Validation · WAI · threshold engine',
+    icon: Activity,
+  },
+  {
+    step: '03',
+    title: 'Forecasts',
+    detail: 'Short-horizon models estimate water availability, flood risk and the likely travel of a release through downstream assets.',
+    source: 'XGBoost · downstream impact model',
+    icon: Satellite,
+  },
+  {
+    step: '04',
+    title: 'Operator decisions',
+    detail: 'Teams acknowledge, investigate and escalate alerts from the same operational picture, with each action recorded for review.',
+    source: 'Role-based queues · audit trail',
+    icon: Bell,
+  },
+]
 
-const ACCESS_TONE: Record<string, 'emerald' | 'sky' | 'amber' | 'red' | 'slate'> = {
-  ACTIVE: 'emerald',
-  APPROVED: 'sky',
-  PENDING: 'amber',
-  REJECTED: 'red',
-  SUSPENDED: 'red',
-  REVOKED: 'slate',
-}
-
-export default function CommandCenterPage() {
-  const { user } = useAuth()
+export default function LandingPage() {
+  const { user, loading } = useAuth()
+  const signedIn = !loading && !!user
 
   return (
-    <AppShell>
-      <div className="space-y-6">
-        <PageHeader
-          title="Command Center"
-          description="Portal launcher. Open a portal to view its data — only the portals your role & permissions allow are shown."
-          icon={<LayoutDashboard className="h-6 w-6" />}
-        />
-
-        {user && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-sm">
-            <span className="text-slate-400">
-              Signed in as <span className="font-medium text-slate-200">{user.full_name}</span>
-            </span>
-            <Badge tone="slate">{user.role}</Badge>
-            {user.access_status && (
-              <Badge tone={ACCESS_TONE[user.access_status] ?? 'slate'}>{user.access_status}</Badge>
-            )}
-          </div>
-        )}
-
-        {/* Portal cards - only the modules this user's permissions allow */}
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-          {portalCards(user).map(({ title, href, icon, accent, description, badge }) => (
-            <ModuleCard
-              key={href}
-              title={title}
-              href={href}
-              icon={icon}
-              accent={accent}
-              description={description}
-              badge={badge}
-            />
-          ))}
-          {portalCards(user).length === 0 && (
-            <div className="col-span-full">
-              <p className="rounded-xl border border-slate-800 bg-slate-950/50 p-6 text-center text-sm text-slate-500">
-                No portals are enabled for your account. Contact an administrator
-                to request access.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </AppShell>
+    <div className={styles.page}>
+      <SiteHeader signedIn={signedIn} />
+      <main>
+        <Hero signedIn={signedIn} />
+        <ConsoleEvidence />
+        <OperationalFlow />
+        <AccessClose signedIn={signedIn} />
+      </main>
+      <SiteFooter signedIn={signedIn} />
+    </div>
   )
 }
 
-function ModuleCard({
-  title,
-  href,
-  icon,
-  accent,
-  description,
-  badge,
+function SiteHeader({ signedIn }: { signedIn: boolean }) {
+  return (
+    <header className={styles.header}>
+      <div className={styles.headerInner}>
+        <Link href="/" className={styles.wordmark} aria-label="IBCP-SCADA home">
+          <span className={styles.wordmarkMark} aria-hidden="true">Σ</span>
+          <span>
+            <strong>IBCP-SCADA</strong>
+            <small>Indus Basin Operations</small>
+          </span>
+        </Link>
+
+        <Link href={signedIn ? '/portal' : '/login'} className={styles.headerAction}>
+          {signedIn ? 'Open Console' : 'Sign In'}
+          <ArrowRight aria-hidden="true" />
+        </Link>
+      </div>
+    </header>
+  )
+}
+
+function Hero({ signedIn }: { signedIn: boolean }) {
+  return (
+    <section className={styles.hero}>
+      <div className={styles.heroCopy}>
+        <p className={styles.systemLabel}>
+          <Waves aria-hidden="true" />
+          Indus Basin cyber-physical system
+        </p>
+        <h1>One view of the Indus Basin.</h1>
+        <p className={styles.heroLede}>
+          IBCP-SCADA connects official river bulletins, satellite observation,
+          operational telemetry and forecasting in one decision surface for water
+          and flood management.
+        </p>
+        <Link href={signedIn ? '/portal' : '/login'} className={styles.primaryAction}>
+          {signedIn ? 'Open Command Center' : 'Open the Console'}
+          <ArrowRight aria-hidden="true" />
+        </Link>
+        <dl className={styles.heroFacts}>
+          <div>
+            <dt>Operational scope</dt>
+            <dd>Dams · barrages · link canals</dd>
+          </div>
+          <div>
+            <dt>Decision record</dt>
+            <dd>Observed · modelled · actioned</dd>
+          </div>
+        </dl>
+      </div>
+      <BasinMap />
+    </section>
+  )
+}
+
+function BasinMap() {
+  return (
+    <figure className={styles.basinFigure}>
+      <div className={styles.mapHeading}>
+        <span>Basin schematic</span>
+        <span>North → South</span>
+      </div>
+      <svg
+        className={styles.basinMap}
+        viewBox="0 0 620 600"
+        role="img"
+        aria-labelledby="basin-map-title basin-map-description"
+      >
+        <title id="basin-map-title">Schematic of the Indus Basin river network</title>
+        <desc id="basin-map-description">
+          The Indus river and major tributaries flowing past Tarbela, Chashma,
+          Guddu, Sukkur and Kotri monitoring locations.
+        </desc>
+        <g className={styles.mapGrid} aria-hidden="true">
+          <path d="M40 120H580 M40 240H580 M40 360H580 M40 480H580" />
+          <path d="M140 40V560 M280 40V560 M420 40V560" />
+        </g>
+        <path
+          className={styles.basinLand}
+          d="M233 34C278 21 342 39 375 75C409 112 407 159 443 193C482 230 535 258 542 311C550 374 499 419 463 464C425 512 390 574 324 579C260 583 226 531 189 486C151 439 99 410 82 351C64 289 102 244 133 196C163 149 178 63 233 34Z"
+        />
+        <g className={styles.tributaries} aria-hidden="true">
+          <path d="M183 105C220 121 241 139 270 171" />
+          <path d="M472 144C420 158 384 181 342 212" />
+          <path d="M505 219C450 224 407 243 357 269" />
+          <path d="M510 291C454 287 411 299 359 315" />
+          <path d="M475 353C431 341 397 346 354 356" />
+        </g>
+        <path
+          className={styles.indusRiver}
+          d="M270 71C256 119 286 151 276 196C266 240 304 264 295 307C286 354 317 385 308 426C300 464 326 501 337 552"
+        />
+        <g className={styles.mapStations}>
+          <MapStation x={271} y={151} label="Tarbela" align="start" />
+          <MapStation x={278} y={239} label="Chashma" align="start" />
+          <MapStation x={297} y={354} label="Guddu" align="end" attention />
+          <MapStation x={309} y={425} label="Sukkur" align="start" />
+          <MapStation x={333} y={516} label="Kotri" align="end" />
+        </g>
+      </svg>
+      <figcaption className={styles.mapLegend}>
+        <span><i className={styles.legendRiver} />River network</span>
+        <span><i className={styles.legendStation} />Monitored location</span>
+        <span>Schematic · not to scale</span>
+      </figcaption>
+    </figure>
+  )
+}
+
+function MapStation({
+  x,
+  y,
+  label,
+  align,
+  attention = false,
 }: {
-  title: string
-  href: string
-  icon: React.ReactNode
-  accent: string
-  description: string
-  badge?: React.ReactNode
+  x: number
+  y: number
+  label: string
+  align: 'start' | 'end'
+  attention?: boolean
+}) {
+  const offset = align === 'start' ? 18 : -18
+  return (
+    <g className={attention ? styles.stationAttention : undefined}>
+      {attention && <circle className={styles.stationSignal} cx={x} cy={y} r="12" />}
+      <circle className={styles.stationDot} cx={x} cy={y} r="5" />
+      <path className={styles.stationRule} d={`M${x + (align === 'start' ? 6 : -6)} ${y}h${offset}`} />
+      <text className={styles.stationLabel} x={x + offset + (align === 'start' ? 6 : -6)} y={y + 4} textAnchor={align}>
+        {label}
+      </text>
+    </g>
+  )
+}
+
+function ConsoleEvidence() {
+  return (
+    <section className={styles.consoleSection}>
+      <div className={styles.sectionIntro}>
+        <div>
+          <p className={styles.sectionLabel}>The operational picture</p>
+          <h2>See the reading, its source and what needs attention.</h2>
+        </div>
+        <p>
+          The console keeps observed, modelled and simulated information distinct,
+          while bringing the signals an operator needs into one scan.
+        </p>
+      </div>
+      <figure className={styles.consolePreview}>
+        <div className={styles.consoleTopline}>
+          <div>
+            <span className={styles.consoleMark}>Σ</span>
+            <strong>AquaVision · National overview</strong>
+          </div>
+          <span className={styles.sampleFlag}>Illustrative sample</span>
+        </div>
+        <div className={styles.metricStrip}>
+          <Metric label="Reservoir level" value="72.4" unit="ft" source="Sample · Tarbela" />
+          <Metric label="Water availability" value="61" unit="/ 100" source="Sample · WAI" />
+          <Metric label="Priority queue" value="2" unit="alerts" source="Sample · operator" attention />
+        </div>
+        <div className={styles.consoleBody}>
+          <div className={styles.networkPanel}>
+            <div className={styles.panelHeading}>
+              <div>
+                <span>Downstream chain</span>
+                <strong>Tarbela → Kotri</strong>
+              </div>
+              <span className={styles.nominalStatus}>Nominal</span>
+            </div>
+            <svg viewBox="0 0 620 178" role="img" aria-label="Illustrative downstream asset chain">
+              <path className={styles.networkLine} d="M45 90C145 42 205 136 306 90S466 43 575 90" />
+              {[
+                [62, 82, 'Tarbela'],
+                [188, 105, 'Chashma'],
+                [314, 86, 'Guddu'],
+                [443, 64, 'Sukkur'],
+                [563, 88, 'Kotri'],
+              ].map(([x, y, name]) => (
+                <g key={name as string}>
+                  <circle className={styles.networkNode} cx={x as number} cy={y as number} r="7" />
+                  <text className={styles.networkLabel} x={x as number} y={(y as number) + 28} textAnchor="middle">{name}</text>
+                </g>
+              ))}
+            </svg>
+          </div>
+          <div className={styles.alertPanel}>
+            <div className={styles.panelHeading}>
+              <div>
+                <span>Operator queue</span>
+                <strong>What needs review</strong>
+              </div>
+            </div>
+            <div className={styles.alertRow}>
+              <span className={styles.alertIcon}><Bell aria-hidden="true" /></span>
+              <div>
+                <strong>Rising discharge</strong>
+                <span>Sample · Guddu barrage</span>
+              </div>
+              <span className={styles.warningStatus}>Review</span>
+            </div>
+            <div className={styles.alertRow}>
+              <span className={styles.dataIcon}><Database aria-hidden="true" /></span>
+              <div>
+                <strong>Source freshness</strong>
+                <span>IRSA bulletin received</span>
+              </div>
+              <span className={styles.nominalStatus}>Current</span>
+            </div>
+          </div>
+        </div>
+        <figcaption>Interface preview · sample values for presentation only, not current readings.</figcaption>
+      </figure>
+    </section>
+  )
+}
+
+function Metric({
+  label,
+  value,
+  unit,
+  source,
+  attention = false,
+}: {
+  label: string
+  value: string
+  unit: string
+  source: string
+  attention?: boolean
 }) {
   return (
-    <Link href={href}>
-      <Card className="group h-full transition-colors hover:border-slate-700">
-        <CardBody className="flex h-full flex-col">
-          <div className="flex items-start justify-between">
-            <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${accent}`}>{icon}</div>
-            {badge}
-          </div>
-          <h3 className="mt-4 text-base font-semibold text-slate-100">{title}</h3>
-          <p className="mt-2 flex-1 text-xs leading-5 text-slate-500">{description}</p>
-          <span className="mt-4 text-xs font-medium text-sky-400 opacity-0 transition-opacity group-hover:opacity-100">
-            Open →
-          </span>
-        </CardBody>
-      </Card>
-    </Link>
+    <div className={attention ? styles.metricAttention : styles.metric}>
+      <span>{label}</span>
+      <strong>{value} <small>{unit}</small></strong>
+      <span>{source}</span>
+    </div>
   )
 }
 
-function portalCards(user: PortalUserLike | null) {
-  const modules = modulesForUser(user)
-  return modules
-    .filter((m) => m !== 'command')
-    .map((m) => PORTAL_CARD_MAP[m])
-    .filter(Boolean)
+function OperationalFlow() {
+  return (
+    <section className={styles.flowSection}>
+      <div className={styles.flowHeading}>
+        <p className={styles.sectionLabel}>One connected record</p>
+        <h2>From observation to decision.</h2>
+        <p>
+          Each stage keeps its source visible, so published readings, derived
+          indicators and model output are never mistaken for one another.
+        </p>
+      </div>
+      <ol className={styles.flowList}>
+        {FLOW.map(({ step, title, detail, source, icon: Icon }) => (
+          <li key={step}>
+            <div className={styles.flowStepHeading}>
+              <span>{step}</span>
+              <Icon aria-hidden="true" />
+            </div>
+            <h3>{title}</h3>
+            <p>{detail}</p>
+            <small>{source}</small>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
 }
 
-const PORTAL_CARD_MAP: Record<
-  string,
-  { title: string; href: string; icon: React.ReactNode; accent: string; description: string; badge?: React.ReactNode }
-> = {
-  aqua: {
-    title: 'AquaVision · Water',
-    href: '/water',
-    icon: <Droplets className="h-6 w-6" />,
-    accent: AQUA,
-    description:
-      'Water availability, WAI stress index, early warning, and operational telemetry across the Indus Basin — GEE MODIS/CHIRPS and the XGBoost pipeline.',
-  },
-  crop: {
-    title: 'Crop Portal',
-    href: '/crop',
-    icon: <Sprout className="h-6 w-6" />,
-    accent: CROP,
-    description:
-      'Regional yield forecasting, crop health, and NDVI/SAVI insights for irrigation planning.',
-  },
-  geo: {
-    title: 'Land · GeoVision',
-    href: '/geo',
-    icon: <Layers className="h-6 w-6" />,
-    accent: GEO,
-    description:
-      'Remote-sensing overview and derived land indices visualization.',
-  },
-  system: {
-    title: 'System',
-    href: '/system',
-    icon: <ShieldCheck className="h-6 w-6" />,
-    accent: SYS,
-    description:
-      'Platform administration: system health, audit trail, and portal access control.',
-    badge: <Badge tone="amber">Administrators only</Badge>,
-  },
+function AccessClose({ signedIn }: { signedIn: boolean }) {
+  return (
+    <section className={styles.accessSection}>
+      <div className={styles.accessIcon} aria-hidden="true">
+        <ShieldCheck />
+      </div>
+      <div>
+        <p className={styles.sectionLabel}>Role-based access</p>
+        <h2>One record. The right view for every role.</h2>
+        <p>
+          Water operators, analysts and administrators enter through the same
+          console. Permissions and geographic scope determine what each person can
+          inspect and act on.
+        </p>
+      </div>
+      <Link href={signedIn ? '/portal' : '/login'} className={styles.textAction}>
+        {signedIn ? 'Go to Command Center' : 'Sign in to IBCP-SCADA'}
+        <ArrowRight aria-hidden="true" />
+      </Link>
+    </section>
+  )
+}
+
+function SiteFooter({ signedIn }: { signedIn: boolean }) {
+  return (
+    <footer className={styles.footer}>
+      <p className={styles.footerStatement}>
+        A connected basin deserves one clear operational picture.
+      </p>
+      <div className={styles.footerMeta}>
+        <span>IBCP-SCADA · Indus Basin Cyber-Physical System</span>
+        <Link href={signedIn ? '/portal' : '/login'}>
+          {signedIn ? 'Open Console' : 'Sign In'}
+        </Link>
+      </div>
+    </footer>
+  )
 }

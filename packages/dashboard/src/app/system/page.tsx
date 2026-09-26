@@ -14,7 +14,7 @@ import { ProgressBar } from '@/components/ui/progress'
 import { useWaterOverview, useOperationalAlerts } from '@/features/water/hooks'
 import { fmtNumber } from '@/lib/format'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 function statusCount(alerts: { status: string }[], status: string): number {
   return alerts.filter((a) => a.status === status).length
@@ -49,7 +49,7 @@ export default function SystemHealthPage() {
             value={serviceOnline ? 'Online' : 'Unreachable'}
             detail="AquaVision overview endpoint"
             icon={Server}
-            accent={serviceOnline ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}
+            accent={serviceOnline ? 'bg-ok-soft text-ok' : 'bg-crit-soft text-crit'}
           />
           <KpiCard
             label="Regions Monitored"
@@ -70,7 +70,7 @@ export default function SystemHealthPage() {
             value={5}
             detail="IRSA · FFD · Kaggle · Sensor · Synthetic"
             icon={Server}
-            accent="bg-sky-500/10 text-sky-300"
+            accent="bg-brand-soft text-brand"
           />
         </div>
 
@@ -136,8 +136,8 @@ export default function SystemHealthPage() {
                   ).map(([label, count, color]) => (
                     <div key={label}>
                       <div className="mb-1.5 flex items-center justify-between text-xs">
-                        <span className="text-slate-300">{label}</span>
-                        <span className="font-mono text-slate-400">{count}</span>
+                        <span className="text-ink-muted">{label}</span>
+                        <span className="font-mono text-ink-muted">{count}</span>
                       </div>
                       <ProgressBar value={count} max={alerts.length} color={color} />
                     </div>
@@ -162,10 +162,10 @@ function ServiceRow({
   badge: ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-canvas p-3">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-slate-200">{name}</p>
-        <p className="text-[11px] text-slate-500">{detail}</p>
+        <p className="text-sm font-medium text-ink">{name}</p>
+        <p className="text-[11px] text-ink-subtle">{detail}</p>
       </div>
       {badge}
     </div>

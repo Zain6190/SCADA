@@ -70,9 +70,10 @@ class FloodFeatureBuilder:
         real_only: bool = False,
         target_field: str = "auto",
         source_priority: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
+        return_dates: bool = False,
+    ):
         """Build training table for a specific asset.
-        
+
         Args:
             asset_id: Water asset ID
             start_date: Training data start
@@ -81,12 +82,14 @@ class FloodFeatureBuilder:
             real_only: If True, only use REAL observations (no synthetic)
             target_field: "auto" (inflow preferred), "level", "inflow", "outflow", "discharge"
             source_priority: If True, use best value per date (IRSA > FFD > Kaggle)
-        
+            return_dates: If True, also return (prediction_date, target_date) per row
+
         Returns:
             X: Feature matrix (n_samples, n_features)
             y: Target vector (n_samples,)
             feature_names: List of feature names
             weights: Sample weights (1.0 for REAL, 0.2 for SYNTHETIC)
+            dates: Optional list of (prediction_date, target_date) when return_dates=True
         """
         # Get all observations for this asset
         observations = self._get_observations(
@@ -96,12 +99,14 @@ class FloodFeatureBuilder:
         
         if len(observations) < 12:
             logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations (need 12+)")
-            return np.array([]), np.array([]), [], np.array([])
-        
+            empty = (np.array([]), np.array([]), [], np.array([]), [])
+            return empty if return_dates else empty[:4]
+
         # Build feature matrix
         features_list = []
         targets = []
         weights = []
+        dates = []
         feature_names = None
         
         # Adaptive min_history: need enough for lag features, but don't block data-poor assets
@@ -124,13 +129,25 @@ class FloodFeatureBuilder:
             if target is not None and not np.isnan(target):
                 features_list.append([features[k] for k in feature_names])
                 targets.append(target)
-                # Sample weight: REAL=1.0, SYNTHETIC=0.2
-                w = 1.0 if row_obs.get("data_origin") == "REAL" else 0.2
+                # Sample weight: based on BOTH current AND target data quality
+                current_real = row_obs.get("data_origin") == "REAL"
+                target_real = target_obs.get("data_origin") == "REAL"
+                if current_real and target_real:
+                    w = 1.0    # both real — full weight
+                elif current_real or target_real:
+                    w = 0.5    # one real — medium weight
+                else:
+                    w = 0.1    # both synthetic — minimal weight
                 weights.append(w)
-        
+                pred_at = row_obs.get("observed_at") or row_obs.get("date")
+                tgt_at = target_obs.get("observed_at") or target_obs.get("date")
+                if pred_at is not None and tgt_at is not None:
+                    dates.append((pred_at, tgt_at))
+
         if not features_list:
-            return np.array([]), np.array([]), [], np.array([])
-        
+            empty = (np.array([]), np.array([]), [], np.array([]), [])
+            return empty if return_dates else empty[:4]
+
         X = np.array(features_list, dtype=np.float32)
         y = np.array(targets, dtype=np.float32)
         w = np.array(weights, dtype=np.float32)
@@ -159,6 +176,8 @@ class FloodFeatureBuilder:
         real_count = int(np.sum(w == 1.0))
         synth_count = int(np.sum(w < 1.0))
         logger.info(f"Built training table: {X.shape[0]} samples ({real_count} real, {synth_count} synthetic), {X.shape[1]} features for asset {asset_id}")
+        if return_dates:
+            return X, y, feature_names, w, dates
         return X, y, feature_names, w
     
     def build_prediction_features(
@@ -455,7 +474,9 @@ class FloodFeatureBuilder:
                 WHERE asset_id = :asset_id
                 AND forecast_date <= :dt
                 AND forecast_date + (horizon_days || ' days')::interval >= :dt
-                ORDER BY fetched_at DESC
+                -- horizon 0 = daily actual (backfill) beats a covering
+                -- multi-day aggregate; newest fetch wins within a horizon
+                ORDER BY horizon_days ASC, fetched_at DESC
                 LIMIT 1
             """),
             {"asset_id": asset_id, "dt": d},

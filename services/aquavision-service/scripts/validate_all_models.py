@@ -56,15 +56,18 @@ def get_assets_with_models():
 
 
 def walk_forward_backtest(asset_id: int, horizon: int = 7, n_folds: int = 5) -> dict:
-    """Run walk-forward backtest for an asset.
+    """Walk-forward backtest with expanding chronological window.
 
-    Each fold: train on data[0:i], test on data[i+horizon].
-    Returns aggregated metrics across folds.
+    Fold 1: Train [0:fold_size]        → Test [fold_size:2*fold_size]
+    Fold 2: Train [0:2*fold_size]      → Test [2*fold_size:3*fold_size]
+    ...
+    Final:  Train [0:n_folds*fold_size] → Test [n_folds*fold_size:end]
+
+    All metrics in ORIGINAL space (cusecs/ft). Uses production hyperparams + sample weights.
     """
     from sqlalchemy.orm import Session
     from infrastructure.db.engine import SessionLocal
     from ml.features.feature_engineering import FloodFeatureBuilder
-    from ml.models.flood_predictor import FloodPredictor
 
     with SessionLocal() as session:
         builder = FloodFeatureBuilder(session)
@@ -81,111 +84,147 @@ def walk_forward_backtest(asset_id: int, horizon: int = 7, n_folds: int = 5) -> 
             source_priority=True,
         )
 
-    if len(X) < 30:
-        return {"error": f"insufficient_data: {len(X)} samples"}
+    if len(X) < 50:
+        return {"error": f"insufficient_data: {len(X)} samples (need 50)"}
 
-    # Walk-forward splits
-    fold_size = len(X) // (n_folds + 1)
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+    import xgboost as xgb
+
+    # Expanding window: each fold trains on more data
+    fold_size = len(X) // (n_folds + 2)
     fold_metrics = []
 
     for fold in range(n_folds):
-        train_end = fold_size * (fold + 1)
+        train_end = fold_size * (fold + 2)
         test_start = train_end
         test_end = min(test_start + fold_size, len(X))
 
-        if test_end <= test_start:
+        if test_end <= test_start or (test_end - test_start) < 5:
             continue
 
         X_train, y_train = X[:train_end], y[:train_end]
+        w_train = weights[:train_end] if weights is not None else None
         X_test, y_test = X[test_start:test_end], y[test_start:test_end]
 
-        if len(X_train) < 10 or len(X_test) < 5:
+        if len(X_train) < 20:
             continue
 
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-        import xgboost as xgb
-
-        # Apply same log1p transform as FloodPredictor.train
+        # Log-transform (same as production FloodPredictor.train)
         use_log = np.min(y_train) >= 0 and np.std(y_train) > 0
         if use_log:
             y_train_t = np.log1p(y_train)
-            y_test_t = np.log1p(y_test)
         else:
-            y_train_t = y_train
-            y_test_t = y_test
+            y_train_t = y_train.copy()
 
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
+        # Production hyperparameters
         model = xgb.XGBRegressor(
-            n_estimators=300, max_depth=4, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.7, random_state=42,
-            n_jobs=-1, early_stopping_rounds=20,
+            n_estimators=500,
+            max_depth=4,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.7,
+            reg_alpha=0.5,
+            reg_lambda=2.0,
+            min_child_weight=5,
+            random_state=42,
+            n_jobs=-1,
+            early_stopping_rounds=30,
         )
-        model.fit(X_train_scaled, y_train_t, eval_set=[(X_test_scaled, y_test_t)], verbose=False)
 
+        fit_kwargs = {
+            "eval_set": [(X_test_scaled, np.log1p(y_test) if use_log else y_test)],
+            "verbose": False,
+        }
+        if w_train is not None:
+            fit_kwargs["sample_weight"] = w_train
+
+        model.fit(X_train_scaled, y_train_t, **fit_kwargs)
+
+        # Predict and invert — clip log-space to prevent expm1 overflow
         y_pred_t = model.predict(X_test_scaled)
-
-        # Invert log-transform for metrics (use float64 to avoid expm1 overflow)
         if use_log:
-            y_test_orig = np.expm1(y_test_t.astype(np.float64))
-            y_pred_orig = np.clip(np.expm1(y_pred_t.astype(np.float64)), 0, None)
+            y_pred_t = np.clip(y_pred_t, 0, 20)  # expm1(20) ~ 4.8e8, safe
+            y_pred_orig = np.expm1(y_pred_t.astype(np.float64))
+            y_test_orig = y_test.astype(np.float64)  # y_test is already in original space
         else:
-            y_test_orig = y_test.astype(np.float64)
             y_pred_orig = np.clip(y_pred_t.astype(np.float64), 0, None)
+            y_test_orig = y_test.astype(np.float64)
 
+        # Metrics in ORIGINAL space
+        if not np.all(np.isfinite(y_test_orig)) or not np.all(np.isfinite(y_pred_orig)):
+            continue  # skip fold with bad values
         mae = float(mean_absolute_error(y_test_orig, y_pred_orig))
         rmse = float(np.sqrt(mean_squared_error(y_test_orig, y_pred_orig)))
         r2 = float(r2_score(y_test_orig, y_pred_orig))
         mape = float(np.mean(np.abs((y_test_orig - y_pred_orig) / (y_test_orig + 1e-8))) * 100)
+        residual_p90 = float(np.percentile(np.abs(y_test_orig - y_pred_orig), 90))
 
         fold_metrics.append({
             "fold": fold + 1,
             "train_samples": len(X_train),
             "test_samples": len(X_test),
-            "mae": round(mae, 4),
-            "rmse": round(rmse, 4),
+            "real_samples": int(np.sum(w_train == 1.0)) if w_train is not None else len(X_train),
+            "mae": round(mae, 2),
+            "rmse": round(rmse, 2),
             "r2": round(r2, 4),
             "mape": round(mape, 2),
+            "residual_p90": round(residual_p90, 2),
         })
 
     if not fold_metrics:
         return {"error": "no_valid_folds"}
 
-    # Aggregate
-    avg_mae = np.mean([f["mae"] for f in fold_metrics])
-    avg_rmse = np.mean([f["rmse"] for f in fold_metrics])
-    avg_r2 = np.mean([f["r2"] for f in fold_metrics])
-    avg_mape = np.mean([f["mape"] for f in fold_metrics])
+    # Aggregate across folds (median is more robust than mean)
+    avg_mae = float(np.median([f["mae"] for f in fold_metrics]))
+    avg_rmse = float(np.median([f["rmse"] for f in fold_metrics]))
+    avg_r2 = float(np.median([f["r2"] for f in fold_metrics]))
+    avg_mape = float(np.median([f["mape"] for f in fold_metrics]))
+    avg_p90 = float(np.median([f["residual_p90"] for f in fold_metrics]))
 
-    # Persistence baseline (predict last known value)
-    persistence_mae = float(np.mean(np.abs(np.diff(y[-len(y)//4:]))))
+    # Persistence baseline: predict last known value for each test fold
+    persistence_errors = []
+    for fold in range(n_folds):
+        train_end = fold_size * (fold + 2)
+        test_start = train_end
+        test_end = min(test_start + fold_size, len(X))
+        if test_end <= test_start:
+            continue
+        y_test = y[test_start:test_end]
+        last_known = y[train_end - 1] if train_end > 0 else y[0]
+        persistence_errors.extend(np.abs(y_test - last_known))
+    persistence_mae = float(np.mean(persistence_errors)) if persistence_errors else avg_mae
 
-    # Score
+    # Score (no double-counting)
     score = 0
     if avg_r2 > 0.8:
-        score += 45
+        score += 40
     elif avg_r2 > 0.5:
-        score += 35
-    elif avg_r2 > 0.0:
+        score += 30
+    elif avg_r2 > 0.2:
         score += 15
+    elif avg_r2 > 0.0:
+        score += 5
 
     if persistence_mae > 0 and avg_mae < persistence_mae:
-        score += 15
+        mae_improvement = (persistence_mae - avg_mae) / max(persistence_mae, 1e-8) * 100
+        score += min(30, int(mae_improvement / 2))
 
-    mae_improvement = (persistence_mae - avg_mae) / max(persistence_mae, 1e-8) * 100
-    if mae_improvement > 50:
-        score += 20
-
-    if avg_r2 > 0.5:
+    if avg_mape < 20:
         score += 15
+    elif avg_mape < 40:
+        score += 10
+    elif avg_mape < 60:
+        score += 5
 
     # Recommendation
     if score >= 70:
         recommendation = "SHADOW"
-    elif score >= 35:
+    elif score >= 40:
         recommendation = "EXPERIMENTAL"
     else:
         recommendation = "REJECTED"
@@ -193,12 +232,13 @@ def walk_forward_backtest(asset_id: int, horizon: int = 7, n_folds: int = 5) -> 
     return {
         "total_samples": len(X),
         "n_folds": len(fold_metrics),
-        "mae": round(float(avg_mae), 4),
-        "rmse": round(float(avg_rmse), 4),
-        "r2": round(float(avg_r2), 4),
-        "mape": round(float(avg_mape), 2),
-        "persistence_mae": round(persistence_mae, 4),
-        "mae_improvement_pct": round(mae_improvement, 2),
+        "mae": round(avg_mae, 2),
+        "rmse": round(avg_rmse, 2),
+        "r2": round(avg_r2, 4),
+        "mape": round(avg_mape, 2),
+        "residual_p90": round(avg_p90, 2),
+        "persistence_mae": round(persistence_mae, 2),
+        "mae_improvement_pct": round((persistence_mae - avg_mae) / max(persistence_mae, 1e-8) * 100, 2),
         "score": score,
         "recommendation": recommendation,
         "fold_details": fold_metrics,
@@ -227,6 +267,7 @@ def store_validation_report(asset_id: int, model_type: str, model_version: str,
                 "rmse": metrics.get("rmse"),
                 "r2": metrics.get("r2"),
                 "mape": metrics.get("mape"),
+                "residual_p90": metrics.get("residual_p90"),
                 "score": metrics.get("score"),
                 "persistence_mae": metrics.get("persistence_mae"),
                 "mae_improvement_pct": metrics.get("mae_improvement_pct"),

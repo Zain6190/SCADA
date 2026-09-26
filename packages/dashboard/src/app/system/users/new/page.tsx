@@ -14,14 +14,14 @@ import { Spinner } from '@/components/ui/state'
 import { useCreateUser, useAdminRoles, useAdminRegions } from '@/features/admin/hooks'
 import type { RegionOption } from '@/features/admin/api'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 const ACCESS_STATUSES = ['ACTIVE', 'APPROVED', 'PENDING']
 const SCOPE_TYPES = ['NATIONAL', 'PROVINCE', 'DISTRICT', 'ASSET']
 
 const selectCls =
-  'w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-amber-400 focus:outline-none'
+  'w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink focus:border-warn/25 focus:outline-none'
 const inputCls =
-  'w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-amber-400 focus:outline-none'
+  'w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink focus:border-warn/25 focus:outline-none'
 
 export default function NewUserPage() {
   const router = useRouter()
@@ -111,7 +111,7 @@ export default function NewUserPage() {
             <button
               onClick={handleSubmit}
               disabled={submitDisabled}
-              className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-warn-soft px-4 py-2 text-sm font-medium text-warn transition-colors hover:bg-warn-soft disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> {createUser.isPending ? 'Creating…' : 'Create user'}
             </button>
@@ -181,7 +181,7 @@ export default function NewUserPage() {
                 </Field>
 
                 {scopeType === 'NATIONAL' && (
-                  <p className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400">
+                  <p className="rounded-lg border border-line bg-canvas p-3 text-xs text-ink-muted">
                     NATIONAL grants access to every administrative region.
                   </p>
                 )}
@@ -260,7 +260,7 @@ export default function NewUserPage() {
                 )}
 
                 {!scopeValid && scopeType !== 'NATIONAL' && (
-                  <p className="text-xs text-amber-300">
+                  <p className="text-xs text-warn">
                     Finish the region selection above — an empty scope means the account cannot see any data.
                   </p>
                 )}
@@ -287,19 +287,19 @@ export default function NewUserPage() {
                   </select>
                 )}
               </Field>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+              <div className="rounded-xl border border-line bg-canvas p-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] uppercase tracking-wider text-slate-500">Permission preview</span>
+                  <span className="text-[11px] uppercase tracking-wider text-ink-subtle">Permission preview</span>
                   <Badge tone="amber">{role}</Badge>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {permissions.length === 0 ? (
-                    <span className="text-xs text-slate-600">No permissions resolved for this role.</span>
+                    <span className="text-xs text-ink-subtle">No permissions resolved for this role.</span>
                   ) : (
                     permissions.map((p) => (
                       <span
                         key={p}
-                        className="rounded-md border border-slate-700 bg-slate-800/60 px-2 py-1 font-mono text-[10px] text-slate-300"
+                        className="rounded-md border border-line-strong bg-surface-alt px-2 py-1 font-mono text-[10px] text-ink-muted"
                       >
                         {p}
                       </span>
@@ -307,7 +307,7 @@ export default function NewUserPage() {
                   )}
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-ink-subtle">
                 Account is created atomically — user + role + scope in a single transaction. Non-ACTIVE accounts
                 cannot sign in.
               </p>
@@ -316,12 +316,12 @@ export default function NewUserPage() {
         </div>
 
         {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>
+          <div className="rounded-xl border border-crit/25 bg-crit-soft p-3 text-sm text-crit">{error}</div>
         )}
 
         <button
           onClick={() => router.push('/system/users')}
-          className="inline-flex items-center gap-2 text-sm text-slate-400 transition-colors hover:text-slate-200"
+          className="inline-flex items-center gap-2 text-sm text-ink-muted transition-colors hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Portal Access
         </button>
@@ -337,7 +337,7 @@ function regionById(id: string, regions: RegionOption[]): RegionOption | undefin
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500">
+      <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">
         {label}
       </label>
       {children}

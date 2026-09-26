@@ -38,7 +38,7 @@ import type {
   OperationalAlert,
 } from '@/features/water/types'
 
-const AQUA = 'bg-sky-500/10 text-sky-300'
+const AQUA = 'bg-brand-soft text-brand'
 
 const ASSET_TYPE_LABEL: Record<string, string> = {
   dam: 'Dam',
@@ -129,21 +129,21 @@ export default function WaterOperatorPage() {
             value={alerts.length}
             detail={`${alerts.filter((a) => a.status === 'NEW').length} New awaiting ack`}
             icon={Bell}
-            accent="bg-amber-500/10 text-amber-300"
+            accent="bg-warn-soft text-warn"
           />
           <KpiCard
             label="Selected Level"
             value={latest?.reservoirLevelM != null ? `${fmtNumber(latest.reservoirLevelM)} m` : '—'}
             detail={latest?.storagePct != null ? `${fmtPct(latest.storagePct)} storage` : 'Level telemetry'}
             icon={Droplets}
-            accent="bg-cyan-500/10 text-cyan-300"
+            accent="bg-brand-soft text-brand"
           />
           <KpiCard
             label="Selected Discharge"
             value={latest?.dischargeCumecs != null ? `${fmtNumber(latest.dischargeCumecs)} m³/s` : '—'}
             detail={timeAgo(latest?.recordedAt)}
             icon={Waves}
-            accent="bg-violet-500/10 text-violet-300"
+            accent="bg-brand-soft text-brand"
           />
         </div>
 
@@ -181,7 +181,7 @@ export default function WaterOperatorPage() {
 
               {selected && (
                 <div className="mt-4">
-                  <div className="flex flex-col gap-2 border-t border-slate-800/70 p-3 lg:flex-row">
+                  <div className="flex flex-col gap-2 border-t border-line p-3 lg:flex-row">
                     <TelemetryStrip title="Level" value={latest?.reservoirLevelM} unit="m" />
                     <TelemetryStrip title="Storage" value={latest?.storagePct} unit="%" />
                     <TelemetryStrip title="Inflow" value={latest?.inflowCumecs} unit="m³/s" />
@@ -189,7 +189,7 @@ export default function WaterOperatorPage() {
                     <TelemetryStrip title="Discharge" value={latest?.dischargeCumecs} unit="m³/s" />
                   </div>
                   <div className="flex items-center justify-between px-3 pb-2">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                    <p className="text-[10px] uppercase tracking-wide text-ink-subtle">
                       Freshness: {timeAgo(latest?.recordedAt)}
                     </p>
                     <Badge tone={dataTone(latest?.dataStatus)}>{latest?.dataStatus ?? 'Actual'}</Badge>
@@ -201,7 +201,7 @@ export default function WaterOperatorPage() {
                 <SeriesSparkline readings={readingsQuery.data} />
               ) : null}
               {readingsQuery.isError ? (
-                <p className="px-3 pb-3 text-[11px] text-slate-500">
+                <p className="px-3 pb-3 text-[11px] text-ink-subtle">
                   Telemetry history unavailable.
                 </p>
               ) : null}
@@ -214,7 +214,7 @@ export default function WaterOperatorPage() {
               title="Operational Notes"
               subtitle={selected ? `Logbook · ${selected.name}` : 'Select an asset'}
               icon={<ScrollText className="h-5 w-5" />}
-              accent="bg-emerald-500/10 text-emerald-300"
+              accent="bg-ok-soft text-ok"
             />
             <CardBody>
               {canNote && selected && (
@@ -223,12 +223,12 @@ export default function WaterOperatorPage() {
                     value={noteText}
                     onChange={(e) => setNoteText(e.target.value)}
                     placeholder="Note for this asset…"
-                    className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300 placeholder:text-slate-600 focus:border-emerald-500/50 focus:outline-none"
+                    className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-ink-muted placeholder:text-ink-subtle focus:border-ok/25 focus:outline-none"
                   />
                   <button
                     type="submit"
                     disabled={!noteText.trim() || addNote.isPending}
-                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+                    className="rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-xs font-medium text-ok transition-colors hover:bg-ok-soft disabled:opacity-50"
                   >
                     Log
                   </button>
@@ -241,9 +241,9 @@ export default function WaterOperatorPage() {
               ) : notesQuery.data?.length ? (
                 <div className="space-y-2">
                   {notesQuery.data.slice().reverse().map((n) => (
-                    <div key={n.id} className="rounded-lg border border-slate-800/70 bg-slate-950/40 p-3">
-                      <p className="text-xs leading-5 text-slate-300">{n.note}</p>
-                      <p className="mt-1 text-[10px] text-slate-600">
+                    <div key={n.id} className="rounded-lg border border-line bg-canvas p-3">
+                      <p className="text-xs leading-5 text-ink-muted">{n.note}</p>
+                      <p className="mt-1 text-[10px] text-ink-subtle">
                         by user #{n.createdByUserId} · {fmtDateTime(n.createdAt)}
                       </p>
                     </div>
@@ -262,7 +262,7 @@ export default function WaterOperatorPage() {
             title="Scoped Alert Queue"
             subtitle="Early-warning events in your region; acknowledge once handled."
             icon={<Bell className="h-5 w-5" />}
-            accent="bg-amber-500/10 text-amber-300"
+            accent="bg-warn-soft text-warn"
             action={
               <div className="flex items-center gap-2">
                 {canOperate && (
@@ -284,7 +284,7 @@ export default function WaterOperatorPage() {
                 <EmptyState title="No open alerts" message="Your region is nominal." />
               </div>
             ) : (
-              <div className="divide-y divide-slate-800/70">
+              <div className="divide-y divide-line">
                 {alerts.map((a) => (
                   <OperationalAlertRow
                     key={a.id}
@@ -320,29 +320,29 @@ function AssetCell({
       onClick={onAny}
       className={`rounded-xl border p-4 text-left transition-colors ${
         active
-          ? 'border-sky-500/50 bg-sky-500/10'
-          : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
+          ? 'border-brand/25 bg-brand-soft'
+          : 'border-line bg-canvas hover:border-line-strong'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="truncate text-sm font-semibold text-slate-100">{asset.name}</p>
+        <p className="truncate text-sm font-semibold text-ink">{asset.name}</p>
         <Badge tone="slate">{ASSET_TYPE_LABEL[asset.assetType] ?? asset.assetType}</Badge>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-        <span className="text-slate-500">Level</span>
-        <span className="text-right font-medium text-slate-200">
+        <span className="text-ink-subtle">Level</span>
+        <span className="text-right font-medium text-ink">
           {latest?.reservoirLevelM != null ? `${fmtNumber(latest.reservoirLevelM)} m` : '—'}
         </span>
-        <span className="text-slate-500">Storage</span>
-        <span className="text-right font-medium text-slate-200">
+        <span className="text-ink-subtle">Storage</span>
+        <span className="text-right font-medium text-ink">
           {latest?.storagePct != null ? `${fmtPct(latest.storagePct)}` : '—'}
         </span>
-        <span className="text-slate-500">Inflow</span>
-        <span className="text-right font-medium text-slate-200">
+        <span className="text-ink-subtle">Inflow</span>
+        <span className="text-right font-medium text-ink">
           {latest?.inflowCumecs != null ? `${fmtNumber(latest.inflowCumecs)} m³/s` : '—'}
         </span>
-        <span className="text-slate-500">Discharge</span>
-        <span className="text-right font-medium text-slate-200">
+        <span className="text-ink-subtle">Discharge</span>
+        <span className="text-right font-medium text-ink">
           {latest?.dischargeCumecs != null ? `${fmtNumber(latest.dischargeCumecs)} m³/s` : '—'}
         </span>
       </div>
@@ -360,9 +360,9 @@ function TelemetryStrip({
   unit: string
 }) {
   return (
-    <div className="flex flex-1 items-center justify-between rounded-lg border border-slate-800/70 bg-slate-950/40 px-3 py-2">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{title}</span>
-      <span className="text-sm font-semibold text-slate-100">
+    <div className="flex flex-1 items-center justify-between rounded-lg border border-line bg-canvas px-3 py-2">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-subtle">{title}</span>
+      <span className="text-sm font-semibold text-ink">
         {value != null ? `${fmtNumber(value)} ${unit}` : '—'}
       </span>
     </div>
@@ -380,14 +380,14 @@ function SeriesSparkline({ readings }: { readings: AssetTelemetryVM[] }) {
   const span = max - min || 1
   return (
     <div className="px-3 pb-3">
-      <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+      <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-ink-subtle">
         Reservoir level · last {values.length} readings
       </p>
       <div className="flex h-16 items-end gap-0.5">
         {values.slice(-40).map((v, i) => (
           <div
             key={i}
-            className="flex-1 rounded-t bg-sky-500/40"
+            className="flex-1 rounded-t bg-brand-soft"
             style={{ height: `${Math.max(6, ((v - min) / span) * 100)}%` }}
             title={`${fmtNumber(v)} m`}
           />
@@ -416,35 +416,35 @@ function OperationalAlertRow({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-mono text-xs text-slate-500">#{alert.id}</p>
+            <p className="font-mono text-xs text-ink-subtle">#{alert.id}</p>
             <SeverityBadge severity={alert.severity} />
             <Badge tone={statusTone}>{alert.status}</Badge>
             {alert.alert_source && <Badge tone="slate">{alert.alert_source}</Badge>}
           </div>
-          <h3 className="mt-2 text-base font-semibold text-slate-100">
+          <h3 className="mt-2 text-base font-semibold text-ink">
             {alert.asset_name ? `${alert.asset_name} · ` : ''}{alert.alert_type}
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500">{alert.message}</p>
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
+          <p className="mt-0.5 text-xs text-ink-subtle">{alert.message}</p>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted">
             {alert.triggered_value != null && <Metric label="Triggered" value={fmtNumber(alert.triggered_value)} />}
             {alert.threshold_value != null && <Metric label="Threshold" value={fmtNumber(alert.threshold_value)} />}
             {alert.reading_level_ft != null && <Metric label="Level" value={`${fmtNumber(alert.reading_level_ft)} ft`} />}
             {alert.reading_inflow_cusecs != null && <Metric label="Inflow" value={`${fmtNumber(alert.reading_inflow_cusecs)} cusecs`} />}
           </div>
           {alert.downstream_population_exposed != null && alert.downstream_population_exposed > 0 && (
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
-              <span className="text-amber-400 font-medium">Downstream:</span>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted">
+              <span className="text-warn font-medium">Downstream:</span>
               <Metric label="Pop. exposed" value={`${fmtNumber(alert.downstream_population_exposed)}`} />
               {alert.downstream_bridges_at_risk != null && <Metric label="Bridges" value={`${alert.downstream_bridges_at_risk}`} />}
               {alert.downstream_hospitals_at_risk != null && <Metric label="Hospitals" value={`${alert.downstream_hospitals_at_risk}`} />}
             </div>
           )}
           {alert.flood_severity && (
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
-              <span className="text-red-400 font-medium">Flood:</span>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted">
+              <span className="text-crit font-medium">Flood:</span>
               <Metric label="Severity" value={alert.flood_severity} />
               {alert.flood_probability != null && <Metric label="Probability" value={`${(alert.flood_probability * 100).toFixed(0)}%`} />}
-              {alert.flood_recommendation && <span className="text-slate-300">{alert.flood_recommendation}</span>}
+              {alert.flood_recommendation && <span className="text-ink-muted">{alert.flood_recommendation}</span>}
             </div>
           )}
         </div>
@@ -454,7 +454,7 @@ function OperationalAlertRow({
               type="button"
               onClick={onAck}
               disabled={busy || alert.status !== 'NEW'}
-              className="flex items-center justify-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/20 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-lg border border-brand/25 bg-brand-soft px-3 py-2 text-xs font-medium text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" /> Acknowledge
             </button>
@@ -462,7 +462,7 @@ function OperationalAlertRow({
               type="button"
               onClick={onResolve}
               disabled={busy}
-              className="flex items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-xs font-medium text-ok transition-colors hover:bg-ok-soft disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" /> Resolve
             </button>
@@ -476,8 +476,8 @@ function OperationalAlertRow({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <span>
-      <span className="text-slate-600">{label}: </span>
-      <span className="font-semibold text-slate-200">{value}</span>
+      <span className="text-ink-subtle">{label}: </span>
+      <span className="font-semibold text-ink">{value}</span>
     </span>
   )
 }

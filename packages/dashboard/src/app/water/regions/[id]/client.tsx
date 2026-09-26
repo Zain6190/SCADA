@@ -50,7 +50,7 @@ export function RegionDetailClient() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2">
-            <CardHeader title="WAI History" subtitle={name} icon={<Activity className="h-5 w-5" />} accent="bg-sky-500/10 text-sky-300" />
+            <CardHeader title="WAI History" subtitle={name} icon={<Activity className="h-5 w-5" />} accent="bg-brand-soft text-brand" />
             <CardBody>
               {indicatorsQuery.isPending ? (
                 <Spinner />
@@ -81,37 +81,37 @@ export function RegionDetailClient() {
           <div className="space-y-6">
             {regionPred && (
               <Card>
-                <CardHeader title="2-Week Forecast" icon={<TrendingUp className="h-5 w-5" />} accent="bg-violet-500/10 text-violet-300" />
+                <CardHeader title="2-Week Forecast" icon={<TrendingUp className="h-5 w-5" />} accent="bg-brand-soft text-brand" />
                 <CardBody>
                   <div className="flex items-center justify-between">
-                    <span className="text-lg font-semibold text-slate-100">
+                    <span className="text-lg font-semibold text-ink">
                       WAI {fmtNumber(regionPred.predictedWaiScore)}
                     </span>
                     <SeverityBadge severity={regionPred.predictedSeverity} />
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">target {fmtDate(regionPred.targetWeekStart)}</p>
+                  <p className="mt-1 text-[11px] text-ink-subtle">target {fmtDate(regionPred.targetWeekStart)}</p>
                   <div className="mt-3">
                     <ProgressBar value={regionPred.predictedWaiScore ?? 0} severity={regionPred.predictedSeverity} />
                   </div>
                   {regionPred.confidence != null && (
-                    <p className="mt-2 text-xs text-slate-500">Confidence {(regionPred.confidence * 100).toFixed(0)}%</p>
+                    <p className="mt-2 text-xs text-ink-subtle">Confidence {(regionPred.confidence * 100).toFixed(0)}%</p>
                   )}
                 </CardBody>
               </Card>
             )}
 
             <Card>
-              <CardHeader title="Open Alerts" icon={<Bell className="h-5 w-5" />} accent="bg-amber-500/10 text-amber-300" />
+              <CardHeader title="Open Alerts" icon={<Bell className="h-5 w-5" />} accent="bg-warn-soft text-warn" />
               <CardBody>
                 {openAlerts.length === 0 ? (
-                  <p className="text-sm text-slate-500">No open alerts.</p>
+                  <p className="text-sm text-ink-subtle">No open alerts.</p>
                 ) : (
                   <div className="space-y-3">
                     {openAlerts.map((a) => (
-                      <Link href="/water/operator/alerts" key={a.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/50 p-3 hover:border-slate-700">
+                      <Link href="/water/operator/alerts" key={a.id} className="flex items-center justify-between rounded-xl border border-line bg-canvas p-3 hover:border-line-strong">
                         <div>
-                          <p className="text-sm font-medium text-slate-200">{a.asset_name ? `${a.asset_name} · ` : ''}{a.alert_type}</p>
-                          <p className="text-[11px] text-slate-500">{a.created_at ? fmtDate(a.created_at) : '—'}</p>
+                          <p className="text-sm font-medium text-ink">{a.asset_name ? `${a.asset_name} · ` : ''}{a.alert_type}</p>
+                          <p className="text-[11px] text-ink-subtle">{a.created_at ? fmtDate(a.created_at) : '—'}</p>
                         </div>
                         <SeverityBadge severity={a.severity} />
                       </Link>

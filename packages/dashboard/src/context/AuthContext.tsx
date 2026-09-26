@@ -27,7 +27,7 @@ export function homeFor(user: User | null): string {
   if (!user) return '/login'
   if (user.is_active === false) return '/account-disabled'
   const portals = modulesForUser(user).filter((m) => m !== 'command')
-  if (portals.length > 1) return '/'
+  if (portals.length > 1) return '/portal'
   const only = portals[0]
   if (only === 'aqua') {
     const roles = user.roles ?? []
@@ -38,7 +38,7 @@ export function homeFor(user: User | null): string {
   if (only === 'crop') return '/crop'
   if (only === 'geo') return '/geo'
   if (only === 'system') return '/system'
-  return '/'
+  return '/portal'
 }
 
 interface User {
@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     removeToken()
     removeStoredUser()
     setUserState(null)
-    router.push('/login')
+    router.replace('/')
   }
 
   const hasPermission = (perm: string) => {

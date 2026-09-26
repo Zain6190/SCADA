@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { fmtNumber, fmtDate } from '@/lib/format'
 import { ListOrdered } from 'lucide-react'
 
-const VIOLET = 'bg-violet-500/10 text-violet-300'
+const VIOLET = 'bg-brand-soft text-brand'
 
 interface Region {
   id: number
@@ -107,7 +107,7 @@ export default function RegionalIndexPage() {
           <CardBody className="p-0">
             <div className="max-h-[460px] overflow-auto">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-slate-900 text-[11px] uppercase tracking-wider text-slate-500">
+                <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-ink-subtle">
                   <tr>
                     <Th>Region</Th>
                     <Th>Sensor</Th>
@@ -116,17 +116,17 @@ export default function RegionalIndexPage() {
                     <Th>Acquired</Th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/70">
+                <tbody className="divide-y divide-line">
                   {regions.map((r) => (
-                    <tr key={r.id} className="text-slate-300 hover:bg-slate-800/30">
+                    <tr key={r.id} className="text-ink-muted hover:bg-surface-alt">
                       <Td>
-                        <p className="font-medium text-slate-100">{r.name}</p>
-                        <p className="text-[11px] text-slate-500">{r.status}</p>
+                        <p className="font-medium text-ink">{r.name}</p>
+                        <p className="text-[11px] text-ink-subtle">{r.status}</p>
                       </Td>
                       <Td><Badge tone="slate">{r.sensor}</Badge></Td>
-                      <Td><span className="font-semibold text-slate-100">{fmtNumber(r.lastNdvi, 2)}</span></Td>
+                      <Td><span className="font-semibold text-ink">{fmtNumber(r.lastNdvi, 2)}</span></Td>
                       <Td><SeverityBadge severity={r.severity} /></Td>
-                      <Td className="text-[11px] text-slate-500">{fmtDate(r.acquisitionDate)}</Td>
+                      <Td className="text-[11px] text-ink-subtle">{fmtDate(r.acquisitionDate)}</Td>
                     </tr>
                   ))}
                 </tbody>

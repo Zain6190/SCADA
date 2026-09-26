@@ -285,3 +285,23 @@ CREATE TABLE IF NOT EXISTS aquavision.water_ffd_observations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ffd_asset_date ON aquavision.water_ffd_observations (asset_id, observed_at DESC);
+
+-- Canal offtake readings written by the IRSA ingestion pipeline.
+CREATE TABLE IF NOT EXISTS aquavision.water_canal_observations (
+    id BIGSERIAL PRIMARY KEY,
+    asset_id BIGINT NOT NULL REFERENCES aquavision.water_assets(id),
+    source_id BIGINT NOT NULL REFERENCES aquavision.water_sources(id),
+    canal_label TEXT NOT NULL,
+    is_aggregate BOOLEAN NOT NULL DEFAULT FALSE,
+    observed_at TIMESTAMPTZ NOT NULL,
+    discharge_cusecs NUMERIC NOT NULL,
+    data_status TEXT NOT NULL DEFAULT 'OBSERVED_OFFICIAL',
+    data_origin TEXT NOT NULL DEFAULT 'REAL',
+    quality_status TEXT NOT NULL DEFAULT 'VALID',
+    raw_record_id BIGINT REFERENCES aquavision.raw_source_records(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (asset_id, canal_label, observed_at, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_canal_obs_label_time ON aquavision.water_canal_observations (canal_label, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_canal_obs_asset ON aquavision.water_canal_observations (asset_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_canal_obs_dry ON aquavision.water_canal_observations (canal_label, observed_at DESC) WHERE discharge_cusecs = 0;

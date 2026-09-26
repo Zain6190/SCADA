@@ -1,0 +1,37 @@
+# Title:                 GRDC STATION DATA FILE
+#                        --------------
+# Format:                DOS-ASCII
+# Field delimiter:       ;
+# missing values are indicated by -999.000
+#
+# file generation date:  2026-09-21
+#
+# GRDC-No.:              2337100
+# River:                 CHENAB RIVER
+# Station:               PANJNAD
+# Country:               PK
+# Latitude (DD):       29.35
+# Longitude (DD):      71.03
+# Catchment area (km²):      280238.0
+# Altitude (m ASL):        99.0
+# Next downstream station:      2335950
+# Remarks:               
+# Owner of original data: Initial dataset collected in the framework of the First GARP Global Experiment (FGGE)
+#************************************************************
+#
+# Data Set Content:      MEAN DAILY DISCHARGE (Q)
+#                        --------------------
+# Unit of measure:                  m³/s
+# Time series:            - 
+# No. of years:          
+# Last update:           2018-05-29
+#
+# Table Header:
+#     YYYY-MM-DD - Date
+#     hh:mm      - Time
+#     Value   - original (provided) data
+#************************************************************
+#
+# Data lines: 0
+# DATA
+YYYY-MM-DD;hh:mm; Value

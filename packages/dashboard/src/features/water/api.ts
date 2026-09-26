@@ -26,6 +26,16 @@ import type {
   PipelineHealth,
   AssetWeeklySummary,
   ModelPerformance,
+  V2AssetPrediction,
+  V2NationalOverview,
+  V2ForecastChart,
+  AlertQueue,
+  TimelineItem,
+  EscalationsBoard,
+  AlertKpis,
+  AssignableUser,
+  InstructionTemplate,
+  WorkflowInstruction,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -234,6 +244,23 @@ export const waterApi = {
     return data
   },
 
+  // ─── AquaVision v2 Predictions ────────────────────────────────────────────
+
+  getV2Prediction: async (assetId: number): Promise<V2AssetPrediction> => {
+    const { data } = await waterClient.get(`/v2/predict/${assetId}`)
+    return data
+  },
+
+  getV2NationalOverview: async (): Promise<V2NationalOverview> => {
+    const { data } = await waterClient.get('/v2/national-overview')
+    return data
+  },
+
+  getV2ForecastChart: async (assetId: number): Promise<V2ForecastChart> => {
+    const { data } = await waterClient.get(`/v2/asset/${assetId}/forecast-chart`)
+    return data
+  },
+
   triggerMLTrain: async (horizons: number[] = [7]): Promise<MLTrainResult> => {
     const { data } = await waterClient.post('/ml/train', { horizons })
     return data
@@ -318,7 +345,7 @@ export const waterApi = {
     return data
   },
 
-  // ─── Soft OT (software PLC / RTU) ────────────────────────────────────────
+  // Soft OT (software PLC / RTU)
 
   getOtStatus: async (): Promise<any> => {
     const { data } = await waterClient.get('/ot/status')
@@ -376,6 +403,117 @@ export const waterApi = {
 
   anchorOt: async (): Promise<any> => {
     const { data } = await waterClient.post('/ot/anchor')
+    return data
+  },
+
+  // Alert workflow (instructions / queue / timeline / KPIs)
+  // ─── Alert workflow (instructions / queue / timeline / KPIs) ────────────
+
+  getAlertQueue: async (scope = 'auto'): Promise<AlertQueue> => {
+    const { data } = await waterClient.get('/alerts/queue', { params: { scope } })
+    return data
+  },
+
+  getAlertTimeline: async (alertId: number): Promise<TimelineItem[]> => {
+    const { data } = await waterClient.get(`/alerts/${alertId}/timeline`)
+    return data
+  },
+
+  getEscalations: async (): Promise<EscalationsBoard> => {
+    const { data } = await waterClient.get('/alerts/escalations')
+    return data
+  },
+
+  getAlertKpis: async (): Promise<AlertKpis> => {
+    const { data } = await waterClient.get('/alerts/kpis')
+    return data
+  },
+
+  getInstructionTemplates: async (): Promise<Record<string, InstructionTemplate>> => {
+    const { data } = await waterClient.get('/alerts/instruction-templates')
+    return data
+  },
+
+  getAssignables: async (role = 'field_officer'): Promise<AssignableUser[]> => {
+    const { data } = await waterClient.get('/workflow/assignables', { params: { role } })
+    return data
+  },
+
+  assignAlert: async (alertId: number, assignedTo: string, assignedToUserId?: number): Promise<any> => {
+    const { data } = await waterClient.post(`/alerts/${alertId}/assign`, {
+      assigned_to: assignedTo,
+      assigned_to_user_id: assignedToUserId,
+    })
+    return data
+  },
+
+  otFault: async (assetId: number, kind: string): Promise<any> => {
+    const { data } = await waterClient.post('/ot/hmi/fault', {
+      asset_id: assetId,
+      kind,
+      actor: 'virtual-hmi',
+    })
+    return data
+  },
+
+  issueInstruction: async (
+    alertId: number,
+    payload: {
+      instruction_text: string
+      assigned_to: string
+      assigned_to_user_id?: number
+      due_at?: string
+      template_key?: string
+    },
+  ): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/alerts/${alertId}/instructions`, payload)
+    return data
+  },
+
+  acceptInstruction: async (id: number): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/instructions/${id}/accept`)
+    return data
+  },
+
+  progressInstruction: async (id: number): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/instructions/${id}/progress`)
+    return data
+  },
+
+  reportInstruction: async (
+    id: number,
+    reportText: string,
+    reportData?: Record<string, unknown>,
+  ): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/instructions/${id}/report`, {
+      report_text: reportText,
+      report_data: reportData,
+    })
+    return data
+  },
+
+  anchorOt: async (): Promise<any> => {
+    const { data } = await waterClient.post('/ot/anchor')
+    return data
+  },
+
+  verifyInstruction: async (id: number, note: string): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/instructions/${id}/verify`, { note })
+    return data
+  },
+
+  rejectInstruction: async (id: number, reason: string): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/instructions/${id}/reject`, { reason })
+    return data
+  },
+
+  waiveInstruction: async (id: number, reason: string): Promise<WorkflowInstruction> => {
+    const { data } = await waterClient.post(`/instructions/${id}/waive`, { reason })
+    return data
+  },
+
+  sendTestAlert: async (): Promise<{ alert_id: number; channels_configured: boolean; dispatch: Record<string, number> | null; recipients: string[] }> => {
+    const { data } = await waterClient.post('/alerts/test')
     return data
   },
 }

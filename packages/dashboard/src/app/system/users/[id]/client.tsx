@@ -13,7 +13,7 @@ import { Spinner, ErrorState } from '@/components/ui/state'
 import { useAdminUsers, useUpdateUser } from '@/features/admin/hooks'
 import { fmtDateTime } from '@/lib/format'
 
-const AMBER = 'bg-amber-500/10 text-amber-300'
+const AMBER = 'bg-warn-soft text-warn'
 
 const ACCESS_STATUSES = ['ACTIVE', 'APPROVED', 'PENDING', 'REJECTED', 'SUSPENDED', 'REVOKED']
 const ROLES = ['admin', 'aquavision_analyst', 'crop_analyst', 'geo_analyst', 'field_officer', 'viewer', 'water_supervisor']
@@ -90,7 +90,7 @@ export function UserDetailClient() {
             <button
               onClick={handleSave}
               disabled={saving || !user}
-              className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-warn-soft px-4 py-2 text-sm font-medium text-warn transition-colors hover:bg-warn-soft disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save changes'}
             </button>
@@ -103,7 +103,7 @@ export function UserDetailClient() {
           <ErrorState onRetry={() => refetch()} />
         ) : !user ? (
           <Card>
-            <CardBody className="p-8 text-center text-sm text-slate-500">
+            <CardBody className="p-8 text-center text-sm text-ink-subtle">
               User #{userId} not found.
             </CardBody>
           </Card>
@@ -132,17 +132,17 @@ export function UserDetailClient() {
                   </select>
                 </Field>
                 <Field label="Account enabled">
-                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <label className="flex items-center gap-2 text-sm text-ink-muted">
                     <input
                       type="checkbox"
                       checked={isActive}
                       onChange={(e) => setIsActive(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-700 bg-slate-900 accent-amber-400"
+                      className="h-4 w-4 rounded border-line-strong bg-surface accent-brand"
                     />
                     is_active
                   </label>
                 </Field>
-                <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-[11px] text-slate-500">
+                <div className="rounded-xl border border-line bg-canvas p-3 text-[11px] text-ink-subtle">
                   Last granted: {user.access_requested_at ? fmtDateTime(user.access_requested_at) : '—'}
                 </div>
               </CardBody>
@@ -164,7 +164,7 @@ export function UserDetailClient() {
                   </select>
                 </Field>
                 {scopeType === 'NATIONAL' ? (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-ink-subtle">
                     NATIONAL grants access to every region (default for administrators).
                   </p>
                 ) : (
@@ -178,12 +178,12 @@ export function UserDetailClient() {
                     />
                   </Field>
                 )}
-                <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                <div className="rounded-xl border border-line bg-canvas p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] uppercase tracking-wider text-slate-500">Current</span>
+                    <span className="text-[11px] uppercase tracking-wider text-ink-subtle">Current</span>
                     <Badge tone="slate">{user.region_scope?.scope_type ?? 'NONE'}</Badge>
                   </div>
-                  <p className="mt-2 font-mono text-[11px] text-slate-500">
+                  <p className="mt-2 font-mono text-[11px] text-ink-subtle">
                     {user.region_scope?.region_ids?.join(', ') ?? 'NATIONAL'}
                   </p>
                 </div>
@@ -193,19 +193,19 @@ export function UserDetailClient() {
         )}
 
         {message && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+          <div className="rounded-xl border border-ok/25 bg-ok-soft p-3 text-sm text-ok">
             {message}
           </div>
         )}
         {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+          <div className="rounded-xl border border-crit/25 bg-crit-soft p-3 text-sm text-crit">
             {error}
           </div>
         )}
 
         <button
           onClick={() => router.push('/system/users')}
-          className="inline-flex items-center gap-2 text-sm text-slate-400 transition-colors hover:text-slate-200"
+          className="inline-flex items-center gap-2 text-sm text-ink-muted transition-colors hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Portal Access
         </button>
@@ -215,14 +215,14 @@ export function UserDetailClient() {
 }
 
 const selectCls =
-  'w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-amber-400 focus:outline-none'
+  'w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink focus:border-warn/25 focus:outline-none'
 const inputCls =
-  'w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:border-amber-400 focus:outline-none'
+  'w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink focus:border-warn/25 focus:outline-none'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500">
+      <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-ink-subtle">
         {label}
       </label>
       {children}
