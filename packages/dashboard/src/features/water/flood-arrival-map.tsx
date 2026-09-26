@@ -19,6 +19,22 @@ import '@/app/water/flood-map/flood-map.css'
 import { RIVER_GEOMETRY, SEGMENT_RIVER } from './rivers'
 import type { AssetReading, FloodTerritoryFeature, SegmentData, AlertMarker } from './use-flood-map-state'
 
+const FLOOD_MAP_API_KEY = process.env.NEXT_PUBLIC_FLOOD_MAP_API_KEY || ''
+
+function floodMapTiles(): { url: string; attribution: string } {
+  if (FLOOD_MAP_API_KEY) {
+    return {
+      url: `https://api.maptiler.com/maps/dataviz-dark/{z}/{x}/{y}.png?key=${FLOOD_MAP_API_KEY}`,
+      attribution:
+        '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }
+  }
+  return {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO',
+  }
+}
+
 const TERRITORY_STYLE: Record<string, { fill: string; opacity: number }> = {
   NONE: { fill: '#64748b', opacity: 0.12 },
   LOW: { fill: '#3b82f6', opacity: 0.28 },
@@ -322,10 +338,7 @@ export function FloodArrivalMap({
         scrollWheelZoom={true}
         style={{ height: '100%', width: '100%', background: '#0b1220' }}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        />
+        <TileLayer attribution={floodMapTiles().attribution} url={floodMapTiles().url} />
 
         {showTerritories && territories.map((feature) => {
           const rings = ringsForGeometry(feature.geometry)
@@ -362,7 +375,9 @@ export function FloodArrivalMap({
               <Popup>
                 <div className="space-y-1 min-w-[180px]">
                   <p className="text-xs font-bold m-0">{props.district}</p>
-                  <p className="text-[10px] text-slate-400 m-0">{props.province} · threatened area</p>
+                  <p className="text-[10px] text-slate-400 m-0">
+                    {props.province} · {props.boundary === 'official' ? 'official district boundary' : 'approximate zone'}
+                  </p>
                   <p className="text-[10px] m-0">
                     Prediction: <span className="font-semibold">{severity}</span>
                     {' '}({Math.round((props.flood_probability || 0) * 100)}%)

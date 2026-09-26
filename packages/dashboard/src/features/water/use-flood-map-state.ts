@@ -90,6 +90,7 @@ export interface FloodTerritoryProperties {
   source_asset_id: number
   source_asset_name: string
   alert: boolean
+  boundary?: 'official' | 'approximate'
   ot_source?: string
   ot_mode?: string
   ot_device_code?: string

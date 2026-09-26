@@ -1,13 +1,16 @@
 # GET /water/flood-map/territory
 # District polygons painted from the latest asset flood prediction, plus
 # region alerts for moderate severity and above.
+import json
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, select, text
 from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import WaterAsset, WaterAssetThreshold, WaterDownstreamImpact, WaterObservation, WaterOperationalAlert
 from infrastructure.thresholds.engine import official_observation_clause
+from infrastructure.flood.official_shapes import apply_official_geometries, index_geometries, load_shape_file
 from infrastructure.flood.territories import (
     AssetFlood,
     LocatedPoint,
@@ -124,7 +127,30 @@ def load_flood_territory(session: Session) -> dict:
         if asset.latitude is not None and asset.longitude is not None
     ]
     payload = build_flood_territory(classifications, impacts, asset_names, located)
+    payload = apply_official_geometries(payload, _official_geometries(session))
     return _apply_process_view(session, payload, thresholds)
+
+
+def _official_geometries(session: Session) -> dict:
+    """Official district polygons from PostGIS, then the cached geo file for any gaps."""
+    geometries = load_shape_file()
+    rows = session.execute(
+        text(
+            """
+            SELECT name,
+                   ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.01)) AS geojson
+            FROM shared.regions
+            WHERE type = 'district' AND geom IS NOT NULL
+            """
+        )
+    ).all()
+    features = []
+    for name, geojson in rows:
+        if not geojson:
+            continue
+        features.append({"properties": {"name": name}, "geometry": json.loads(geojson)})
+    geometries.update(index_geometries(features))
+    return geometries
 
 
 def _apply_process_view(session: Session, payload: dict, thresholds: dict) -> dict:

@@ -1,6 +1,7 @@
 # District territory rollup: prediction severity, population split, alert threshold.
 import unittest
 
+from infrastructure.flood.official_shapes import apply_official_geometries, normalize_district
 from infrastructure.flood.territories import (
     TERRITORIES,
     AssetFlood,
@@ -141,6 +142,25 @@ class TestFloodTerritoryRollup(unittest.TestCase):
             next(row for row in result["alerts"] if row["district"] == "Haripur")["inside_count"],
             len(haripur),
         )
+
+    def test_official_polygon_replaces_the_box_for_a_matching_district(self):
+        result = build_flood_territory(
+            {1: AssetFlood(1, "Tarbela Reservoir", 0.82, "HIGH", "Evacuate")},
+            {(1, 4): SegmentImpact(100, 1, 1)},
+        )
+        official = {
+            "type": "Polygon",
+            "coordinates": [[[71.0, 33.0], [72.0, 33.0], [72.0, 34.0], [71.0, 33.0]]],
+        }
+        apply_official_geometries(result, {normalize_district("D.G. Khan"): official, normalize_district("Nowshera"): official})
+        props = _props(result)
+        by_name = {feature["properties"]["district"]: feature for feature in result["features"]}
+        self.assertEqual(by_name["Nowshera"]["geometry"], official)
+        self.assertEqual(props["Nowshera"]["boundary"], "official")
+        self.assertEqual(by_name["Dera Ghazi Khan"]["geometry"]["type"], "Polygon")
+        self.assertEqual(props["Dera Ghazi Khan"]["boundary"], "official")
+        self.assertEqual(props["Haripur"]["boundary"], "approximate")
+        self.assertEqual(len(by_name["Haripur"]["geometry"]["coordinates"][0]), 5)
 
 
 if __name__ == "__main__":
