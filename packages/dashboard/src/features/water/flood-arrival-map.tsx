@@ -10,7 +10,6 @@ import {
   Tooltip,
   useMap,
   Popup,
-  Rectangle,
   Marker,
 } from 'react-leaflet'
 import L from 'leaflet'
@@ -18,7 +17,7 @@ import 'leaflet/dist/leaflet.css'
 import '@/app/water/flood-map/flood-map.css'
 
 import { RIVER_GEOMETRY, SEGMENT_RIVER } from './rivers'
-import type { FloodTerritoryFeature } from './use-flood-map-state'
+import type { AssetReading, FloodTerritoryFeature, SegmentData, AlertMarker } from './use-flood-map-state'
 
 const TERRITORY_STYLE: Record<string, { fill: string; opacity: number }> = {
   NONE: { fill: '#64748b', opacity: 0.12 },
@@ -65,25 +64,6 @@ function formatPeople(count: number): string {
   return count.toLocaleString()
 }
 
-const ASSET_COORDS: Record<number, [number, number]> = {
-  1: [34.086, 72.716], 2: [33.215, 73.640], 3: [32.485, 71.480],
-  4: [32.960, 71.490], 5: [30.805, 70.880], 6: [28.430, 68.940],
-  7: [27.690, 68.410], 8: [25.370, 68.350], 9: [34.010, 71.580],
-  10: [32.480, 74.560], 11: [28.400, 69.700],
-}
-
-const ASSET_NAMES: Record<number, string> = {
-  1: 'Tarbela', 2: 'Mangla', 3: 'Chashma', 4: 'Kalabagh',
-  5: 'Taunsa', 6: 'Guddu', 7: 'Sukkur', 8: 'Kotri',
-  9: 'Nowshera', 10: 'Marala', 11: 'Panjnad',
-}
-
-const ASSET_TYPES: Record<number, string> = {
-  1: 'Dam', 2: 'Dam', 3: 'Barrage', 4: 'Barrage',
-  5: 'Barrage', 6: 'Barrage', 7: 'Barrage', 8: 'Barrage',
-  9: 'Headworks', 10: 'Headworks', 11: 'Headworks',
-}
-
 const TRAVEL_TIMES = [
   { min: 0, max: 6, color: '#ef4444', label: '0-6h (Critical)' },
   { min: 6, max: 12, color: '#f97316', label: '6-12h (Urgent)' },
@@ -92,55 +72,15 @@ const TRAVEL_TIMES = [
   { min: 48, max: Infinity, color: '#3b82f6', label: '48h+ (Advisory)' },
 ]
 
-const RIVER_COLORS: Record<string, string> = {
-  Indus: '#38bdf8', Jhelum: '#34d399', Kabul: '#f59e0b', Chenab: '#a78bfa', Panjnad: '#f472b6',
+function formatAge(hours: number): string {
+  return hours < 48 ? `${Math.round(hours)}h` : `${(hours / 24).toFixed(1)}d`
 }
 
-const HISTORICAL_FLOOD_EXTENTS: { bounds: [[number, number], [number, number]]; label: string }[] = [
-  { bounds: [[30.5, 69.5], [31.5, 71.5]], label: '2010 Sindh Flood' },
-  { bounds: [[27.0, 67.5], [28.5, 70.0]], label: '2022 Sindh Flood' },
-  { bounds: [[32.0, 70.5], [33.5, 72.0]], label: '2014 Punjab Flood' },
-  { bounds: [[33.5, 72.5], [34.5, 74.0]], label: '2015 AJK Flood' },
-  { bounds: [[25.0, 67.5], [26.5, 69.5]], label: '2022 Karachi Flood' },
-]
-
-const IMPACT_ICONS: Record<string, string> = {
-  population: '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}',
-  bridge: '\u{1F309}',
-  hospital: '\u2695\uFE0F',
-}
-
-interface SegmentData {
-  from_id: number
-  to_id: number
-  river: string
-  travel_time_hours: number
-  distance_km: number
-  population_exposed: number
-  bridges: number
-  hospitals: number
-}
-
-interface ImpactAsset {
-  id: number
-  name: string
-  lat: number
-  lng: number
-  type: 'population' | 'bridge' | 'hospital'
-  population?: number
-}
-
-interface FfdWarning {
-  id: number
-  station: string
-  river: string
-  lat: number
-  lng: number
-  level_ft: number
-  discharge_cusecs: number
-  status: string
-  severity: string
-  issued_at: string
+function freshness(ageHours: number | null): { color: string; label: string } {
+  if (ageHours == null) return { color: '#94a3b8', label: 'No official reading' }
+  if (ageHours <= 24) return { color: '#22c55e', label: `observed ${formatAge(ageHours)} ago` }
+  if (ageHours <= 48) return { color: '#eab308', label: `aging · observed ${formatAge(ageHours)} ago` }
+  return { color: '#ef4444', label: `STALE · observed ${formatAge(ageHours)} ago` }
 }
 
 interface FfdMarker {
@@ -160,37 +100,20 @@ interface FloodArrivalMapProps {
   segments?: SegmentData[]
   selectedAssetId?: number | null
   onAssetClick?: (assetId: number | null) => void
-  height?: number
-  assetThresholds?: Record<number, { warning?: number; danger?: number; critical?: number }>
-  currentLevels?: Record<number, number>
-  impactAssets?: ImpactAsset[]
-  ffdWarnings?: FfdWarning[]
-  simulationFlow?: { assetId: number; flow: number } | null
+  height?: number | string
+  assets?: AssetReading[]
+  ffdWarnings?: AlertMarker[]
   floodClassifications?: Record<number, { probability: number; severity: string; recommendation: string }>
   ffdMarkers?: FfdMarker[]
-  impactMarkers?: ImpactMarker[]
   showRivers?: boolean
   showLabels?: boolean
   showWarnings?: boolean
-  showImpact?: boolean
   showRainfall?: boolean
-  showFloodExtents?: boolean
   showTerritories?: boolean
   territories?: FloodTerritoryFeature[]
   selectedDistrict?: string | null
   onDistrictClick?: (district: string | null) => void
   timeSlider?: number
-}
-
-interface ImpactMarker {
-  id: string
-  type: string
-  name: string
-  lat: number
-  lng: number
-  population?: number
-  segment: string
-  river?: string
 }
 
 function getTravelTimeColor(hours: number): string {
@@ -200,18 +123,13 @@ function getTravelTimeColor(hours: number): string {
   return '#6b7280'
 }
 
-function getAssetStatusColor(
-  assetId: number,
-  thresholds?: Record<number, { warning?: number; danger?: number; critical?: number }>,
-  levels?: Record<number, number>
-): string {
-  if (!thresholds || !levels) return '#6b7280'
-  const level = levels[assetId]
-  const t = thresholds[assetId]
-  if (level == null || !t) return '#6b7280'
-  if (t.critical != null && level >= t.critical) return '#ef4444'
-  if (t.danger != null && level >= t.danger) return '#f97316'
-  if (t.warning != null && level >= t.warning) return '#eab308'
+function getAssetStatusColor(asset?: AssetReading): string {
+  if (!asset || asset.unit !== 'ft' || asset.value == null) return '#6b7280'
+  const { warningFt, dangerFt, criticalFt, value } = asset
+  if (warningFt == null && dangerFt == null && criticalFt == null) return '#6b7280'
+  if (criticalFt != null && value >= criticalFt) return '#ef4444'
+  if (dangerFt != null && value >= dangerFt) return '#f97316'
+  if (warningFt != null && value >= warningFt) return '#eab308'
   return '#22c55e'
 }
 
@@ -257,27 +175,23 @@ function makeArrowIcon(from: [number, number], to: [number, number]): L.DivIcon 
   })
 }
 
-function FitBounds({ segments }: { segments: SegmentData[] }) {
+function FitBounds({ assets }: { assets: AssetReading[] }) {
   const map = useMap()
   useEffect(() => {
-    const allCoords = segments.flatMap((s) => {
-      const from = ASSET_COORDS[s.from_id]
-      const to = ASSET_COORDS[s.to_id]
-      return [from, to].filter(
-        (c): c is [number, number] => c != null && Number.isFinite(c[0]) && Number.isFinite(c[1])
-      )
-    })
-    if (!allCoords.length) {
+    const positions = assets
+      .map((a) => (a.lat != null && a.lng != null ? ([a.lat, a.lng] as [number, number]) : null))
+      .filter((c): c is [number, number] => c != null)
+    if (!positions.length) {
       map.fitBounds([[24, 63], [37, 78]])
       return
     }
-    const lats = allCoords.map((c) => c[0])
-    const lngs = allCoords.map((c) => c[1])
+    const lats = positions.map((c) => c[0])
+    const lngs = positions.map((c) => c[1])
     map.fitBounds(
       [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]],
       { padding: [40, 40] }
     )
-  }, [segments, map])
+  }, [assets, map])
   return null
 }
 
@@ -343,21 +257,15 @@ export function FloodArrivalMap({
   segments = [],
   selectedAssetId,
   onAssetClick,
-  height = 600,
-  assetThresholds,
-  currentLevels,
-  impactAssets,
+  height = '100%',
+  assets = [],
   ffdWarnings,
-  simulationFlow,
   floodClassifications,
   ffdMarkers,
-  impactMarkers,
   showRivers = true,
   showLabels = true,
   showWarnings = true,
-  showImpact = true,
   showRainfall = false,
-  showFloodExtents = false,
   showTerritories = true,
   territories = [],
   selectedDistrict = null,
@@ -367,39 +275,29 @@ export function FloodArrivalMap({
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
+  const assetsById = useMemo(() => {
+    const map: Record<number, AssetReading> = {}
+    for (const asset of assets) map[asset.id] = asset
+    return map
+  }, [assets])
+
   const visibleSegments = useMemo(
-    () => segments.filter((s) => s.travel_time_hours <= timeSlider),
+    () => segments.filter((s) => s.travel_time_hours != null && s.travel_time_hours <= timeSlider),
     [segments, timeSlider]
   )
 
-  const totalPopulation = useMemo(
-    () => visibleSegments.reduce((sum, s) => sum + s.population_exposed, 0),
-    [visibleSegments]
-  )
-
-  const totalBridges = useMemo(
-    () => visibleSegments.reduce((sum, s) => sum + s.bridges, 0),
-    [visibleSegments]
-  )
-
-  const totalHospitals = useMemo(
-    () => visibleSegments.reduce((sum, s) => sum + s.hospitals, 0),
-    [visibleSegments]
-  )
-
   const alertAssetIds = useMemo(() => {
-    if (!currentLevels || !assetThresholds) return new Set<number>()
     const ids = new Set<number>()
-    for (const [idStr, level] of Object.entries(currentLevels)) {
-      const id = Number(idStr)
-      const t = assetThresholds[id]
-      if (!t || level == null) continue
-      if ((t.critical != null && level >= t.critical) || (t.danger != null && level >= t.danger) || (t.warning != null && level >= t.warning)) {
-        ids.add(id)
-      }
+    for (const asset of assets) {
+      if (asset.unit !== 'ft' || asset.value == null) continue
+      const breached =
+        (asset.criticalFt != null && asset.value >= asset.criticalFt) ||
+        (asset.dangerFt != null && asset.value >= asset.dangerFt) ||
+        (asset.warningFt != null && asset.value >= asset.warningFt)
+      if (breached) ids.add(asset.id)
     }
     return ids
-  }, [currentLevels, assetThresholds])
+  }, [assets])
 
   if (!mounted) return <div style={{ height }} className="rounded-2xl bg-surface" />
 
@@ -454,7 +352,7 @@ export function FloodArrivalMap({
             >
               <Tooltip>
                 <div className="p-1">
-                  <p className="text-sm font-semibold text-slate-900 m-0">{props.district} danger zone</p>
+                  <p className="text-sm font-semibold text-slate-900 m-0">{props.district} zone</p>
                   <p className="text-xs text-slate-700 m-0">
                     {severity} · {Math.round((props.flood_probability || 0) * 100)}% · {formatPeople(props.population_exposed || 0)} people
                   </p>
@@ -557,22 +455,27 @@ export function FloodArrivalMap({
         )}
 
         {visibleSegments.map((seg, i) => {
-          const from = ASSET_COORDS[seg.from_id]
-          const to = ASSET_COORDS[seg.to_id]
-          if (!from || !to) return null
+          const fromAsset = assetsById[seg.from_id]
+          const toAsset = assetsById[seg.to_id]
+          const from = fromAsset && fromAsset.lat != null && fromAsset.lng != null
+            ? ([fromAsset.lat, fromAsset.lng] as [number, number]) : null
+          const to = toAsset && toAsset.lat != null && toAsset.lng != null
+            ? ([toAsset.lat, toAsset.lng] as [number, number]) : null
+          const travel = seg.travel_time_hours
+          if (!from || !to || travel == null) return null
           const riverName = SEGMENT_RIVER[`${seg.from_id}-${seg.to_id}`] || seg.river
           return (
             <FloodPulsePolyline
               key={`segment-${seg.from_id}-${seg.to_id}-${i}`}
               positions={[from, to]}
-              travelTime={seg.travel_time_hours}
+              travelTime={travel}
               tooltipContent={
                 <Tooltip>
                   <div className="space-y-0.5">
-                    <p className="text-[11px] font-semibold">{ASSET_NAMES[seg.from_id]} → {ASSET_NAMES[seg.to_id]}</p>
-                    <p className="text-[10px] text-ink-subtle">{riverName} River</p>
-                    <p className="text-[10px]">Travel: <span className="font-semibold">{seg.travel_time_hours}h</span></p>
-                    <p className="text-[10px]">Distance: <span className="font-semibold">{seg.distance_km} km</span></p>
+                    <p className="text-[11px] font-semibold">{fromAsset?.name ?? '—'} → {toAsset?.name ?? '—'}</p>
+                    {riverName && <p className="text-[10px] text-ink-subtle">{riverName} River</p>}
+                    <p className="text-[10px]">Travel: <span className="font-semibold">{travel}h</span> <span className="text-ink-subtle">(model estimate)</span></p>
+                    <p className="text-[10px]">Distance: <span className="font-semibold">{seg.distance_km != null ? `${seg.distance_km} km` : '—'}</span></p>
                     <p className="text-[10px]">Pop: <span className="font-semibold text-warn">{(seg.population_exposed / 1000000).toFixed(1)}M</span></p>
                   </div>
                 </Tooltip>
@@ -582,8 +485,12 @@ export function FloodArrivalMap({
         })}
 
         {visibleSegments.map((seg, i) => {
-          const from = ASSET_COORDS[seg.from_id]
-          const to = ASSET_COORDS[seg.to_id]
+          const fromAsset = assetsById[seg.from_id]
+          const toAsset = assetsById[seg.to_id]
+          const from = fromAsset && fromAsset.lat != null && fromAsset.lng != null
+            ? ([fromAsset.lat, fromAsset.lng] as [number, number]) : null
+          const to = toAsset && toAsset.lat != null && toAsset.lng != null
+            ? ([toAsset.lat, toAsset.lng] as [number, number]) : null
           if (!from || !to) return null
           return (
             <Marker
@@ -594,16 +501,19 @@ export function FloodArrivalMap({
           )
         })}
 
-        {Object.entries(ASSET_COORDS).map(([idStr, coords]) => {
-          const id = Number(idStr)
-          const name = ASSET_NAMES[id]
-          const type = ASSET_TYPES[id]
+        {assets.map((asset) => {
+          if (asset.lat == null || asset.lng == null) return null
+          const id = asset.id
+          const name = asset.name
+          const type = asset.assetType
+          const coords: [number, number] = [asset.lat, asset.lng]
           const isSelected = id === selectedAssetId
           const hasAlert = alertAssetIds.has(id)
-          const statusColor = getAssetStatusColor(id, assetThresholds, currentLevels)
+          const statusColor = getAssetStatusColor(asset)
           const classification = floodClassifications?.[id]
-          const assetFfdMarkers = ffdMarkers?.filter(m => m.asset_id === id) || []
-          const ffdMarker = assetFfdMarkers[0]
+          const ffdMarker = ffdMarkers?.find(m => m.asset_id === id)
+          const fresh = freshness(asset.ageHours)
+          const valueLabel = asset.unit === 'ft' ? 'Level' : 'Discharge'
 
           let radius = 7
           if (type === 'Dam') radius = 9
@@ -634,9 +544,15 @@ export function FloodArrivalMap({
                 <Tooltip permanent direction="right" offset={[12, 0]} className="asset-label-tooltip">
                   <div>
                     <p className="text-[11px] font-bold m-0">{name}</p>
-                    <p className="text-[9px] text-ink-muted m-0">{type}</p>
-                    {currentLevels?.[id] != null && (
-                      <p className="text-[10px] m-0">{currentLevels[id].toLocaleString()} {id <= 2 ? 'ft' : 'cusecs'}</p>
+                    {type && <p className="text-[9px] text-ink-muted m-0">{type}</p>}
+                    {asset.value != null && asset.unit && (
+                      <p className="text-[10px] m-0">
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full mr-1 align-middle"
+                          style={{ backgroundColor: fresh.color }}
+                        />
+                        {asset.value.toLocaleString()} {asset.unit}
+                      </p>
                     )}
                     {classification && (
                       <p className="text-[10px] m-0 font-semibold" style={{ color: classification.severity === 'HIGH' ? '#ef4444' : classification.severity === 'MEDIUM' ? '#f97316' : '#22c55e' }}>
@@ -651,11 +567,14 @@ export function FloodArrivalMap({
                 <div className="space-y-1.5 min-w-[180px]">
                   <div>
                     <p className="text-sm font-bold m-0">{name}</p>
-                    <p className="text-[10px] text-ink-muted m-0">{type}</p>
+                    {type && <p className="text-[10px] text-ink-muted m-0">{type}</p>}
                   </div>
-                  {currentLevels?.[id] != null && (
-                    <p className="text-[11px] m-0">Level: <span className="font-semibold">{currentLevels[id].toLocaleString()} {id <= 2 ? 'ft' : 'cusecs'}</span></p>
+                  {asset.value != null && asset.unit && (
+                    <p className="text-[11px] m-0">{valueLabel}: <span className="font-semibold">{asset.value.toLocaleString()} {asset.unit}</span></p>
                   )}
+                  <p className="text-[10px] m-0" style={{ color: fresh.color }}>
+                    Observed {fresh.label}{asset.source ? ` · ${asset.source}` : ''}
+                  </p>
                   {ffdMarker && (
                     <div className="text-[10px] space-y-0.5">
                       <p className="m-0">FFD: <span className="font-semibold">{ffdMarker.flood_status}</span></p>
@@ -680,32 +599,6 @@ export function FloodArrivalMap({
           )
         })}
 
-        {showImpact && impactMarkers?.map((marker) => {
-          const isPop = marker.type === 'population'
-          const isBridge = marker.type === 'bridge'
-          const isHosp = marker.type === 'hospital'
-          const color = isPop ? '#22c55e' : isBridge ? '#f59e0b' : '#ef4444'
-          const radius = isPop ? 6 : isBridge ? 4 : 4
-          return (
-            <CircleMarker
-              key={marker.id}
-              center={[marker.lat, marker.lng]}
-              radius={radius}
-              pathOptions={{ color, fillColor: color, fillOpacity: 0.7, weight: 1 }}
-            >
-              <Tooltip>
-                <span className="text-xs">
-                  {isPop && `${(marker.population / 1000000).toFixed(1)}M people`}
-                  {isBridge && 'Bridge'}
-                  {isHosp && 'Hospital'}
-                  <br />
-                  <span className="text-[10px] text-ink-muted">{marker.segment}</span>
-                </span>
-              </Tooltip>
-            </CircleMarker>
-          )
-        })}
-
         {showWarnings && ffdWarnings?.map((w) => {
           const severityColor = w.severity === 'Critical' ? '#ef4444' : w.severity === 'Danger' ? '#f97316' : '#eab308'
           return (
@@ -723,33 +616,19 @@ export function FloodArrivalMap({
               <Popup>
                 <div className="space-y-1 min-w-[160px]">
                   <p className="text-xs font-bold m-0">{w.station}</p>
-                  <p className="text-[10px] text-ink-muted m-0">{w.river}</p>
-                  <p className="text-[10px] m-0">Discharge: <span className="font-semibold">{w.discharge_cusecs?.toLocaleString()} cusecs</span></p>
-                  <p className="text-[10px] m-0">Level: <span className="font-semibold">{w.level_ft} ft</span></p>
+                  {w.river && <p className="text-[10px] text-ink-muted m-0">{w.river}</p>}
+                  {w.discharge_cusecs != null && (
+                    <p className="text-[10px] m-0">Trigger value: <span className="font-semibold">{w.discharge_cusecs.toLocaleString()}</span></p>
+                  )}
+                  {w.level_ft != null && (
+                    <p className="text-[10px] m-0">Trigger value: <span className="font-semibold">{w.level_ft} ft</span></p>
+                  )}
                   <p className="text-[10px] m-0">Status: <span className="font-semibold" style={{ color: severityColor }}>{w.severity}</span></p>
                 </div>
               </Popup>
             </CircleMarker>
           )
         })}
-
-        {showFloodExtents && HISTORICAL_FLOOD_EXTENTS.map((extent, i) => (
-          <Rectangle
-            key={`extent-${i}`}
-            bounds={extent.bounds}
-            pathOptions={{
-              color: '#3b82f6',
-              weight: 1,
-              fillColor: '#3b82f6',
-              fillOpacity: 0.08,
-              dashArray: '4, 6',
-            }}
-          >
-            <Tooltip>
-              <span className="text-xs">{extent.label}</span>
-            </Tooltip>
-          </Rectangle>
-        ))}
 
         {showRainfall && ffdMarkers?.map((marker) => {
           if (marker.latitude == null || marker.longitude == null) return null
@@ -785,33 +664,7 @@ export function FloodArrivalMap({
           )
         })}
 
-        {simulationFlow && (() => {
-          const downstream = segments.filter((s) => s.from_id === simulationFlow.assetId)
-          if (!downstream.length) return null
-          return downstream.map((seg, i) => {
-            const from = ASSET_COORDS[seg.from_id]
-            const to = ASSET_COORDS[seg.to_id]
-            if (!from || !to) return null
-            return (
-              <Polyline
-                key={`sim-${seg.from_id}-${seg.to_id}-${i}`}
-                positions={[from, to]}
-                pathOptions={{
-                  color: '#f59e0b',
-                  weight: 6,
-                  opacity: 0.5,
-                  dashArray: '4, 8',
-                }}
-              >
-                <Tooltip>
-                  <span className="text-xs">Simulation: {simulationFlow.flow.toLocaleString()} cusecs</span>
-                </Tooltip>
-              </Polyline>
-            )
-          })
-        })()}
-
-        <FitBounds segments={segments} />
+        <FitBounds assets={assets} />
       </MapContainer>
     </div>
   )

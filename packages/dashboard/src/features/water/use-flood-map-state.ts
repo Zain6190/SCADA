@@ -1,16 +1,17 @@
 // packages/dashboard/src/features/water/use-flood-map-state.ts
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8100'
 
 export interface SegmentData {
   from_id: number
   to_id: number
-  river: string
-  travel_time_hours: number
-  distance_km: number
+  river: string | null
+  travel_time_hours: number | null
+  distance_km: number | null
   population_exposed: number
   bridges: number
   hospitals: number
@@ -37,12 +38,36 @@ export interface ImpactSummary {
   }>
 }
 
-export interface Alert {
+export interface AlertMarker {
   id: number
-  asset_name: string
+  station: string
+  river: string | null
+  lat: number
+  lng: number
+  level_ft: number | null
+  discharge_cusecs: number | null
+  status: string
   severity: string
-  message: string
-  downstream_population_exposed?: number
+  issued_at: string
+}
+
+export interface AssetReading {
+  id: number
+  name: string
+  assetType: string | null
+  river: string | null
+  lat: number | null
+  lng: number | null
+  warningFt: number | null
+  dangerFt: number | null
+  criticalFt: number | null
+  levelFt: number | null
+  dischargeCusecs: number | null
+  value: number | null
+  unit: 'ft' | 'cusecs' | null
+  observedAt: string | null
+  ageHours: number | null
+  source: string | null
 }
 
 export interface ThreatenedPlace {
@@ -92,54 +117,165 @@ export interface RegionAlert {
   inside?: ThreatenedPlace[]
 }
 
-export const ASSET_MAP: Record<string, number> = {
-  Tarbela: 1, Mangla: 2, Chashma: 3, Kalabagh: 4,
-  Taunsa: 5, Guddu: 6, Sukkur: 7, Kotri: 8,
-  'Kabul @ Nowshera': 9, Nowshera: 9, 'Chenab @ Marala': 10, Marala: 10,
-  Panjnad: 11,
-}
-
-export const DEFAULT_THRESHOLDS: Record<number, { warning?: number; danger?: number; critical?: number }> = {
-  1: { warning: 1550, danger: 1570, critical: 1600 },
-  2: { warning: 1242, danger: 1248, critical: 1255 },
-  9: { warning: 100000, danger: 150000, critical: 200000 },
-  10: { warning: 80000, danger: 120000, critical: 160000 },
-}
-
-export const ASSET_NAMES: Record<number, string> = {
-  1: 'Tarbela', 2: 'Mangla', 3: 'Chashma', 4: 'Kalabagh',
-  5: 'Taunsa', 6: 'Guddu', 7: 'Sukkur', 8: 'Kotri',
-  9: 'Nowshera', 10: 'Marala', 11: 'Panjnad',
-}
-
 export interface LayerState {
   showTerritories: boolean
   showRivers: boolean
   showLabels: boolean
   showWarnings: boolean
-  showImpact: boolean
   showRainfall: boolean
-  showFloodExtents: boolean
+}
+
+interface FloodMapOverview {
+  segments: SegmentData[]
+  alertMarkers: AlertMarker[]
+  assets: AssetReading[]
+  ffdMarkers: any[]
+  floodClassifications: Record<number, { probability: number; severity: string; recommendation: string }>
+  territories: FloodTerritoryFeature[]
+  regionAlerts: RegionAlert[]
+}
+
+const RIVER_NAMES = ['Indus', 'Jhelum', 'Kabul', 'Chenab', 'Panjnad']
+
+function riverFromNotes(notes?: string | null): string | null {
+  if (!notes) return null
+  for (const river of RIVER_NAMES) {
+    if (notes.includes(river)) return river
+  }
+  return null
+}
+
+function mapAssetReading(raw: any): AssetReading {
+  const levelFt = raw.current_level_ft ?? null
+  const dischargeCusecs = raw.current_discharge ?? null
+  const value = levelFt ?? dischargeCusecs
+  const unit: AssetReading['unit'] = levelFt != null ? 'ft' : dischargeCusecs != null ? 'cusecs' : null
+  return {
+    id: raw.id,
+    name: raw.canonical_name,
+    assetType: raw.asset_type ?? null,
+    river: raw.river ?? null,
+    lat: raw.latitude ?? null,
+    lng: raw.longitude ?? null,
+    warningFt: raw.warning_level_ft ?? null,
+    dangerFt: raw.danger_level_ft ?? null,
+    criticalFt: raw.critical_level_ft ?? null,
+    levelFt,
+    dischargeCusecs,
+    value,
+    unit,
+    observedAt: raw.last_observed_at ?? null,
+    ageHours: raw.data_age_hours ?? null,
+    source: raw.latest_source ?? null,
+  }
+}
+
+async function fetchOverview(): Promise<FloodMapOverview> {
+  const [impRes, alertRes, assetsRes, ffdRes, territoryRes] = await Promise.all([
+    fetch(`${API_BASE}/water/impact/precalculated`),
+    fetch(`${API_BASE}/water/operational/alerts?status=NEW`),
+    fetch(`${API_BASE}/water/operational/assets`),
+    fetch(`${API_BASE}/water/operational/ffd/markers`),
+    fetch(`${API_BASE}/water/flood-map/territory`),
+  ])
+
+  const rawAssets = assetsRes.ok ? await assetsRes.json() : []
+  const assets: AssetReading[] = (Array.isArray(rawAssets) ? rawAssets : []).map(mapAssetReading)
+  const assetsById: Record<number, AssetReading> = {}
+  const assetsByName: Record<string, AssetReading> = {}
+  for (const asset of assets) {
+    assetsById[asset.id] = asset
+    assetsByName[asset.name] = asset
+  }
+
+  let segments: SegmentData[] = []
+  if (impRes.ok) {
+    const impacts = await impRes.json()
+    segments = (Array.isArray(impacts) ? impacts : [])
+      .filter((imp: any) => imp.downstream_asset_id != null)
+      .map((imp: any) => ({
+        from_id: imp.source_asset_id,
+        to_id: imp.downstream_asset_id,
+        river: riverFromNotes(imp.notes),
+        travel_time_hours: imp.travel_time_hours_expected ?? imp.travel_time_hours_min ?? null,
+        distance_km: imp.distance_km ?? null,
+        population_exposed: imp.affected_population_est ?? 0,
+        bridges: imp.bridges_count ?? 0,
+        hospitals: imp.hospitals_count ?? 0,
+      }))
+      .filter((seg: SegmentData) => assetsById[seg.from_id] && assetsById[seg.to_id])
+  }
+
+  let alertMarkers: AlertMarker[] = []
+  if (alertRes.ok) {
+    const alertList = await alertRes.json()
+    alertMarkers = (Array.isArray(alertList) ? alertList : [])
+      .map((a: any): AlertMarker | null => {
+        const asset: AssetReading | undefined = assetsById[a.asset_id] ?? assetsByName[a.asset_name]
+        if (!asset || asset.lat == null || asset.lng == null) return null
+        return {
+          id: a.id,
+          station: asset.name,
+          river: asset.river,
+          lat: asset.lat,
+          lng: asset.lng,
+          level_ft: a.reading_level_ft ?? null,
+          discharge_cusecs: a.reading_discharge_cusecs ?? a.triggered_value ?? null,
+          status: a.status || 'NEW',
+          severity: a.severity || 'WATCH',
+          issued_at: a.created_at || new Date().toISOString(),
+        }
+      })
+      .filter((marker: AlertMarker | null): marker is AlertMarker => marker !== null)
+  }
+
+  const floodClassifications: FloodMapOverview['floodClassifications'] = {}
+  for (const asset of assets) {
+    const raw = (Array.isArray(rawAssets) ? rawAssets : []).find((a: any) => a.id === asset.id)
+    if (raw?.flood_probability != null) {
+      floodClassifications[asset.id] = {
+        probability: raw.flood_probability,
+        severity: raw.flood_severity || 'NONE',
+        recommendation: raw.flood_recommendation || '',
+      }
+    }
+  }
+
+  let territories: FloodTerritoryFeature[] = []
+  let regionAlerts: RegionAlert[] = []
+  if (territoryRes.ok) {
+    const territory = await territoryRes.json()
+    territories = Array.isArray(territory.features) ? territory.features : []
+    regionAlerts = Array.isArray(territory.alerts) ? territory.alerts : []
+  }
+
+  const ffdMarkers = ffdRes.ok ? await ffdRes.json() : []
+
+  return {
+    segments,
+    alertMarkers,
+    assets,
+    ffdMarkers: Array.isArray(ffdMarkers) ? ffdMarkers : [],
+    floodClassifications,
+    territories,
+    regionAlerts,
+  }
 }
 
 export function useFloodMapState() {
-  // Data
-  const [segments, setSegments] = useState<SegmentData[]>([])
-  const [alerts, setAlerts] = useState<Alert[]>([])
+  const overview = useQuery({
+    queryKey: ['flood-map', 'overview'],
+    queryFn: fetchOverview,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  })
+
   const [impactSummary, setImpactSummary] = useState<ImpactSummary | null>(null)
-  const [currentLevels, setCurrentLevels] = useState<Record<number, number>>({})
-  const [ffdWarnings, setFfdWarnings] = useState<any[]>([])
-  const [floodClassifications, setFloodClassifications] = useState<Record<number, { probability: number; severity: string; recommendation: string }>>({})
-  const [ffdMarkers, setFfdMarkers] = useState<any[]>([])
-  const [impactMarkers, setImpactMarkers] = useState<any[]>([])
-  const [territories, setTerritories] = useState<FloodTerritoryFeature[]>([])
-  const [regionAlerts, setRegionAlerts] = useState<RegionAlert[]>([])
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null)
 
   // UI state
-  const [loading, setLoading] = useState(true)
   const [calculating, setCalculating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<number | null>(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
@@ -149,110 +285,35 @@ export function useFloodMapState() {
     showRivers: true,
     showLabels: true,
     showWarnings: true,
-    showImpact: true,
     showRainfall: false,
-    showFloodExtents: false,
   })
 
   // Controls
   const [timeSlider, setTimeSlider] = useState(48)
-  const [simAssetId, setSimAssetId] = useState<number>(1)
-  const [simFlow, setSimFlow] = useState<number>(100000)
 
   const toggleLayer = useCallback((layer: keyof LayerState) => {
     setLayers(prev => ({ ...prev, [layer]: !prev[layer] }))
   }, [])
 
-  // Fetch all data
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const [impRes, alertRes, levelsRes, ffdRes, markersRes, territoryRes] = await Promise.all([
-          fetch(`${API_BASE}/water/impact/precalculated`),
-          fetch(`${API_BASE}/water/operational/alerts?status=NEW`),
-          fetch(`${API_BASE}/water/operational/assets`),
-          fetch(`${API_BASE}/water/operational/ffd/markers`),
-          fetch(`${API_BASE}/water/impact/markers`),
-          fetch(`${API_BASE}/water/flood-map/territory`),
-        ])
+  const segments = overview.data?.segments ?? []
+  const alertMarkers = overview.data?.alertMarkers ?? []
+  const assets = overview.data?.assets ?? []
+  const ffdMarkers = overview.data?.ffdMarkers ?? []
+  const floodClassifications = overview.data?.floodClassifications ?? {}
+  const territories = overview.data?.territories ?? []
+  const regionAlerts = overview.data?.regionAlerts ?? []
 
-        if (impRes.ok) {
-          const impacts = await impRes.json()
-          setSegments(impacts.map((imp: any) => ({
-            from_id: imp.source_asset_id,
-            to_id: imp.downstream_asset_id || imp.source_asset_id + 1,
-            river: imp.notes?.includes('Indus') ? 'Indus' : imp.notes?.includes('Jhelum') ? 'Jhelum' : imp.notes?.includes('Kabul') ? 'Kabul' : imp.notes?.includes('Chenab') ? 'Chenab' : 'Indus',
-            travel_time_hours: imp.travel_time_hours_expected || imp.travel_time_hours_min || 24,
-            distance_km: imp.distance_km || 100,
-            population_exposed: imp.affected_population_est || 0,
-            bridges: imp.bridges_count || 0,
-            hospitals: imp.hospitals_count || 0,
-          })))
-        }
+  const assetsById = useMemo(() => {
+    const map: Record<number, AssetReading> = {}
+    for (const asset of assets) map[asset.id] = asset
+    return map
+  }, [assets])
 
-        if (alertRes.ok) {
-          const alertList = await alertRes.json()
-          setAlerts(alertList)
-          setFfdWarnings(alertList.map((a: any) => {
-            const assetId = ASSET_MAP[a.asset_name] || a.asset_id
-            const coords: Record<number, [number, number]> = {
-              1: [34.086, 72.716], 2: [33.215, 73.640], 3: [32.485, 71.480],
-              4: [32.960, 71.490], 5: [30.805, 70.880], 6: [28.430, 68.940],
-              7: [27.690, 68.410], 8: [25.370, 68.350], 9: [34.010, 71.580],
-              10: [32.480, 74.560], 11: [28.400, 69.700],
-            }
-            return {
-              id: a.id,
-              station: a.asset_name || 'Unknown',
-              river: 'Indus',
-              lat: coords[assetId]?.[0] || 30.5,
-              lng: coords[assetId]?.[1] || 70.5,
-              level_ft: a.reading_level_ft || 0,
-              discharge_cusecs: a.reading_discharge_cusecs || a.triggered_value || 0,
-              status: a.status || 'NEW',
-              severity: a.severity || 'WATCH',
-              issued_at: a.created_at || new Date().toISOString(),
-            }
-          }))
-        }
-
-        if (levelsRes.ok) {
-          const assetsData = await levelsRes.json()
-          const assetList = Array.isArray(assetsData) ? assetsData : []
-          const levels: Record<number, number> = {}
-          const classifications: Record<number, { probability: number; severity: string; recommendation: string }> = {}
-          for (const asset of assetList) {
-            if (asset.current_level_ft != null) levels[asset.id] = asset.current_level_ft
-            else if (asset.current_discharge != null) levels[asset.id] = asset.current_discharge
-            if (asset.flood_probability != null) {
-              classifications[asset.id] = {
-                probability: asset.flood_probability,
-                severity: asset.flood_severity || 'NONE',
-                recommendation: asset.flood_recommendation || '',
-              }
-            }
-          }
-          setCurrentLevels(levels)
-          setFloodClassifications(classifications)
-        }
-
-        if (ffdRes.ok) setFfdMarkers(await ffdRes.json())
-        if (markersRes.ok) setImpactMarkers(await markersRes.json())
-        if (territoryRes.ok) {
-          const territory = await territoryRes.json()
-          setTerritories(Array.isArray(territory.features) ? territory.features : [])
-          setRegionAlerts(Array.isArray(territory.alerts) ? territory.alerts : [])
-        }
-      } catch (e: any) {
-        setError(e.message)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-    const iv = setInterval(fetchData, 30_000)
-    return () => clearInterval(iv)
-  }, [])
+  const assetsByName = useMemo(() => {
+    const map: Record<string, AssetReading> = {}
+    for (const asset of assets) map[asset.name] = asset
+    return map
+  }, [assets])
 
   // Impact calculation when asset selected
   useEffect(() => {
@@ -260,14 +321,19 @@ export function useFloodMapState() {
     async function calc() {
       setCalculating(true)
       try {
-        let flow = 100000
+        let flow: number | null = null
         try {
           const flowRes = await fetch(`${API_BASE}/water/impact/latest-flow/${selectedAsset}`)
           if (flowRes.ok) {
             const flowData = await flowRes.json()
-            flow = flowData.effective_flow || 100000
+            flow = flowData.effective_flow ?? null
           }
         } catch {}
+
+        if (flow == null) {
+          setImpactSummary(null)
+          return
+        }
 
         const res = await fetch(`${API_BASE}/water/impact/calculate`, {
           method: 'POST',
@@ -279,7 +345,10 @@ export function useFloodMapState() {
           }),
         })
         if (res.ok) setImpactSummary(await res.json())
-      } catch {}
+        else setImpactSummary(null)
+      } catch {
+        setImpactSummary(null)
+      }
       setCalculating(false)
     }
     calc()
@@ -287,29 +356,35 @@ export function useFloodMapState() {
 
   const displaySegments = useMemo(() => {
     if (selectedAsset && impactSummary) {
-      return impactSummary.segments.map(s => ({
-        from_id: ASSET_MAP[s.upstream_asset] || 1,
-        to_id: ASSET_MAP[s.downstream_asset] || 1,
-        river: s.river_name,
-        travel_time_hours: s.travel_time_hours,
-        distance_km: s.distance_km,
-        population_exposed: s.population_exposed,
-        bridges: s.bridges_count,
-        hospitals: s.hospitals_count,
-      }))
+      return impactSummary.segments
+        .map(s => {
+          const from = assetsByName[s.upstream_asset]
+          const to = assetsByName[s.downstream_asset]
+          if (!from || !to) return null
+          return {
+            from_id: from.id,
+            to_id: to.id,
+            river: s.river_name || null,
+            travel_time_hours: s.travel_time_hours ?? null,
+            distance_km: s.distance_km ?? null,
+            population_exposed: s.population_exposed,
+            bridges: s.bridges_count,
+            hospitals: s.hospitals_count,
+          } as SegmentData
+        })
+        .filter((s): s is SegmentData => s !== null)
     }
     return segments
-  }, [selectedAsset, impactSummary, segments])
+  }, [selectedAsset, impactSummary, segments, assetsByName])
 
   const totals = useMemo(() => ({
     population: displaySegments.reduce((sum, s) => sum + s.population_exposed, 0),
     bridges: displaySegments.reduce((sum, s) => sum + s.bridges, 0),
     hospitals: displaySegments.reduce((sum, s) => sum + s.hospitals, 0),
-    maxTravel: Math.max(...displaySegments.map(s => s.travel_time_hours), 0),
   }), [displaySegments])
 
   const visibleSegments = useMemo(
-    () => displaySegments.filter(s => s.travel_time_hours <= timeSlider),
+    () => displaySegments.filter(s => s.travel_time_hours != null && s.travel_time_hours <= timeSlider),
     [displaySegments, timeSlider]
   )
 
@@ -323,32 +398,29 @@ export function useFloodMapState() {
     [territories, selectedDistrict],
   )
 
-  const simImpact = useMemo(() => {
-    const downstream = segments.filter(s => s.from_id === simAssetId)
-    if (!downstream.length) return null
-    const scaleFactor = simFlow / 100000
-    return {
-      segments: downstream.length,
-      population: Math.round(totals.population * scaleFactor),
-      bridges: Math.round(totals.bridges * scaleFactor),
-      hospitals: Math.round(totals.hospitals * scaleFactor),
-      maxTravel: Math.max(...downstream.map(s => s.travel_time_hours)),
+  const newestObservedAt = useMemo(() => {
+    let newest: string | null = null
+    for (const asset of assets) {
+      if (asset.observedAt && (!newest || asset.observedAt > newest)) newest = asset.observedAt
     }
-  }, [segments, simAssetId, simFlow, totals])
+    return newest
+  }, [assets])
+
+  const loading = overview.isLoading
+  const error = overview.error ? (overview.error as Error).message : null
 
   return {
     // Data
-    segments, alerts, impactSummary, currentLevels, ffdWarnings,
-    floodClassifications, ffdMarkers, impactMarkers,
+    assets, assetsById, ffdWarnings: alertMarkers, floodClassifications, ffdMarkers,
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
     // UI
     loading, calculating, error, selectedAsset, mobileSidebarOpen,
     // Layers
     layers, toggleLayer,
     // Controls
-    timeSlider, setTimeSlider, simAssetId, setSimAssetId, simFlow, setSimFlow,
+    timeSlider, setTimeSlider,
     // Derived
-    displaySegments, totals, visibleSegments, simImpact,
+    displaySegments, totals, visibleSegments, newestObservedAt, impactSummary,
     // Actions
     setSelectedAsset, setSelectedDistrict, setMobileSidebarOpen,
   }
