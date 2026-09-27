@@ -42,9 +42,14 @@ if DATABASE_URL:
         pool_size=5,
         max_overflow=10,
         pool_timeout=30,
-        # Recycle below Neon's idle-suspend window so pooled sockets are never
-        # the stale side of a closed connection.
-        pool_recycle=300,
+        # Opening a connection to Neon is expensive: ~3s warm, ~65s if the
+        # compute has auto-suspended. Keep healthy connections for half an
+        # hour instead of rebuilding them every few minutes; the keepalive
+        # task in main.py is what stops the compute suspending underneath us.
+        pool_recycle=1800,
+        # Kept on deliberately: measured at only ~0.2s per request, and it is
+        # what turns a stale socket into a transparent reconnect instead of a
+        # 500 for whoever hits it first.
         pool_pre_ping=True,
         connect_args=_connect_args(DATABASE_URL),
         echo=False,

@@ -17,6 +17,22 @@ class WaterIndicatorRepository:
             select(func.max(orm.WaterIndicator.week_start_date))
         ).scalar()
 
+    def list_latest_week(self) -> List[orm.WaterIndicator]:
+        """Rows of the most recent week, in one round trip.
+
+        Callers used to ask for the latest week and then fetch it, which costs
+        two sequential round trips — ~0.5s each against a remote database. The
+        scalar subquery resolves the same thing server-side.
+        """
+        latest = select(func.max(orm.WaterIndicator.week_start_date)).scalar_subquery()
+        return list(
+            self._db.execute(
+                select(orm.WaterIndicator).where(
+                    orm.WaterIndicator.week_start_date == latest
+                )
+            ).scalars()
+        )
+
     def list_by_week(self, week_start_date: date) -> List[orm.WaterIndicator]:
         return list(
             self._db.execute(

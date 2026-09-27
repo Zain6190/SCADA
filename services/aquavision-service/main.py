@@ -128,8 +128,34 @@ async def lifespan(app: FastAPI):
     ot_task = asyncio.create_task(background_ot_ticks())
     logger.info("Soft OT runtime started (15s wall / 15 min simulated)")
 
+    async def keep_db_awake():
+        """Hold the pooled connections open and the Neon compute running.
+
+        Neon suspends an idle compute, and the next connection then pays ~65s
+        to wake it — which lands on whoever opens the dashboard first. A cheap
+        SELECT 1 every two minutes keeps both the socket and the compute warm.
+        """
+        from sqlalchemy import text
+
+        def _ping() -> None:
+            if engine is None:
+                return
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+
+        while True:
+            await asyncio.sleep(120)
+            try:
+                await asyncio.to_thread(_ping)
+            except Exception as exc:  # pragma: no cover - diagnostics only
+                logger.warning("DB keepalive failed: %s", exc)
+
+    keepalive_task = asyncio.create_task(keep_db_awake())
+    logger.info("DB keepalive started (SELECT 1 every 120s)")
+
     yield
 
+    keepalive_task.cancel()
     ingestion_task.cancel()
     ot_task.cancel()
     db_session.close()
