@@ -2,8 +2,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, Download, RefreshCw, TrendingUp, TrendingDown, Droplets, BarChart3, Activity, Building2, Brain, Shield, AlertTriangle } from 'lucide-react'
+import { Download, RefreshCw, TrendingUp, TrendingDown, Droplets, BarChart3, Activity, Building2, Brain, Shield, AlertTriangle } from 'lucide-react'
+import { AppShell } from '@/components/shell/app-shell'
+import { PageHeader } from '@/components/ui/page-header'
+import { Button } from '@/components/ui/button'
 import { useQuery } from '@tanstack/react-query'
 import { waterApi } from '@/features/water/api'
 import type { AssetWeeklySummary, ModelPerformance } from '@/features/water/types'
@@ -251,56 +253,44 @@ export default function AnalystWorkspacePage() {
   }
 
   return (
-    <div className="min-h-screen bg-canvas text-ink">
-      {/* Ambient gradient */}
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(56,189,248,0.04),_transparent_40%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.03),_transparent_35%)]" />
-
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 border-b border-line bg-canvas backdrop-blur">
-        <div className="mx-auto max-w-screen-2xl px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/water" className="p-1.5 rounded-lg hover:bg-surface-alt transition-colors">
-              <ArrowLeft className="w-4 h-4 text-ink-muted" />
-            </Link>
-            <div>
-              <h1 className="text-sm font-semibold text-ink">Analyst Workspace</h1>
-              <p className="text-[11px] text-ink-subtle">Real observation data and model performance metrics</p>
+    <AppShell>
+      <div className="space-y-5">
+        <PageHeader
+          title="Analyst Workspace"
+          description="Real observation data and model performance metrics."
+          icon={<BarChart3 className="h-6 w-6" />}
+          action={
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => refetch()} loading={isFetching}>
+                {!isFetching && <RefreshCw className="h-3.5 w-3.5" />} Refresh
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleExportCSV}>
+                <Download className="h-3.5 w-3.5" /> Export CSV
+              </Button>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="p-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-40"
-            >
-              <RefreshCw className={`w-4 h-4 text-ink-muted ${isFetching ? 'animate-spin' : ''}`} />
-            </button>
-            <button onClick={handleExportCSV} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-alt hover:bg-surface-sunken border border-line-strong text-xs text-ink-muted transition-colors">
-              <Download className="w-3.5 h-3.5" /> Export CSV
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-screen-2xl px-6 py-6 space-y-6">
+          }
+        />
         {/* KPI row */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
-            { label: 'Assets Tracked', value: stats?.totalAssets ?? '—', icon: Building2, color: 'sky' },
-            { label: 'Total Observations', value: stats?.totalObs?.toLocaleString() ?? '—', icon: BarChart3, color: 'emerald' },
-            { label: 'Avg Inflow', value: stats?.avgInflow ? fmtNumber(stats.avgInflow) : '—', icon: Droplets, color: 'violet' },
-            { label: 'Data Sources', value: stats?.sources?.length ?? '—', icon: Activity, color: 'amber' },
-            { label: 'Avg R²', value: modelStats?.avgR2 != null ? modelStats.avgR2.toFixed(3) : '—', icon: Brain, color: 'emerald' },
-            { label: 'Avg AUC', value: modelStats?.avgAUC != null ? modelStats.avgAUC.toFixed(3) : '—', icon: Shield, color: 'amber' },
+            // Accents are whole class strings: Tailwind cannot see a class
+            // built at runtime, so the previous `bg-${color}-500/10` never
+            // generated any CSS and these icons rendered untinted.
+            { label: 'Assets Tracked', value: stats?.totalAssets ?? '—', icon: Building2, accent: 'bg-brand-soft text-brand' },
+            { label: 'Total Observations', value: stats?.totalObs?.toLocaleString() ?? '—', icon: BarChart3, accent: 'bg-ok-soft text-ok' },
+            { label: 'Avg Inflow', value: stats?.avgInflow ? fmtNumber(stats.avgInflow) : '—', icon: Droplets, accent: 'bg-brand-soft text-brand' },
+            { label: 'Data Sources', value: stats?.sources?.length ?? '—', icon: Activity, accent: 'bg-warn-soft text-warn' },
+            { label: 'Avg R²', value: modelStats?.avgR2 != null ? modelStats.avgR2.toFixed(3) : '—', icon: Brain, accent: 'bg-ok-soft text-ok' },
+            { label: 'Avg AUC', value: modelStats?.avgAUC != null ? modelStats.avgAUC.toFixed(3) : '—', icon: Shield, accent: 'bg-warn-soft text-warn' },
           ].map((kpi) => (
-            <div key={kpi.label} className="rounded-xl border border-line bg-surface p-4">
+            <div key={kpi.label} className="rounded-lg border border-line bg-surface p-4">
               <div className="flex items-center gap-2 mb-2">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center bg-${kpi.color}-500/10`}>
-                  <kpi.icon className={`w-3.5 h-3.5 text-${kpi.color}-400`} />
+                <div className={`flex h-7 w-7 items-center justify-center rounded ${kpi.accent}`}>
+                  <kpi.icon className="h-3.5 w-3.5" />
                 </div>
-                <span className="text-[11px] font-medium uppercase tracking-wider text-ink-subtle">{kpi.label}</span>
+                <span className="text-micro font-semibold uppercase text-ink-subtle">{kpi.label}</span>
               </div>
-              <div className="text-xl font-semibold text-ink">{kpi.value}</div>
+              <div className="font-mono text-xl font-semibold tabular-nums text-ink">{kpi.value}</div>
             </div>
           ))}
         </div>
@@ -396,8 +386,8 @@ export default function AnalystWorkspacePage() {
             <AssetCard key={asset.asset_id} asset={asset} />
           ))}
         </div>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   )
 }
 
