@@ -95,7 +95,7 @@ def _run_validation():
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/model-metadata", response_model=ModelMetadataResponse)
-async def get_model_metadata():
+def get_model_metadata():
     """Get consolidated model metadata for all trained models."""
     if MODEL_METADATA_PATH.exists():
         with open(MODEL_METADATA_PATH) as f:
@@ -136,7 +136,7 @@ async def get_model_metadata():
 
 
 @router.post("/train-all", response_model=TrainAllResponse)
-async def train_all(background_tasks: BackgroundTasks):
+def train_all(background_tasks: BackgroundTasks):
     """Trigger batch retrain for all assets (runs in background)."""
     background_tasks.add_task(_run_retrain)
     return TrainAllResponse(
@@ -147,7 +147,7 @@ async def train_all(background_tasks: BackgroundTasks):
 
 
 @router.post("/validate-all", response_model=ValidateAllResponse)
-async def validate_all(background_tasks: BackgroundTasks):
+def validate_all(background_tasks: BackgroundTasks):
     """Trigger batch validation for all models (runs in background)."""
     background_tasks.add_task(_run_validation)
     return ValidateAllResponse(
@@ -158,7 +158,7 @@ async def validate_all(background_tasks: BackgroundTasks):
 
 
 @router.get("/validation-reports")
-async def get_validation_reports(
+def get_validation_reports(
     asset_id: Optional[int] = Query(None, description="Filter by asset ID"),
     model_type: Optional[str] = Query(None, description="Filter by model type"),
     limit: int = Query(50, ge=1, le=200),
@@ -206,7 +206,7 @@ async def get_validation_reports(
 
 
 @router.get("/model-status")
-async def get_model_status():
+def get_model_status():
     """Get quick summary of all model files on disk."""
     model_dir = _BASE_DIR / "models" / "flood_xgb"
     classifier_dir = _BASE_DIR / "data" / "models"
@@ -246,7 +246,7 @@ async def get_model_status():
 # ─── Backfill Inflow ───────────────────────────────────────────────────────
 
 @router.post("/backfill-inflow")
-async def backfill_inflow(asset_id: Optional[int] = None, dry_run: bool = False):
+def backfill_inflow(asset_id: Optional[int] = None, dry_run: bool = False):
     """Estimate and fill missing inflow using physics-based methods."""
     import subprocess
     cmd = [
@@ -265,7 +265,7 @@ async def backfill_inflow(asset_id: Optional[int] = None, dry_run: bool = False)
 # ─── Run Predictions ───────────────────────────────────────────────────────
 
 @router.post("/run-predictions")
-async def run_predictions():
+def run_predictions():
     """Run prediction pipeline: predict → store → alert for all assets."""
     from infrastructure.thresholds.engine import run_prediction_pipeline
     result = run_prediction_pipeline()

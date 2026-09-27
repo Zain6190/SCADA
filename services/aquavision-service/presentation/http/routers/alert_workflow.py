@@ -219,7 +219,7 @@ def _require_board_role(actor: workflow.Actor) -> None:
 # ─── Queue ───────────────────────────────────────────────────────────────────
 
 @router.get("/alerts/queue", response_model=QueueOut)
-async def get_queue(
+def get_queue(
     scope: str = Query("auto", pattern="^(auto|my|team|all)$"),
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -317,7 +317,7 @@ async def get_queue(
 # ─── Timeline ────────────────────────────────────────────────────────────────
 
 @router.get("/alerts/{alert_id}/timeline", response_model=List[TimelineItem])
-async def get_timeline(
+def get_timeline(
     alert_id: int,
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -374,7 +374,7 @@ async def get_timeline(
 # ─── Escalations board ───────────────────────────────────────────────────────
 
 @router.get("/alerts/escalations", response_model=dict)
-async def get_escalations(
+def get_escalations(
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -422,7 +422,7 @@ async def get_escalations(
 # ─── KPIs ────────────────────────────────────────────────────────────────────
 
 @router.get("/alerts/kpis", response_model=dict)
-async def get_kpis(
+def get_kpis(
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
@@ -435,12 +435,12 @@ async def get_kpis(
 # ─── Templates / assignables ─────────────────────────────────────────────────
 
 @router.get("/alerts/instruction-templates", response_model=dict)
-async def get_instruction_templates(user: dict = Depends(get_current_user)):
+def get_instruction_templates(user: dict = Depends(get_current_user)):
     return INSTRUCTION_TEMPLATES
 
 
 @router.get("/workflow/assignables", response_model=List[AssignableOut])
-async def list_assignables(
+def list_assignables(
     role: str = Query("field_officer"),
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -471,7 +471,7 @@ async def list_assignables(
 # ─── Alert actions ───────────────────────────────────────────────────────────
 
 @router.post("/alerts/{alert_id}/assign", response_model=AlertMini)
-async def assign(
+def assign(
     alert_id: int,
     payload: AssignInput,
     user: dict = Depends(get_current_user),
@@ -490,7 +490,7 @@ async def assign(
 
 
 @router.post("/alerts/{alert_id}/instructions", response_model=InstructionOut)
-async def issue_instruction(
+def issue_instruction(
     alert_id: int,
     payload: IssueInstructionInput,
     user: dict = Depends(get_current_user),
@@ -527,7 +527,7 @@ def _load_instruction(instruction_id: int, session: Session) -> AlertInstruction
 
 
 @router.post("/instructions/{instruction_id}/accept", response_model=InstructionOut)
-async def accept(
+def accept(
     instruction_id: int,
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -539,7 +539,7 @@ async def accept(
 
 
 @router.post("/instructions/{instruction_id}/progress", response_model=InstructionOut)
-async def progress(
+def progress(
     instruction_id: int,
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -551,7 +551,7 @@ async def progress(
 
 
 @router.post("/instructions/{instruction_id}/report", response_model=InstructionOut)
-async def report(
+def report(
     instruction_id: int,
     payload: ReportInput,
     user: dict = Depends(get_current_user),
@@ -569,7 +569,7 @@ async def report(
 
 
 @router.post("/instructions/{instruction_id}/verify", response_model=InstructionOut)
-async def verify(
+def verify(
     instruction_id: int,
     payload: NoteInput,
     user: dict = Depends(get_current_user),
@@ -585,7 +585,7 @@ async def verify(
 
 
 @router.post("/instructions/{instruction_id}/reject", response_model=InstructionOut)
-async def reject(
+def reject(
     instruction_id: int,
     payload: NoteInput,
     user: dict = Depends(get_current_user),
@@ -600,7 +600,7 @@ async def reject(
 
 
 @router.post("/instructions/{instruction_id}/waive", response_model=InstructionOut)
-async def waive(
+def waive(
     instruction_id: int,
     payload: NoteInput,
     user: dict = Depends(get_current_user),
@@ -617,7 +617,7 @@ async def waive(
 # ─── Test notification (admin) ───────────────────────────────────────────────
 
 @router.post("/alerts/test", response_model=TestAlertOut)
-async def send_test_alert(
+def send_test_alert(
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):

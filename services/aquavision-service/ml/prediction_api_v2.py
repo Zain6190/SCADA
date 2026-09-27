@@ -116,7 +116,7 @@ class ForecastChartResponse(BaseModel):
 # ─── API Endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/v2/predict/{asset_id}", response_model=PredictionResponse)
-async def get_prediction(
+def get_prediction(
     asset_id: int,
     lead_times: str = Query("3,7,14", description="Comma-separated lead times"),
     session: Session = Depends(get_session),
@@ -169,7 +169,7 @@ async def get_prediction(
 
 
 @router.get("/v2/predict/{asset_id}/{lead_time}", response_model=LeadTimeResponse)
-async def get_single_lead_prediction(
+def get_single_lead_prediction(
     asset_id: int,
     lead_time: int,
     session: Session = Depends(get_session),
@@ -209,7 +209,7 @@ async def get_single_lead_prediction(
 
 
 @router.get("/v2/national-overview", response_model=NationalOverviewResponse)
-async def get_national_overview(
+def get_national_overview(
     session: Session = Depends(get_session),
 ):
     """National overview for NDMA dashboard.
@@ -287,7 +287,7 @@ async def get_national_overview(
 
 
 @router.get("/v2/asset/{asset_id}/forecast-chart", response_model=ForecastChartResponse)
-async def get_forecast_chart_data(
+def get_forecast_chart_data(
     asset_id: int,
     session: Session = Depends(get_session),
 ):

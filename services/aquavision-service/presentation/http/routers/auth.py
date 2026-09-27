@@ -117,7 +117,7 @@ def _user_payload(user: User, db) -> dict:
 
 @router.post("/login", response_model=LoginResponse)
 @limiter.limit("5/minute")
-async def login(request: Request, body: LoginRequest, db=Depends(get_session)):
+def login(request: Request, body: LoginRequest, db=Depends(get_session)):
     """Login against PostgreSQL, returns a JWT carrying the user id (sub).
 
     Accepts a full email or the email prefix ("admin" matches
@@ -165,7 +165,7 @@ async def login(request: Request, body: LoginRequest, db=Depends(get_session)):
 
 
 @router.get("/me")
-async def get_me(token: str = Depends(oauth2_scheme), db=Depends(get_session)):
+def get_me(token: str = Depends(oauth2_scheme), db=Depends(get_session)):
     """Current user info + permissions from roles (fresh from the DB)."""
     user_id = decode_user_id(token)
     user = db.get(User, user_id)
@@ -256,7 +256,7 @@ def _password_errors(password: str) -> List[str]:
 
 @router.post("/admin/users", response_model=dict, status_code=201)
 @limiter.limit("10/minute")
-async def create_user(
+def create_user(
     request: Request,
     payload: dict,
     admin: User = Depends(require_admin),
@@ -336,7 +336,7 @@ async def create_user(
 
 
 @router.get("/roles", response_model=List[dict])
-async def list_roles(admin: User = Depends(require_admin), db=Depends(get_session)):
+def list_roles(admin: User = Depends(require_admin), db=Depends(get_session)):
     """Roles with their permission names. Powers the admin's role dropdown and
     the live permission preview in the user-lifecycle form. Admin only."""
     rows = db.execute(
@@ -358,7 +358,7 @@ async def list_roles(admin: User = Depends(require_admin), db=Depends(get_sessio
 
 
 @router.get("/users", response_model=List[dict])
-async def list_users(admin: User = Depends(require_admin), db=Depends(get_session)):
+def list_users(admin: User = Depends(require_admin), db=Depends(get_session)):
     """List every user with roles, access status and geo scope. Admin only."""
     users = db.execute(
         select(User).order_by(User.created_at.desc())
@@ -385,7 +385,7 @@ def _user_after(user: User, db) -> dict:
 
 
 @router.patch("/users/{user_id}", response_model=dict)
-async def update_user(
+def update_user(
     user_id: int,
     patch: UserUpdateRequest,
     admin: User = Depends(require_admin),
@@ -491,7 +491,7 @@ def _assert_operator_in_team(actor: dict, user_id: int, db) -> None:
 
 
 @router.get("/operator-roles", response_model=List[dict])
-async def list_operator_roles(actor: dict = Depends(MANAGE_OPERATORS), db=Depends(get_session)):
+def list_operator_roles(actor: dict = Depends(MANAGE_OPERATORS), db=Depends(get_session)):
     """Delegable roles (with their permissions) for the supervisor form.
     Never exposes admin / supervisor / system roles."""
     names = sorted(_DELEGATED_ROLES)
@@ -515,7 +515,7 @@ async def list_operator_roles(actor: dict = Depends(MANAGE_OPERATORS), db=Depend
 
 @router.post("/operators", response_model=dict, status_code=201)
 @limiter.limit("10/minute")
-async def create_operator(
+def create_operator(
     request: Request,
     payload: dict,
     actor: dict = Depends(MANAGE_OPERATORS),
@@ -605,7 +605,7 @@ async def create_operator(
 
 
 @router.get("/operators", response_model=List[dict])
-async def list_operators(actor: dict = Depends(MANAGE_OPERATORS), db=Depends(get_session)):
+def list_operators(actor: dict = Depends(MANAGE_OPERATORS), db=Depends(get_session)):
     """The supervisor's team: delegated-role users whose scope overlaps the
     caller's own scope (or everyone, for a NATIONAL supervisor)."""
     users = db.execute(
@@ -621,7 +621,7 @@ async def list_operators(actor: dict = Depends(MANAGE_OPERATORS), db=Depends(get
 
 
 @router.patch("/operators/{user_id}", response_model=dict)
-async def update_operator(
+def update_operator(
     user_id: int,
     patch: OperatorUpdateRequest,
     actor: dict = Depends(MANAGE_OPERATORS),

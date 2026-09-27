@@ -21,7 +21,7 @@ def get_use_case(session: Session = Depends(get_session)) -> GetWaterMapDataUseC
 
 
 @router.get("/map-data", response_model=WaterMapResponse)
-async def get_map_data(
+def get_map_data(
     week: Optional[str] = Query(
         None,
         description="ISO week '2026-W30' or date '2026-07-27'. Defaults to latest week.",

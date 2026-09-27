@@ -18,7 +18,7 @@ def get_use_case(session: Session = Depends(get_session)) -> GetRegionsUseCase:
 
 
 @router.get("/regions", response_model=List[RegionResponse])
-async def list_regions(
+def list_regions(
     region_type: Optional[str] = Query(None, pattern="^(province|district|tehsil)$"),
     use_case: GetRegionsUseCase = Depends(get_use_case),
 ):

@@ -135,7 +135,7 @@ def _validate_api_key(api_key: Optional[str]) -> bool:
 # ─── Endpoints ─────────────────────────────────────────────────────────────
 
 @router.post("/ingest", response_model=SensorBatchResponse)
-async def ingest_sensor_readings(
+def ingest_sensor_readings(
     request: SensorBatchRequest,
     db: Session = Depends(get_session),
 ):
@@ -267,7 +267,7 @@ async def ingest_sensor_readings(
 
 
 @router.get("/assets")
-async def list_sensor_assets(db: Session = Depends(get_session)):
+def list_sensor_assets(db: Session = Depends(get_session)):
     """List all water assets that can receive sensor data."""
     assets = db.execute(
         select(WaterAsset).where(WaterAsset.is_active == True).order_by(WaterAsset.id)
@@ -288,7 +288,7 @@ async def list_sensor_assets(db: Session = Depends(get_session)):
 
 
 @router.get("/status")
-async def sensor_api_status(db: Session = Depends(get_session)):
+def sensor_api_status(db: Session = Depends(get_session)):
     """Get sensor ingestion status and per-authority statistics.
 
     Reports each sensor-class authority separately so a replay feed can never be

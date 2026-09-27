@@ -91,7 +91,10 @@ async def lifespan(app: FastAPI):
             try:
                 from infrastructure.ingestion.irsa_downloader import auto_ingest_irsa
                 logger.info("Background: Starting IRSA ingestion")
-                result = auto_ingest_irsa()
+                # Downloads a PDF and writes rows synchronously. Run it on a
+                # worker thread: on the event loop it froze every request for
+                # the whole ingestion (~40s against a network database).
+                result = await asyncio.to_thread(auto_ingest_irsa)
                 logger.info("Background: IRSA ingestion complete: %s", result)
             except Exception as e:
                 logger.warning("Background: IRSA ingestion failed: %s", e)
@@ -101,7 +104,7 @@ async def lifespan(app: FastAPI):
             try:
                 from infrastructure.ingestion.ffd_ingest import ingest_ffd_bulletin
                 logger.info("Background: Starting FFD ingestion")
-                result = ingest_ffd_bulletin()
+                result = await asyncio.to_thread(ingest_ffd_bulletin)
                 logger.info("Background: FFD ingestion complete: %s", result)
             except Exception as e:
                 logger.warning("Background: FFD ingestion failed: %s", e)
@@ -114,7 +117,9 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 from infrastructure.ot.persist import run_ot_tick
-                result = run_ot_tick(evaluate_thresholds=True)
+                # Same reason: this ticks every 15s and touches the database,
+                # so on the loop it stalled requests on a fixed cadence.
+                result = await asyncio.to_thread(run_ot_tick, evaluate_thresholds=True)
                 logger.info("Soft OT tick %s published=%s", result.get("ticks"), (result.get("publish") or {}).get("accepted"))
             except Exception as e:
                 logger.warning("Soft OT tick failed: %s", e)

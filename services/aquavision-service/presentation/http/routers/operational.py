@@ -229,7 +229,7 @@ def _build_alert_response(alert: WaterOperationalAlert, asset: WaterAsset = None
 # ─── ASSETS ─────────────────────────────────────────────────────────────────
 
 @router.get("/operational/assets", response_model=List[AssetResponse])
-async def list_assets(
+def list_assets(
     asset_type: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
@@ -358,7 +358,7 @@ async def list_assets(
 
 
 @router.get("/operational/assets/{asset_id}", response_model=AssetResponse)
-async def get_asset(
+def get_asset(
     asset_id: int,
     session: Session = Depends(get_session),
 ):
@@ -441,7 +441,7 @@ async def get_asset(
 
 
 @router.get("/operational/assets/{asset_id}/observations", response_model=List[ObservationResponse])
-async def get_observations(
+def get_observations(
     asset_id: int,
     days: int = Query(7, ge=1, le=90),
     session: Session = Depends(get_session),
@@ -481,7 +481,7 @@ async def get_observations(
 
 
 @router.get("/operational/assets/{asset_id}/readings")
-async def get_asset_readings(
+def get_asset_readings(
     asset_id: int,
     limit: int = Query(60, ge=1, le=500),
     session: Session = Depends(get_session),
@@ -514,13 +514,13 @@ async def get_asset_readings(
 
 
 @router.get("/operational/assets/{asset_id}/notes")
-async def get_asset_notes(asset_id: int):
+def get_asset_notes(asset_id: int):
     """Get operational notes for an asset (placeholder)."""
     return []
 
 
 @router.post("/operational/assets/{asset_id}/notes")
-async def create_asset_note(asset_id: int, note: dict = None):
+def create_asset_note(asset_id: int, note: dict = None):
     """Create an operational note for an asset (placeholder)."""
     return {"status": "created", "note": note}
 
@@ -528,7 +528,7 @@ async def create_asset_note(asset_id: int, note: dict = None):
 # ─── ALERTS ─────────────────────────────────────────────────────────────────
 
 @router.get("/operational/alerts", response_model=List[AlertResponse])
-async def list_alerts(
+def list_alerts(
     status: Optional[str] = None,
     severity: Optional[str] = None,
     asset_id: Optional[int] = None,
@@ -564,7 +564,7 @@ async def list_alerts(
 
 
 @router.post("/operational/alerts/{alert_id}/investigate", response_model=AlertResponse)
-async def investigate_alert(
+def investigate_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
     user: dict = Depends(get_current_user),
@@ -582,7 +582,7 @@ async def investigate_alert(
 
 
 @router.post("/operational/alerts/{alert_id}/escalate", response_model=AlertResponse)
-async def escalate_alert(
+def escalate_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
     user: dict = Depends(get_current_user),
@@ -600,7 +600,7 @@ async def escalate_alert(
 
 
 @router.post("/operational/alerts/{alert_id}/ack", response_model=AlertResponse)
-async def acknowledge_alert(
+def acknowledge_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
     user: dict = Depends(get_current_user),
@@ -618,7 +618,7 @@ async def acknowledge_alert(
 
 
 @router.post("/operational/alerts/{alert_id}/resolve", response_model=AlertResponse)
-async def resolve_alert(
+def resolve_alert(
     alert_id: int,
     payload: AlertActionInput = AlertActionInput(),
     user: dict = Depends(get_current_user),
@@ -642,7 +642,7 @@ async def resolve_alert(
 # ─── THRESHOLDS ─────────────────────────────────────────────────────────────
 
 @router.get("/operational/thresholds", response_model=List[ThresholdResponse])
-async def list_thresholds(
+def list_thresholds(
     session: Session = Depends(get_session),
 ):
     """List all asset threshold configurations."""
@@ -677,7 +677,7 @@ async def list_thresholds(
 
 
 @router.put("/operational/thresholds/{threshold_id}", response_model=ThresholdResponse)
-async def update_threshold(
+def update_threshold(
     threshold_id: int,
     payload: ThresholdUpdateInput,
     session: Session = Depends(get_session),
@@ -720,7 +720,7 @@ async def update_threshold(
 # ─── EVALUATE ───────────────────────────────────────────────────────────────
 
 @router.post("/operational/evaluate", response_model=EvaluateResponse)
-async def trigger_evaluation(
+def trigger_evaluation(
     session: Session = Depends(get_session),
 ):
     """Manually trigger threshold evaluation for all assets."""
@@ -782,7 +782,7 @@ class DownstreamImpactResponse(BaseModel):
 
 
 @router.get("/operational/impact/{asset_id}", response_model=DownstreamImpactResponse)
-async def get_downstream_impact(
+def get_downstream_impact(
     asset_id: int,
     session: Session = Depends(get_session),
 ):
@@ -948,7 +948,7 @@ class FFDIngestResponse(BaseModel):
 
 
 @router.get("/operational/ffd", response_model=List[FFDObservationResponse])
-async def list_ffd_observations(
+def list_ffd_observations(
     asset_id: Optional[int] = None,
     target_date: Optional[str] = None,
     session: Session = Depends(get_session),
@@ -990,7 +990,7 @@ async def list_ffd_observations(
 
 
 @router.post("/operational/ffd/ingest", response_model=FFDIngestResponse)
-async def trigger_ffd_ingest(
+def trigger_ffd_ingest(
     target_date: Optional[str] = None,
 ):
     """Trigger FFD/PMD bulletin ingestion."""
@@ -1029,7 +1029,7 @@ class FFDMarkerResponse(BaseModel):
 
 
 @router.get("/operational/ffd/markers", response_model=List[FFDMarkerResponse])
-async def get_ffd_markers(session: Session = Depends(get_session)):
+def get_ffd_markers(session: Session = Depends(get_session)):
     """Get latest FFD observations as map markers for the flood map layer."""
     from infrastructure.db.models import WaterFFDObservation, WaterAsset
 
@@ -1067,7 +1067,7 @@ async def get_ffd_markers(session: Session = Depends(get_session)):
 
 
 @router.post("/operational/irsa/ingest", response_model=IRSAIngestResponse)
-async def trigger_irsa_ingest(target_date: Optional[str] = None):
+def trigger_irsa_ingest(target_date: Optional[str] = None):
     """Trigger IRSA daily PDF ingestion. Downloads + parses + stores observations."""
     from infrastructure.ingestion.irsa_downloader import auto_ingest_irsa
     from datetime import date as date_type
@@ -1117,7 +1117,7 @@ class AssetWeeklySummary(BaseModel):
 
 
 @router.get("/operational/weekly-summary", response_model=List[AssetWeeklySummary])
-async def get_weekly_summary(
+def get_weekly_summary(
     weeks: int = Query(16, description="Number of weeks to look back"),
     asset_id: Optional[int] = Query(None, description="Filter to specific asset"),
     session: Session = Depends(get_session),

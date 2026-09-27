@@ -88,7 +88,7 @@ class AnomalyTrainResponse(BaseModel):
 
 
 @router.get("/ml/predictions/{asset_id}", response_model=List[PredictionResponse])
-async def get_predictions(
+def get_predictions(
     asset_id: int,
     horizons: str = Query("7,14,30", description="Comma-separated horizons"),
     session: Session = Depends(get_session),
@@ -192,7 +192,7 @@ async def get_predictions(
 
 
 @router.post("/ml/train", response_model=TrainResponse)
-async def trigger_training(
+def trigger_training(
     payload: TrainRequest = TrainRequest(),
 ):
     """Trigger model training."""
@@ -210,7 +210,7 @@ async def trigger_training(
 # ─── Anomaly Detection ──────────────────────────────────────────────────────
 
 @router.get("/ml/anomalies/{asset_id}", response_model=List[AnomalyResponse])
-async def get_anomalies(
+def get_anomalies(
     asset_id: int,
     top_n: int = Query(5, ge=1, le=20),
     session: Session = Depends(get_session),
@@ -248,7 +248,7 @@ async def get_anomalies(
 
 
 @router.post("/ml/anomalies/train", response_model=AnomalyTrainResponse)
-async def train_anomaly_detectors(session: Session = Depends(get_session)):
+def train_anomaly_detectors(session: Session = Depends(get_session)):
     """Train Isolation Forest anomaly detectors for all assets."""
     from ml.models.anomaly_detector import AnomalyDetector
 
@@ -275,7 +275,7 @@ class FloodClassificationResponse(BaseModel):
 
 
 @router.get("/ml/flood-classification/{asset_id}", response_model=FloodClassificationResponse)
-async def get_flood_classification(
+def get_flood_classification(
     asset_id: int,
     session: Session = Depends(get_session),
 ):
@@ -359,7 +359,7 @@ async def get_flood_classification(
 
 
 @router.post("/ml/flood-classification/train")
-async def train_flood_classifiers():
+def train_flood_classifiers():
     """Train flood classifiers for all assets with sufficient data."""
     from ml.models.flood_classifier import train_all_classifiers
 
@@ -402,7 +402,7 @@ class ModelPerformance(BaseModel):
 
 
 @router.get("/ml/model-performance", response_model=List[ModelPerformance])
-async def get_model_performance():
+def get_model_performance():
     """Read model performance from the single canonical metadata file."""
     import json
     from pathlib import Path

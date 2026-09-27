@@ -18,7 +18,7 @@ def get_use_case(session: Session = Depends(get_session)) -> GetWaterPredictions
 
 
 @router.get("/predictions", response_model=List[WaterPredictionResponse])
-async def list_predictions(
+def list_predictions(
     region_id: Optional[int] = None,
     use_case: GetWaterPredictionsUseCase = Depends(get_use_case),
 ):
