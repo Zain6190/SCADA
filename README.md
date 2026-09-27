@@ -31,10 +31,58 @@ docker compose up -d --build
 Real credentials live only in the gitignored `.env` — share that file with
 teammates directly (the repo is public; `.env.example` keeps placeholders).
 
-For a local (non-Docker) backend + frontend loop:
+### Running it yourself, without Docker
+
+Neon is the database, so nothing needs Docker unless `DATABASE_URL` points at
+localhost. `start-all.bat` reads the root `.env`, starts the backend and the
+dashboard, and skips the container when the URL is a Neon one:
+
 ```bash
 start-all.bat
 ```
+
+**One-time setup** (only needed on a fresh clone, or after `requirements.txt`
+or `package.json` change):
+
+```bash
+python -m venv services\aquavision-service\.venv
+services\aquavision-service\.venv\Scripts\python -m pip install -r services\aquavision-service\requirements.txt
+cd packages\dashboard && npm install
+```
+
+Copy `.env.example` to `.env` at the repo root and paste the Neon connection
+string. Also drop a copy at `services\aquavision-service\.env` — the backend
+loads its settings relative to its own folder, so a root-only `.env` is not
+picked up when you start uvicorn by hand.
+
+**Starting the two services** — one terminal each, and leave them running:
+
+```bash
+cd services\aquavision-service
+.venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8100
+```
+
+```bash
+cd packages\dashboard
+npm run dev
+```
+
+Then open http://localhost:3000 and sign in as `admin` / `admin123` — it is a
+**username**, not an email.
+
+**Stopping:** Ctrl-C in each terminal. Do stop the backend when you finish for
+the day: its keepalive holds the Neon compute awake, and the free tier budgets
+100 CU-hours a month (≈400 hours at 0.25 CU). Set `DB_KEEPALIVE=false` if you
+need to leave it running and can accept a slow first request after idle.
+
+**If something looks wrong**
+
+| Symptom | Cause |
+|---|---|
+| `[Errno 10048] ... bind on address ... 8100` | An older backend is still running. Stop it, or use another port. |
+| First request hangs ~60s, then everything is fine | Neon was auto-suspended and is waking. Normal after a long idle. |
+| `DATABASE_URL not found` | No `.env` at the repo root, or the line is commented out. |
+| Dashboard loads but every panel errors | The backend is not running, or is on a port other than 8100. |
 
 ## Data Sources
 
