@@ -163,6 +163,26 @@ export function pathIsActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + '/')
 }
 
+/**
+ * The single nav item that should read as current.
+ *
+ * Matching on prefix alone lights up every ancestor: /water/analyst matched
+ * both "Overview" (/water) and "Analyst", and /water/operator/assets matched
+ * "Operations" as well as "Assets". The most specific match is the real
+ * location, so the longest matching href wins — and a page with no nav entry
+ * of its own still highlights its closest parent.
+ */
+export function activeNavHref(pathname: string): string | undefined {
+  let best: string | undefined
+  for (const section of NAV_SECTIONS) {
+    for (const item of section.items) {
+      if (!pathIsActive(pathname, item.href)) continue
+      if (best === undefined || item.href.length > best.length) best = item.href
+    }
+  }
+  return best
+}
+
 export function findSectionForPath(pathname: string): NavSection | undefined {
   if (pathname === '/portal') return NAV_SECTIONS[0]
   return NAV_SECTIONS.find((section) =>

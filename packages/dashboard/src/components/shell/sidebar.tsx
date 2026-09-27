@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   NAV_SECTIONS,
   sectionsForPortal,
-  pathIsActive,
+  activeNavHref,
   moduleForPath,
   type NavSectionId,
 } from '@/lib/navigation'
@@ -88,6 +88,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth()
   const pathname = usePathname()
 
+  const currentHref = activeNavHref(pathname)
   const allowed = modulesForUser(user)
   const portalSections = sectionsForPortal(pathname).filter((section) =>
     allowed.includes(section.id)
@@ -137,7 +138,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                           href={item.href}
                           label={item.label}
                           icon={item.icon}
-                          active={pathIsActive(pathname, item.href)}
+                          active={item.href === currentHref}
                           onNavigate={onNavigate}
                         />
                       ))}
@@ -152,7 +153,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                       href={item.href}
                       label={item.label}
                       icon={item.icon}
-                      active={pathIsActive(pathname, item.href)}
+                      active={item.href === currentHref}
                       onNavigate={onNavigate}
                     />
                   ))}
