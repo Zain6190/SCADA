@@ -144,18 +144,23 @@ async def lifespan(app: FastAPI):
                 conn.execute(text("SELECT 1"))
 
         while True:
-            await asyncio.sleep(120)
+            await asyncio.sleep(settings.DB_KEEPALIVE_SECONDS)
             try:
                 await asyncio.to_thread(_ping)
             except Exception as exc:  # pragma: no cover - diagnostics only
                 logger.warning("DB keepalive failed: %s", exc)
 
-    keepalive_task = asyncio.create_task(keep_db_awake())
-    logger.info("DB keepalive started (SELECT 1 every 120s)")
+    keepalive_task = None
+    if settings.DB_KEEPALIVE:
+        keepalive_task = asyncio.create_task(keep_db_awake())
+        logger.info("DB keepalive started (SELECT 1 every %ss)", settings.DB_KEEPALIVE_SECONDS)
+    else:
+        logger.info("DB keepalive disabled (DB_KEEPALIVE=false); the compute may auto-suspend")
 
     yield
 
-    keepalive_task.cancel()
+    if keepalive_task is not None:
+        keepalive_task.cancel()
     ingestion_task.cancel()
     ot_task.cancel()
     db_session.close()

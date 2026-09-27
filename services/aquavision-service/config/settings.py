@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
     DB_ECHO: bool = False
 
+    # Ping the database every DB_KEEPALIVE_SECONDS so a serverless Postgres
+    # (Neon) never auto-suspends underneath us — waking a suspended compute
+    # costs ~65s, paid by whoever opens the dashboard first.
+    # Set DB_KEEPALIVE=false where the compute should be allowed to sleep,
+    # e.g. a host left running 24/7 on a metered free tier.
+    DB_KEEPALIVE: bool = True
+    DB_KEEPALIVE_SECONDS: int = 120
+
     # Schemas
     AQUAVISION_SCHEMA: str = "aquavision"
     SHARED_SCHEMA: str = "shared"
