@@ -9,6 +9,7 @@ import {
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, EmptyState } from '@/components/ui/state'
 import { TimelinePanel } from '@/components/ui/timeline'
@@ -108,12 +109,9 @@ export default function MyTasksPage() {
           icon={<ClipboardList className="h-6 w-6" />}
           accent="bg-brand-soft text-brand"
           action={
-            <button
-              onClick={load}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-line-strong bg-surface-alt px-4 py-2 text-sm text-ink-muted transition-colors hover:border-brand/25 hover:text-brand"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-            </button>
+            <Button variant="secondary" size="sm" onClick={load} loading={loading}>
+              {!loading && <RefreshCw className="h-3.5 w-3.5" />} Refresh
+            </Button>
           }
           badge={counts && counts.badge > 0 ? <Badge tone="red">{counts.badge} open</Badge> : undefined}
         />
@@ -207,19 +205,17 @@ export default function MyTasksPage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-2">
-                        <button
+                        <Button
+                          variant="primary"
+                          size="sm"
                           onClick={() => run(alert.id, () => waterApi.ackOperationalAlert(alert.id, user?.username || 'Operator'))}
-                          disabled={busyId === alert.id}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-2 text-xs font-medium text-brand transition hover:bg-brand-soft disabled:opacity-50"
+                          loading={busyId === alert.id}
                         >
                           <CheckCircle2 className="h-3.5 w-3.5" /> Acknowledge
-                        </button>
-                        <button
-                          onClick={() => openTimeline(alert.id)}
-                          className="rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-ink-muted transition hover:border-brand/25 hover:text-brand"
-                        >
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => openTimeline(alert.id)}>
                           Timeline
-                        </button>
+                        </Button>
                       </div>
                     </div>
                     {timelineFor === alert.id && <TimelinePanel loading={timelineLoading} items={timeline} />}
@@ -308,35 +304,23 @@ function TaskCard({
 
           <div className="flex shrink-0 flex-wrap gap-2">
             {(instr.status === 'ISSUED' || instr.status === 'OVERDUE') && (
-              <button
-                onClick={onAccept} disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-2 text-xs font-medium text-brand transition disabled:opacity-50"
-              >
+              <Button variant="primary" size="sm" onClick={onAccept} disabled={busy}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> Accept
-              </button>
+              </Button>
             )}
             {instr.status === 'ACCEPTED' && (
-              <button
-                onClick={onStart} disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-warn/25 bg-warn-soft px-3 py-2 text-xs font-medium text-warn transition disabled:opacity-50"
-              >
+              <Button variant="primary" size="sm" onClick={onStart} disabled={busy}>
                 <PlayCircle className="h-3.5 w-3.5" /> Start work
-              </button>
+              </Button>
             )}
             {['ACCEPTED', 'IN_PROGRESS', 'OVERDUE'].includes(instr.status) && (
-              <button
-                onClick={() => setShowReport(v => !v)} disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-xs font-medium text-ok transition disabled:opacity-50"
-              >
+              <Button variant="secondary" size="sm" onClick={() => setShowReport(v => !v)} disabled={busy}>
                 <Send className="h-3.5 w-3.5" /> Submit report
-              </button>
+              </Button>
             )}
-            <button
-              onClick={onTimeline}
-              className="rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-ink-muted transition hover:border-brand/25 hover:text-brand"
-            >
+            <Button variant="ghost" size="sm" onClick={onTimeline}>
               Timeline
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -398,18 +382,12 @@ function TaskCard({
             ))}
             {formError && <p className="text-xs text-crit">{formError}</p>}
             <div className="flex gap-2">
-              <button
-                onClick={submitReport} disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-              >
-                <Send className="h-4 w-4" /> Submit report
-              </button>
-              <button
-                onClick={() => setShowReport(false)}
-                className="rounded-lg border border-line-strong px-4 py-2 text-sm text-ink-muted transition hover:text-ink"
-              >
+              <Button variant="primary" onClick={submitReport} loading={busy}>
+                {!busy && <Send className="h-4 w-4" />} Submit report
+              </Button>
+              <Button variant="ghost" onClick={() => setShowReport(false)}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -426,16 +404,16 @@ function TaskCard({
                 className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand/25 focus:outline-none"
               />
             </div>
-            <button
+            <Button
+              variant="primary"
               onClick={() => {
                 if (verifyNote.trim().length < 3) { setFormError('Verification note required'); return }
                 setFormError(null); onVerify(verifyNote.trim())
               }}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-ok px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+              loading={busy}
             >
-              <ShieldCheck className="h-4 w-4" /> Verify
-            </button>
+              {!busy && <ShieldCheck className="h-4 w-4" />} Verify
+            </Button>
           </div>
         )}
         {formError && !showReport && <p className="text-xs text-crit">{formError}</p>}
@@ -494,17 +472,18 @@ function VerifyCard({
               className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand/25 focus:outline-none"
             />
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="danger"
+                size="sm"
                 onClick={() => {
                   if (note.trim().length < 3) { setErr('Reason required (min 3 chars)'); return }
                   setErr(null); setRejecting(false); onReject(note.trim())
                 }}
                 disabled={busy}
-                className="rounded-lg border border-crit/25 bg-crit-soft px-3 py-2 text-xs font-medium text-crit disabled:opacity-50"
               >
                 Confirm reject
-              </button>
-              <button onClick={() => { setRejecting(false); setErr(null) }} className="px-3 py-2 text-xs text-ink-muted">Cancel</button>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setRejecting(false); setErr(null) }}>Cancel</Button>
             </div>
           </div>
         ) : (
@@ -517,29 +496,22 @@ function VerifyCard({
                 className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand/25 focus:outline-none"
               />
             </div>
-            <button
+            <Button
+              variant="primary"
               onClick={() => {
                 if (note.trim().length < 3) { setErr('Verification note required (min 3 chars)'); return }
                 setErr(null); onVerify(note.trim())
               }}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-ok px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+              loading={busy}
             >
-              <ShieldCheck className="h-4 w-4" /> Verify
-            </button>
-            <button
-              onClick={() => { setRejecting(true); setErr(null) }}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-crit/25 bg-crit-soft px-4 py-2 text-sm font-medium text-crit transition disabled:opacity-50"
-            >
+              {!busy && <ShieldCheck className="h-4 w-4" />} Verify
+            </Button>
+            <Button variant="danger" onClick={() => { setRejecting(true); setErr(null) }} disabled={busy}>
               <XCircle className="h-4 w-4" /> Reject
-            </button>
-            <button
-              onClick={onTimeline}
-              className="rounded-lg border border-line-strong px-4 py-2 text-sm text-ink-muted transition hover:border-brand/25 hover:text-brand"
-            >
+            </Button>
+            <Button variant="ghost" onClick={onTimeline}>
               Timeline
-            </button>
+            </Button>
           </div>
         )}
       </div>
