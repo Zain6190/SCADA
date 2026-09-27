@@ -18,7 +18,10 @@ class GetWaterOverviewUseCase:
         self._alerts = alert_repo
 
     def execute(self) -> WaterOverviewResponse:
-        latest_week = self._indicators.get_latest_week()
+        # One round trip for the latest week's rows; the week itself comes
+        # back on the rows, so there is no separate max() query.
+        rows = self._indicators.list_latest_week()
+        latest_week = rows[0].week_start_date if rows else None
         if latest_week is None:
             return WaterOverviewResponse(
                 week_start_date=None,
@@ -29,7 +32,6 @@ class GetWaterOverviewUseCase:
                 national_status="Unknown",
             )
 
-        rows = self._indicators.list_by_week(latest_week)
         indicators = [
             WaterIndicatorWeekly(
                 region_id=r.region_id,

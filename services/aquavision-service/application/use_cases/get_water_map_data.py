@@ -40,11 +40,13 @@ class GetWaterMapDataUseCase:
         if week:
             week_date = parse_week_label(week)
             week_label = week
+            rows = self._indicators.list_by_week(week_date) if week_date else []
         else:
-            week_date = self._indicators.get_latest_week()
+            # Latest week resolved server-side, so this is one round trip
+            # rather than a max() followed by a fetch.
+            rows = self._indicators.list_latest_week()
+            week_date = rows[0].week_start_date if rows else None
             week_label = week_date.isoformat() if week_date else None
-
-        rows = self._indicators.list_by_week(week_date) if week_date else []
         by_region = {r.region_id: r for r in rows}
 
         geometry = self._regions.geometry_map(region_type=region_type)
