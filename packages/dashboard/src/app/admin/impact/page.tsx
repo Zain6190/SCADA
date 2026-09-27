@@ -5,6 +5,9 @@ import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/ui/kpi";
 import { MapPin, Clock, Users, Building2, RefreshCw, Calculator } from "lucide-react";
+import { AppShell } from "@/components/shell/app-shell";
+import { PageHeader } from "@/components/ui/page-header";
+import { Spinner } from "@/components/ui/state";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8100";
 
@@ -109,22 +112,20 @@ export default function ImpactPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="h-6 w-6 text-brand animate-spin" />
-      </div>
+      <AppShell>
+        <Spinner label="Loading assets" />
+      </AppShell>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Downstream Impact Calculator</h1>
-          <p className="text-sm text-ink-muted mt-1">
-            Estimate when a flood condition may move downstream and what could be exposed
-          </p>
-        </div>
-      </div>
+    <AppShell>
+    <div className="space-y-5">
+      <PageHeader
+        title="Downstream Impact Calculator"
+        description="Estimate when a flood condition may move downstream and what could be exposed."
+        icon={<Calculator className="h-6 w-6" />}
+      />
 
       <Card>
         <CardHeader title="Calculate Impact" icon={<Calculator className="h-5 w-5 text-brand" />} />
@@ -297,5 +298,6 @@ export default function ImpactPage() {
         </>
       )}
     </div>
+    </AppShell>
   );
 }

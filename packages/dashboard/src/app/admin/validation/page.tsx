@@ -5,6 +5,10 @@ import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/ui/kpi";
 import { BarChart3, AlertTriangle, CheckCircle, XCircle, Info, RefreshCw } from "lucide-react";
+import { AppShell } from "@/components/shell/app-shell";
+import { PageHeader } from "@/components/ui/page-header";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/state";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8100";
 
@@ -107,31 +111,26 @@ export default function ValidationPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 text-ink-muted">
-        Loading validation reports...
-      </div>
+      <AppShell>
+        <Spinner label="Loading validation reports" />
+      </AppShell>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-ink">ML Validation Reports</h1>
-          <p className="text-sm text-ink-subtle mt-1">
-            Walk-forward backtesting results for all assets
-          </p>
-        </div>
-        <button
-          onClick={runValidation}
-          disabled={running}
-          className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${running ? "animate-spin" : ""}`} />
-          {running ? "Running..." : "Re-run Validation"}
-        </button>
-      </div>
+    <AppShell>
+    <div className="space-y-5">
+      <PageHeader
+        title="ML Validation Reports"
+        description="Walk-forward backtesting results for all assets."
+        icon={<BarChart3 className="h-6 w-6" />}
+        action={
+          <Button variant="primary" size="sm" onClick={runValidation} loading={running}>
+            {!running && <RefreshCw className="h-3.5 w-3.5" />}
+            {running ? "Running…" : "Re-run Validation"}
+          </Button>
+        }
+      />
 
       {/* Status Banner */}
       <div className={`rounded-lg border p-4 ${
@@ -326,5 +325,6 @@ export default function ValidationPage() {
         </CardBody>
       </Card>
     </div>
+    </AppShell>
   );
 }
