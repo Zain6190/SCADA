@@ -3,8 +3,10 @@
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, Activity, TrendingUp, TrendingDown, Droplets, RefreshCw } from 'lucide-react'
+import { Activity, TrendingUp, TrendingDown, Droplets, RefreshCw } from 'lucide-react'
+import { AppShell } from '@/components/shell/app-shell'
+import { PageHeader } from '@/components/ui/page-header'
+import { Button } from '@/components/ui/button'
 import { useQuery } from '@tanstack/react-query'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
@@ -260,31 +262,18 @@ export default function IndicatorsPage() {
   }, [regions])
 
   return (
-    <div className="min-h-screen bg-canvas text-ink">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(56,189,248,0.04),_transparent_40%),radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.03),_transparent_35%)]" />
-
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 border-b border-line bg-canvas backdrop-blur">
-        <div className="mx-auto max-w-screen-2xl px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/water" className="p-1.5 rounded-lg hover:bg-surface-alt transition-colors">
-              <ArrowLeft className="w-4 h-4 text-ink-muted" />
-            </Link>
-            <div>
-              <h1 className="text-sm font-semibold text-ink">Indicators</h1>
-              <p className="text-[11px] text-ink-subtle">Regional flow summaries from real observation data</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => refetch()} disabled={isFetching}
-              className="p-1.5 rounded-lg hover:bg-surface-alt transition-colors disabled:opacity-40">
-              <RefreshCw className={`w-4 h-4 text-ink-muted ${isFetching ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-screen-2xl px-6 py-6 space-y-6">
+    <AppShell>
+      <div className="space-y-5">
+        <PageHeader
+          title="Indicators"
+          description="Regional flow summaries from real observation data."
+          icon={<Activity className="h-6 w-6" />}
+          action={
+            <Button variant="ghost" size="sm" onClick={() => refetch()} loading={isFetching}>
+              {!isFetching && <RefreshCw className="h-3.5 w-3.5" />} Refresh
+            </Button>
+          }
+        />
         {/* WAI Summary */}
         <WAISummarySection />
 
@@ -412,7 +401,7 @@ export default function IndicatorsPage() {
             </div>
           )
         })}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   )
 }
