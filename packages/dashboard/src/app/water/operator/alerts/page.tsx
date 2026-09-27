@@ -5,6 +5,7 @@ import { Bell, CheckCircle2, Search, ShieldAlert, ArrowUpCircle, CheckCircle, Cl
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card } from '@/components/ui/card'
+import { Button, IconButton } from '@/components/ui/button'
 import { SeverityBadge, Badge } from '@/components/ui/badge'
 import { Spinner, EmptyState } from '@/components/ui/state'
 import { TimelinePanel } from '@/components/ui/timeline'
@@ -114,9 +115,9 @@ export default function OperatorAlertsPage() {
           icon={<Bell className="h-6 w-6" />}
           accent="bg-crit-soft text-crit"
           action={
-            <button onClick={loadAlerts} className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2 text-sm text-ink-muted transition-colors hover:border-brand/25 hover:text-brand">
+            <Button variant="secondary" size="sm" onClick={loadAlerts}>
               Refresh
-            </button>
+            </Button>
           }
         />
 
@@ -271,33 +272,37 @@ export default function OperatorAlertsPage() {
 
                             <div className="flex flex-wrap gap-2 justify-end">
                               {alert.status === 'NEW' && (
-                                <button onClick={() => handleAck(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
+                                <Button variant="primary" size="sm" onClick={() => handleAck(alert.id)}>
                                   <CheckCircle2 className="h-3.5 w-3.5" /> Acknowledge
-                                </button>
+                                </Button>
                               )}
                               {alert.status === 'ACKNOWLEDGED' && (
-                                <button onClick={() => handleInvestigate(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-warn/25 bg-warn-soft px-3 py-1.5 text-xs font-medium text-warn transition-colors hover:bg-warn-soft">
+                                <Button variant="primary" size="sm" onClick={() => handleInvestigate(alert.id)}>
                                   <Search className="h-3.5 w-3.5" /> Investigate
-                                </button>
+                                </Button>
                               )}
                               {canEscalate && ['NEW', 'ACKNOWLEDGED', 'INVESTIGATING'].includes(alert.status) && (
-                                <button onClick={() => handleEscalate(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
+                                <Button variant="secondary" size="sm" onClick={() => handleEscalate(alert.id)}>
                                   <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
-                                </button>
+                                </Button>
                               )}
                               {(alert.status === 'NEW' || alert.status === 'ACKNOWLEDGED' || alert.status === 'INVESTIGATING' || alert.status === 'ESCALATED') && (
-                                <button onClick={() => handleResolve(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-ok/25 bg-ok-soft px-3 py-1.5 text-xs font-medium text-ok transition-colors hover:bg-ok-soft">
+                                <Button
+                                  variant={alert.status === 'ESCALATED' ? 'primary' : 'secondary'}
+                                  size="sm"
+                                  onClick={() => handleResolve(alert.id)}
+                                >
                                   <CheckCircle className="h-3.5 w-3.5" /> Resolve
-                                </button>
+                                </Button>
                               )}
                               {canIssue && (alert.status === 'NEW' || alert.status === 'ACKNOWLEDGED' || alert.status === 'INVESTIGATING' || alert.status === 'ESCALATED') && (
-                                <button onClick={() => setIssueFor(alert)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-surface-alt px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
+                                <Button variant="secondary" size="sm" onClick={() => setIssueFor(alert)}>
                                   <ClipboardList className="h-3.5 w-3.5" /> Issue
-                                </button>
+                                </Button>
                               )}
-                              <button onClick={() => openTimeline(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-brand/25 hover:text-brand">
+                              <Button variant="ghost" size="sm" onClick={() => openTimeline(alert.id)}>
                                 <History className="h-3.5 w-3.5" /> Timeline
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         </div>
@@ -388,9 +393,9 @@ function IssueModal({
               Alert #{alert.id} · {alert.asset_name || `Asset ${alert.asset_id}`} · {alert.alert_type}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink" aria-label="Close">
+          <IconButton label="Close" variant="ghost" size="sm" onClick={onClose}>
             <X className="h-4 w-4" />
-          </button>
+          </IconButton>
         </div>
 
         <div className="space-y-3">
@@ -451,18 +456,13 @@ function IssueModal({
           {err && <p className="text-xs text-crit">{err}</p>}
 
           <div className="flex gap-2 pt-1">
-            <button
-              onClick={submit} disabled={busy}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-            >
-              <ClipboardList className="h-4 w-4" /> {busy ? 'Issuing…' : 'Issue instruction'}
-            </button>
-            <button
-              onClick={onClose}
-              className="rounded-xl border border-line-strong px-4 py-2.5 text-sm text-ink-muted transition hover:text-ink"
-            >
+            <Button variant="primary" className="flex-1" onClick={submit} loading={busy}>
+              {!busy && <ClipboardList className="h-4 w-4" />}
+              {busy ? 'Issuing…' : 'Issue instruction'}
+            </Button>
+            <Button variant="ghost" onClick={onClose}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </div>
