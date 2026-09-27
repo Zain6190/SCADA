@@ -19,6 +19,6 @@ def get_use_case(session: Session = Depends(get_session)) -> GetWaterOverviewUse
 
 
 @router.get("/overview", response_model=WaterOverviewResponse)
-async def get_overview(use_case: GetWaterOverviewUseCase = Depends(get_use_case)):
+def get_overview(use_case: GetWaterOverviewUseCase = Depends(get_use_case)):
     """Aggregate the latest week's indicators into national KPIs."""
     return use_case.execute()

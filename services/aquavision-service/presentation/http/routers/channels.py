@@ -34,7 +34,7 @@ MAX_FEATURES = 5000
 
 
 @router.get("/channels")
-async def get_channels(
+def get_channels(
     channel_type: Optional[str] = Query(
         None, pattern="^(river|canal|link_canal)$",
         description="Filter by channel type."),
@@ -152,7 +152,7 @@ async def get_channels(
 
 
 @router.get("/channels/summary")
-async def get_channel_summary(
+def get_channel_summary(
     week: Optional[str] = Query(None, description="Week to summarise (YYYY-MM-DD)."),
     db: Session = Depends(get_session),
 ):

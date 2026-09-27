@@ -187,6 +187,6 @@ def _apply_process_view(session: Session, payload: dict, thresholds: dict) -> di
 
 
 @router.get("/flood-map/territory")
-async def get_flood_territory(session: Session = Depends(get_session)):
+def get_flood_territory(session: Session = Depends(get_session)):
     """GeoJSON districts colored by flood prediction, with region alerts."""
     return load_flood_territory(session)

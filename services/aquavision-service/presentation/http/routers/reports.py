@@ -27,14 +27,14 @@ def get_generate_use_case(session: Session = Depends(get_session)) -> GenerateWa
 
 
 @router.get("/reports/ot-section")
-async def ot_report(session: Session = Depends(get_session)):
+def ot_report(session: Session = Depends(get_session)):
     """Soft OT weekly section: mode, official date, interlocks, scenario divergence."""
     from infrastructure.ot.persist import get_runtime, ot_report_section
     return ot_report_section(get_runtime(db=session))
 
 
 @router.get("/reports", response_model=List[WaterReportResponse])
-async def list_reports(
+def list_reports(
     scope: Optional[str] = Query(None, pattern="^(National|Province|District)$"),
     use_case: ListWaterReportsUseCase = Depends(get_list_use_case),
 ):
@@ -43,7 +43,7 @@ async def list_reports(
 
 
 @router.post("/reports/generate", response_model=WaterReportResponse, status_code=201)
-async def generate_report(
+def generate_report(
     payload: ReportGenerateInput,
     use_case: GenerateWaterReportUseCase = Depends(get_generate_use_case),
 ):

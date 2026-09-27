@@ -24,7 +24,7 @@ def get_ingest_use_case(session: Session = Depends(get_session)) -> UpsertWaterI
 
 
 @router.get("/indicators", response_model=List[WaterIndicatorResponse])
-async def list_indicators(
+def list_indicators(
     region_id: Optional[int] = None,
     severity: Optional[str] = Query(None, pattern="^(Normal|Moderate|Stressed|Critical|Severe)$"),
     week_start_date: Optional[date] = None,
@@ -42,7 +42,7 @@ async def list_indicators(
     response_model=WaterIndicatorResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def ingest_indicator(
+def ingest_indicator(
     payload: WaterIndicatorCreate,
     use_case: UpsertWaterIndicatorUseCase = Depends(get_ingest_use_case),
 ):

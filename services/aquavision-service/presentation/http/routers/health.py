@@ -15,13 +15,13 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/health/live")
-async def liveness():
+def liveness():
     """Liveness probe - checks only that the process is running."""
     return {"status": "alive"}
 
 
 @router.get("/health/ready")
-async def readiness(session: Session = Depends(get_session)):
+def readiness(session: Session = Depends(get_session)):
     """Readiness probe - checks database connectivity and migration state."""
     db_ok = False
     migrations_ok = False
@@ -51,7 +51,7 @@ async def readiness(session: Session = Depends(get_session)):
 
 
 @router.get("/api/v1/admin/pipeline-health")
-async def pipeline_health(session: Session = Depends(get_session)):
+def pipeline_health(session: Session = Depends(get_session)):
     """Pipeline health endpoint - shows last runs and scheduler status."""
     try:
         from infrastructure.db.models import PipelineRun, SchedulerHeartbeat
