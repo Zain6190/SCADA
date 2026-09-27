@@ -23,6 +23,7 @@ export default function FloodMapPage() {
     ffdMarkers,
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
     setSelectedDistrict, newestObservedAt,
+    scenarioBusy, scenarioMessage, runScenarioFault,
   } = useFloodMapState()
 
   return (
@@ -113,6 +114,11 @@ export default function FloodMapPage() {
                 impactReason={impactReason}
                 calculating={calculating}
                 onClearSelection={() => setSelectedAsset(null)}
+                assets={assets}
+                territories={territories}
+                scenarioBusy={scenarioBusy}
+                scenarioMessage={scenarioMessage}
+                onRunScenario={runScenarioFault}
               />
             </div>
           </div>
@@ -158,6 +164,11 @@ export default function FloodMapPage() {
                   impactReason={impactReason}
                   calculating={calculating}
                   onClearSelection={() => { setSelectedAsset(null); setMobileSidebarOpen(false) }}
+                  assets={assets}
+                  territories={territories}
+                  scenarioBusy={scenarioBusy}
+                  scenarioMessage={scenarioMessage}
+                  onRunScenario={runScenarioFault}
                 />
               </div>
             </div>

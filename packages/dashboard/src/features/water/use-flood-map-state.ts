@@ -2,7 +2,8 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { waterApi } from './api'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8100'
 
@@ -134,9 +135,18 @@ interface FloodMapOverview {
   assets: AssetReading[]
   ffdMarkers: any[]
   floodClassifications: Record<number, { probability: number; severity: string; recommendation: string }>
+  degraded: string[]
+}
+
+interface TerritoryPayload {
   territories: FloodTerritoryFeature[]
   regionAlerts: RegionAlert[]
   degraded: string[]
+}
+
+export interface ScenarioMessage {
+  tone: 'ok' | 'err'
+  text: string
 }
 
 const RIVER_NAMES = ['Indus', 'Jhelum', 'Kabul', 'Chenab', 'Panjnad']
@@ -175,12 +185,11 @@ function mapAssetReading(raw: any): AssetReading {
 }
 
 async function fetchOverview(): Promise<FloodMapOverview> {
-  const [impRes, alertRes, assetsRes, ffdRes, territoryRes] = await Promise.all([
+  const [impRes, alertRes, assetsRes, ffdRes] = await Promise.all([
     fetch(`${API_BASE}/water/impact/precalculated`),
     fetch(`${API_BASE}/water/operational/alerts?status=NEW`),
     fetch(`${API_BASE}/water/operational/assets`),
     fetch(`${API_BASE}/water/operational/ffd/markers`),
-    fetch(`${API_BASE}/water/flood-map/territory`),
   ])
 
   const degraded: string[] = []
@@ -188,7 +197,6 @@ async function fetchOverview(): Promise<FloodMapOverview> {
   if (!alertRes.ok) degraded.push('alerts')
   if (!assetsRes.ok) degraded.push('assets')
   if (!ffdRes.ok) degraded.push('ffd')
-  if (!territoryRes.ok) degraded.push('territory')
 
   const rawAssets = assetsRes.ok ? await assetsRes.json() : []
   const assets: AssetReading[] = (Array.isArray(rawAssets) ? rawAssets : []).map(mapAssetReading)
@@ -252,14 +260,6 @@ async function fetchOverview(): Promise<FloodMapOverview> {
     }
   }
 
-  let territories: FloodTerritoryFeature[] = []
-  let regionAlerts: RegionAlert[] = []
-  if (territoryRes.ok) {
-    const territory = await territoryRes.json()
-    territories = Array.isArray(territory.features) ? territory.features : []
-    regionAlerts = Array.isArray(territory.alerts) ? territory.alerts : []
-  }
-
   const ffdMarkers = ffdRes.ok ? await ffdRes.json() : []
 
   return {
@@ -268,13 +268,30 @@ async function fetchOverview(): Promise<FloodMapOverview> {
     assets,
     ffdMarkers: Array.isArray(ffdMarkers) ? ffdMarkers : [],
     floodClassifications,
-    territories,
-    regionAlerts,
     degraded,
   }
 }
 
+async function fetchTerritory(): Promise<TerritoryPayload> {
+  try {
+    const res = await fetch(`${API_BASE}/water/flood-map/territory`)
+    if (!res.ok) {
+      return { territories: [], regionAlerts: [], degraded: ['territory'] }
+    }
+    const territory = await res.json()
+    return {
+      territories: Array.isArray(territory.features) ? territory.features : [],
+      regionAlerts: Array.isArray(territory.alerts) ? territory.alerts : [],
+      degraded: [],
+    }
+  } catch {
+    return { territories: [], regionAlerts: [], degraded: ['territory'] }
+  }
+}
+
 export function useFloodMapState() {
+  const queryClient = useQueryClient()
+
   const overview = useQuery({
     queryKey: ['flood-map', 'overview'],
     queryFn: fetchOverview,
@@ -282,6 +299,46 @@ export function useFloodMapState() {
     staleTime: 15_000,
     retry: 1,
   })
+
+  const territory = useQuery({
+    queryKey: ['flood-map', 'territory'],
+    queryFn: fetchTerritory,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  })
+
+  const [scenarioBusy, setScenarioBusy] = useState(false)
+  const [scenarioMessage, setScenarioMessage] = useState<ScenarioMessage | null>(null)
+
+  const runScenarioFault = useCallback(
+    async (assetId: number, kind: 'inflow_surge' | 'clear') => {
+      setScenarioBusy(true)
+      setScenarioMessage(null)
+      try {
+        const res = await waterApi.otFault(assetId, kind)
+        await queryClient.invalidateQueries({ queryKey: ['flood-map', 'territory'] })
+        setScenarioMessage({
+          tone: 'ok',
+          text:
+            kind === 'clear'
+              ? `Cleared faults on asset ${assetId}. Districts repaint from official gauge data.`
+              : `Inflow surge injected on asset ${assetId}. Districts repaint from the Soft OT scenario.`,
+        })
+        return res
+      } catch (err) {
+        const detail =
+          (err as any)?.response?.data?.detail ||
+          (err as Error)?.message ||
+          'Scenario command failed'
+        setScenarioMessage({ tone: 'err', text: detail })
+        return null
+      } finally {
+        setScenarioBusy(false)
+      }
+    },
+    [queryClient],
+  )
 
   const [impactSummary, setImpactSummary] = useState<ImpactSummary | null>(null)
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null)
@@ -312,9 +369,12 @@ export function useFloodMapState() {
   const assets = overview.data?.assets ?? []
   const ffdMarkers = overview.data?.ffdMarkers ?? []
   const floodClassifications = overview.data?.floodClassifications ?? {}
-  const territories = overview.data?.territories ?? []
-  const regionAlerts = overview.data?.regionAlerts ?? []
-  const degraded = overview.data?.degraded ?? []
+  const territories = territory.data?.territories ?? []
+  const regionAlerts = territory.data?.regionAlerts ?? []
+  const degraded = useMemo(
+    () => [...(overview.data?.degraded ?? []), ...(territory.data?.degraded ?? [])],
+    [overview.data?.degraded, territory.data?.degraded],
+  )
 
   const assetsById = useMemo(() => {
     const map: Record<number, AssetReading> = {}
@@ -424,8 +484,12 @@ export function useFloodMapState() {
     return newest
   }, [assets])
 
-  const loading = overview.isLoading
-  const error = overview.error ? (overview.error as Error).message : null
+  const loading = overview.isLoading || territory.isLoading
+  const error = overview.error
+    ? (overview.error as Error).message
+    : territory.error
+      ? (territory.error as Error).message
+      : null
 
   return {
     // Data
@@ -441,5 +505,7 @@ export function useFloodMapState() {
     displaySegments, totals, visibleSegments, newestObservedAt, impactSummary,
     // Actions
     setSelectedAsset, setSelectedDistrict, setMobileSidebarOpen,
+    // Scenario
+    scenarioBusy, scenarioMessage, runScenarioFault,
   }
 }

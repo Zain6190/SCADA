@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronUp, X, Layers, Activity, Gauge } from 'lucide-react'
-import type { FloodTerritoryFeature, LayerState, RegionAlert } from './use-flood-map-state'
+import { ChevronDown, ChevronUp, X, Layers, Activity, Gauge, FlaskConical, Loader2 } from 'lucide-react'
+import type { AssetReading, FloodTerritoryFeature, LayerState, RegionAlert, ScenarioMessage } from './use-flood-map-state'
 
 const TRAVEL_TIMES = [
   { color: '#ef4444', label: '0-6h', tag: 'Critical' },
@@ -99,6 +99,11 @@ interface SidebarProps {
   impactReason?: 'no-flow' | 'failed' | null
   calculating?: boolean
   onClearSelection?: () => void
+  assets?: AssetReading[]
+  territories?: FloodTerritoryFeature[]
+  scenarioBusy?: boolean
+  scenarioMessage?: ScenarioMessage | null
+  onRunScenario?: (assetId: number, kind: 'inflow_surge' | 'clear') => void
 }
 
 function Section({ title, icon, children, defaultOpen = true }: { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
@@ -124,6 +129,7 @@ export function FloodMapSidebar({
   regionAlerts, alertedPopulation, selectedDistrict, selectedTerritory, onSelectDistrict,
   totalPopulation, totalBridges, totalHospitals, visibleSegments, totalSegments,
   selectedAssetId, impactSummary, impactReason, calculating, onClearSelection,
+  assets = [], territories = [], scenarioBusy = false, scenarioMessage = null, onRunScenario,
 }: SidebarProps) {
   const layers: { key: keyof LayerState; label: string; state: boolean }[] = [
     { key: 'showTerritories', label: 'District Zones', state: showTerritories },
@@ -132,6 +138,45 @@ export function FloodMapSidebar({
     { key: 'showWarnings', label: 'FFD Alerts', state: showWarnings },
     { key: 'showRainfall', label: 'FFD Stations', state: showRainfall },
   ]
+
+  const scenarioTargets = useMemo(() => {
+    const byId = new Map<number, string>()
+    for (const feature of territories) {
+      const { source_asset_id: id, source_asset_name: name } = feature.properties
+      if (id) byId.set(id, name || `Asset ${id}`)
+    }
+    if (byId.size === 0) {
+      for (const asset of assets) byId.set(asset.id, asset.name)
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.id - b.id)
+  }, [territories, assets])
+
+  const [scenarioAssetId, setScenarioAssetId] = useState<number | null>(null)
+
+  useEffect(() => {
+    const source = selectedTerritory?.properties.source_asset_id
+    if (source) setScenarioAssetId(source)
+  }, [selectedTerritory?.properties.source_asset_id])
+
+  useEffect(() => {
+    if (scenarioAssetId == null && scenarioTargets.length > 0) {
+      setScenarioAssetId(scenarioTargets[0].id)
+    }
+  }, [scenarioTargets, scenarioAssetId])
+
+  const activeScenario = useMemo(
+    () => territories.filter((f) => f.properties.ot_source === 'SOFT_OT_SCENARIO'),
+    [territories],
+  )
+  const activeDevices = useMemo(() => {
+    const codes = new Set<string>()
+    for (const f of activeScenario) {
+      if (f.properties.ot_device_code) codes.add(f.properties.ot_device_code)
+    }
+    return Array.from(codes)
+  }, [activeScenario])
 
   return (
     <div className="flood-sidebar flex flex-col h-full bg-canvas border-l border-line overflow-hidden">
@@ -151,6 +196,68 @@ export function FloodMapSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <Section title="Scenario" icon={<FlaskConical className="h-3 w-3" />} defaultOpen={true}>
+          <div className="space-y-2">
+            {activeScenario.length > 0 ? (
+              <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-2.5 py-2">
+                <p className="text-[11px] font-semibold text-amber-300">
+                  {activeScenario.length} district{activeScenario.length === 1 ? '' : 's'} on Soft OT scenario
+                </p>
+                {activeDevices.length > 0 && (
+                  <p className="text-[9px] text-amber-200/70">{activeDevices.join(' · ')}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] text-ink-subtle">All districts using official gauge data.</p>
+            )}
+
+            <label className="block">
+              <span className="text-[9px] uppercase tracking-wider text-ink-subtle">Target asset</span>
+              <select
+                value={scenarioAssetId ?? ''}
+                onChange={(e) => setScenarioAssetId(Number(e.target.value))}
+                disabled={scenarioBusy || scenarioTargets.length === 0}
+                className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-ink focus:border-brand/50 focus:outline-none disabled:opacity-50"
+              >
+                {scenarioTargets.length === 0 && <option value="">No assets loaded</option>}
+                {scenarioTargets.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => scenarioAssetId != null && onRunScenario?.(scenarioAssetId, 'inflow_surge')}
+                disabled={scenarioBusy || scenarioAssetId == null || !onRunScenario}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-400/40 bg-amber-500/10 px-2 py-1.5 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+              >
+                {scenarioBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />}
+                Inject surge
+              </button>
+              <button
+                type="button"
+                onClick={() => scenarioAssetId != null && onRunScenario?.(scenarioAssetId, 'clear')}
+                disabled={scenarioBusy || scenarioAssetId == null || !onRunScenario}
+                className="flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] font-medium text-ink-muted hover:border-line-strong hover:text-ink transition-colors disabled:opacity-40"
+              >
+                Clear
+              </button>
+            </div>
+
+            {scenarioMessage && (
+              <p className={`text-[10px] ${scenarioMessage.tone === 'err' ? 'text-crit' : 'text-brand'}`}>
+                {scenarioMessage.text}
+              </p>
+            )}
+
+            <p className="text-[9px] text-ink-subtle">
+              Simulation — repaints district zones only; never writes official observations.
+            </p>
+          </div>
+        </Section>
+
         <Section title="Layers" icon={<Layers className="h-3 w-3" />} defaultOpen={true}>
           <div className="space-y-1">
             {layers.map((l) => (
