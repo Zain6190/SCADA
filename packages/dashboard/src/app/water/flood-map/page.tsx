@@ -24,6 +24,7 @@ export default function FloodMapPage() {
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
     setSelectedDistrict, newestObservedAt,
     scenarioBusy, scenarioMessage, runScenarioFault,
+    streamStatus,
   } = useFloodMapState()
 
   return (
@@ -51,6 +52,9 @@ export default function FloodMapPage() {
                 <Badge tone="amber">Partial data · {degraded.join(', ')}</Badge>
               )}
               <Badge tone="sky">{displaySegments.length} segments</Badge>
+              <Badge tone={streamStatus === 'live' ? 'emerald' : 'slate'}>
+                {streamStatus === 'live' ? 'Live push' : streamStatus === 'polling' ? 'Polling 30s' : 'Connecting'}
+              </Badge>
             </div>
           }
         />

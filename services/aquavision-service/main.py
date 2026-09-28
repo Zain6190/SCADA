@@ -225,6 +225,7 @@ from presentation.http.routers import (  # noqa: E402
     reports,
     sensors,
     ot,
+    stream,
     validation,
 )
 from ml.prediction_api import router as ml_router
@@ -257,6 +258,7 @@ app.include_router(channels.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(prediction_pipeline_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(ml_api_router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(alert_workflow.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(stream.router, prefix=WATER_PREFIX, tags=TAG)
 
 # Workflow domain errors -> HTTP status codes
 from infrastructure.alerts.workflow import WorkflowError  # noqa: E402

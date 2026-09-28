@@ -289,6 +289,8 @@ async function fetchTerritory(): Promise<TerritoryPayload> {
   }
 }
 
+export type StreamStatus = 'connecting' | 'live' | 'polling'
+
 export function useFloodMapState() {
   const queryClient = useQueryClient()
 
@@ -307,6 +309,38 @@ export function useFloodMapState() {
     staleTime: 15_000,
     retry: 1,
   })
+
+  // SSE refresh hints: the server pushes when flood-map inputs change, so
+  // repaints land in ~2-3s instead of waiting for the 30s polling fallback.
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>('connecting')
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+      setStreamStatus('polling')
+      return
+    }
+    let source: EventSource
+    try {
+      source = new EventSource(`${API_BASE}/water/stream`)
+    } catch {
+      setStreamStatus('polling')
+      return
+    }
+    const refreshOverview = () => {
+      queryClient.invalidateQueries({ queryKey: ['flood-map', 'overview'] })
+    }
+    const refreshTerritory = () => {
+      queryClient.invalidateQueries({ queryKey: ['flood-map', 'territory'] })
+    }
+    source.addEventListener('overview', refreshOverview)
+    source.addEventListener('territory', refreshTerritory)
+    source.onopen = () => setStreamStatus('live')
+    source.onerror = () => setStreamStatus('polling')
+    return () => {
+      source.removeEventListener('overview', refreshOverview)
+      source.removeEventListener('territory', refreshTerritory)
+      source.close()
+    }
+  }, [queryClient])
 
   const [scenarioBusy, setScenarioBusy] = useState(false)
   const [scenarioMessage, setScenarioMessage] = useState<ScenarioMessage | null>(null)
@@ -497,6 +531,7 @@ export function useFloodMapState() {
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
     // UI
     loading, calculating, error, selectedAsset, mobileSidebarOpen, degraded, impactReason,
+    streamStatus,
     // Layers
     layers, toggleLayer,
     // Controls
