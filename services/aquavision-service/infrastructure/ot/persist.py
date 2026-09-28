@@ -11,6 +11,7 @@ from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import SessionLocal
+from infrastructure.territory_cache import invalidate_flood_territory
 from infrastructure.db.models import (
     WaterAsset,
     WaterFFDObservation,
@@ -416,6 +417,7 @@ def apply_hmi_setpoint(
         )
         db.add(cmd)
         db.commit()
+        invalidate_flood_territory()
         return {
             "ok": True,
             "action": "SETPOINT",
@@ -461,6 +463,7 @@ def apply_hmi_fault(
             notes="SIMULATION — fault injection, no hardware",
         ))
         db.commit()
+        invalidate_flood_territory()
         return {"ok": True, "action": action, "asset_id": asset_id, "kind": kind, "writes_observations": False}
     finally:
         if own:

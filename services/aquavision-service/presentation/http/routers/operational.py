@@ -248,43 +248,61 @@ def list_assets(
         for t in session.execute(select(WaterAssetThreshold)).scalars().all()
     }
 
-    result = []
-    for asset in assets:
-        # Get latest observation
-        latest_obs = session.execute(
-            select(WaterObservation)
-            .where(WaterObservation.asset_id == asset.id, official_observation_clause())
-            .order_by(desc(WaterObservation.observed_at))
-            .limit(1)
-        ).scalar_one_or_none()
+    asset_ids = [asset.id for asset in assets]
 
-        # Count active alerts
-        alert_count = session.execute(
-            select(func.count(WaterOperationalAlert.id)).where(
-                WaterOperationalAlert.asset_id == asset.id,
+    latest_obs_by_asset: dict[int, WaterObservation] = {}
+    if asset_ids:
+        latest_rows = session.execute(
+            select(WaterObservation)
+            .where(
+                WaterObservation.asset_id.in_(asset_ids),
+                official_observation_clause(),
+            )
+            .distinct(WaterObservation.asset_id)
+            .order_by(
+                WaterObservation.asset_id,
+                desc(WaterObservation.observed_at),
+            )
+        ).scalars().all()
+        latest_obs_by_asset = {obs.asset_id: obs for obs in latest_rows}
+
+    alert_stats_by_asset: dict[int, tuple] = {}
+    if asset_ids:
+        stat_rows = session.execute(
+            select(
+                WaterOperationalAlert.asset_id,
+                func.count(WaterOperationalAlert.id),
+                func.max(WaterOperationalAlert.severity),
+            )
+            .where(
+                WaterOperationalAlert.asset_id.in_(asset_ids),
                 WaterOperationalAlert.status.in_(["NEW", "ACKNOWLEDGED", "INVESTIGATING"]),
             )
-        ).scalar() or 0
+            .group_by(WaterOperationalAlert.asset_id)
+        ).all()
+        alert_stats_by_asset = {row[0]: (row[1] or 0, row[2]) for row in stat_rows}
 
-        # Get highest severity
-        highest = session.execute(
-            select(WaterOperationalAlert.severity).where(
-                WaterOperationalAlert.asset_id == asset.id,
-                WaterOperationalAlert.status.in_(["NEW", "ACKNOWLEDGED", "INVESTIGATING"]),
-            ).order_by(
-                # CRITICAL > WARNING > ADVISORY > WATCH > NORMAL
-                WaterOperationalAlert.severity.desc()
-            ).limit(1)
-        ).scalar_one_or_none()
-
-        # Get latest flood classification from most recent alert with probability
-        flood_prob = session.execute(
-            select(WaterOperationalAlert.flood_probability, WaterOperationalAlert.flood_severity, WaterOperationalAlert.flood_recommendation)
+    flood_by_asset: dict[int, WaterOperationalAlert] = {}
+    if asset_ids:
+        flood_rows = session.execute(
+            select(WaterOperationalAlert)
             .where(
-                WaterOperationalAlert.asset_id == asset.id,
+                WaterOperationalAlert.asset_id.in_(asset_ids),
                 WaterOperationalAlert.flood_probability.isnot(None),
-            ).order_by(desc(WaterOperationalAlert.created_at)).limit(1)
-        ).first()
+            )
+            .distinct(WaterOperationalAlert.asset_id)
+            .order_by(
+                WaterOperationalAlert.asset_id,
+                desc(WaterOperationalAlert.created_at),
+            )
+        ).scalars().all()
+        flood_by_asset = {row.asset_id: row for row in flood_rows}
+
+    result = []
+    for asset in assets:
+        latest_obs = latest_obs_by_asset.get(asset.id)
+        alert_count, highest = alert_stats_by_asset.get(asset.id, (0, None))
+        flood_prob = flood_by_asset.get(asset.id)
 
         # Thresholds live in water_asset_thresholds (authoritative for alerts);
         # the asset row carries warning/critical as a legacy fallback.
@@ -300,9 +318,9 @@ def list_assets(
         # Fallback: threshold-based probability if no ML classification exists
         fp_value, fp_severity, fp_rec = None, None, None
         if flood_prob:
-            fp_value = float(flood_prob[0]) if flood_prob[0] else None
-            fp_severity = flood_prob[1]
-            fp_rec = flood_prob[2]
+            fp_value = float(flood_prob.flood_probability) if flood_prob.flood_probability else None
+            fp_severity = flood_prob.flood_severity
+            fp_rec = flood_prob.flood_recommendation
         elif latest_obs:
             classified = classify_flood(
                 level=float(latest_obs.water_level_ft) if latest_obs.water_level_ft else None,

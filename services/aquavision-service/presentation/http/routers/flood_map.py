@@ -8,6 +8,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
 from infrastructure.db.engine import get_session
+from infrastructure import territory_cache
 from infrastructure.db.models import WaterAsset, WaterAssetThreshold, WaterDownstreamImpact, WaterObservation, WaterOperationalAlert
 from infrastructure.thresholds.engine import official_observation_clause
 from infrastructure.flood.territories import (
@@ -188,5 +189,12 @@ def _apply_process_view(session: Session, payload: dict, thresholds: dict) -> di
 
 @router.get("/flood-map/territory")
 def get_flood_territory(session: Session = Depends(get_session)):
-    """GeoJSON districts colored by flood prediction, with region alerts."""
-    return load_flood_territory(session)
+    """GeoJSON districts colored by flood prediction, with region alerts.
+
+    Served from a 30s TTL cache; Soft OT fault/setpoint commands invalidate
+    it so injected scenarios repaint immediately.
+    """
+    cached = territory_cache.get_flood_territory()
+    if cached is not None:
+        return cached
+    return territory_cache.set_flood_territory(load_flood_territory(session))
