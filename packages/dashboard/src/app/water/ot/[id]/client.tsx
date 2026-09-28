@@ -93,18 +93,18 @@ export function OtDeviceClient() {
           }
         />
 
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+        <div className="rounded-xl border border-warn/25 bg-warn-soft px-4 py-3 text-sm text-warn flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           SIMULATION — Virtual HMI commands stay inside the Soft PLC/RTU. They do not control real infrastructure.
         </div>
         {(status?.anchor_banner || status?.anchor?.banner) && (
-          <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
+          <div className="rounded-xl border border-info/25 bg-info-soft px-4 py-3 text-sm text-info">
             {status.anchor_banner || status.anchor?.banner}
           </div>
         )}
 
         {banner && (
-          <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-sm text-sky-200">{banner}</div>
+          <div className="rounded-xl border border-info/25 bg-info-soft px-4 py-2 text-sm text-info">{banner}</div>
         )}
 
         {!device && !error ? (
@@ -118,22 +118,22 @@ export function OtDeviceClient() {
               <CardBody className="p-0">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                       <th className="px-4 py-2 text-left">Tag</th>
                       <th className="px-4 py-2 text-left">Class</th>
                       <th className="px-4 py-2 text-left">Value</th>
                       <th className="px-4 py-2 text-left">To AquaVision</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y line">
                     {(device.tags || []).map((t: any) => (
                       <tr key={t.name}>
-                        <td className="px-4 py-2 font-mono text-slate-200">{t.name}</td>
+                        <td className="px-4 py-2 font-mono text-ink">{t.name}</td>
                         <td className="px-4 py-2"><Badge tone="slate">{t.tag_class}</Badge></td>
-                        <td className="px-4 py-2 font-mono text-slate-300">
+                        <td className="px-4 py-2 font-mono text-ink">
                           {t.value == null ? '—' : fmtNumber(t.value)} {t.unit || ''}
                         </td>
-                        <td className="px-4 py-2 text-slate-400">{t.published_to_aquavision ? 'AI/DI publish' : 'HMI / internal'}</td>
+                        <td className="px-4 py-2 text-ink-muted">{t.published_to_aquavision ? 'AI/DI publish' : 'HMI / internal'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -144,12 +144,12 @@ export function OtDeviceClient() {
             <div className="space-y-6">
               {device.kind === 'PLC' && (
                 <Card>
-                  <CardHeader title="Virtual HMI" subtitle="Gate setpoint 0–100%" icon={<SlidersHorizontal className="h-5 w-5" />} accent="bg-amber-500/10 text-amber-300" />
+                  <CardHeader title="Virtual HMI" subtitle="Gate setpoint 0–100%" icon={<SlidersHorizontal className="h-5 w-5" />} accent="bg-warn-soft text-warn" />
                   <CardBody className="space-y-4">
                     <div>
-                      <div className="flex justify-between text-xs text-slate-400 mb-2">
+                      <div className="flex justify-between text-xs text-ink-muted mb-2">
                         <span>AO.gate_cmd_pct</span>
-                        <span className="font-mono text-slate-200">{gate.toFixed(0)}%</span>
+                        <span className="font-mono text-ink">{gate.toFixed(0)}%</span>
                       </div>
                       <input
                         type="range"
@@ -163,11 +163,11 @@ export function OtDeviceClient() {
                     <button
                       onClick={sendSetpoint}
                       disabled={busy}
-                      className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
+                      className="w-full rounded-xl border border-warn/25 bg-warn-soft px-4 py-2 text-sm font-medium text-warn hover:border-warn/50 disabled:opacity-50"
                     >
                       Apply setpoint to simulator
                     </button>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-ink-subtle">
                       Feedback {device.live?.gate_pos_pct != null ? `${fmtNumber(device.live.gate_pos_pct)}%` : '—'} ·
                       command {device.live?.gate_cmd_pct != null ? `${fmtNumber(device.live.gate_cmd_pct)}%` : '—'}
                     </p>
@@ -183,7 +183,7 @@ export function OtDeviceClient() {
                       key={f.id}
                       onClick={() => sendFault(f.id)}
                       disabled={busy}
-                      className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                      className="rounded-lg border border-line-strong px-3 py-1.5 text-xs text-ink-muted hover:bg-surface-alt hover:text-ink disabled:opacity-40"
                     >
                       {f.label}
                     </button>
@@ -197,7 +197,7 @@ export function OtDeviceClient() {
               <CardBody className="p-0">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-subtle">
                       <th className="px-4 py-2 text-left">When</th>
                       <th className="px-4 py-2 text-left">Action</th>
                       <th className="px-4 py-2 text-left">Tag</th>
@@ -205,14 +205,14 @@ export function OtDeviceClient() {
                       <th className="px-4 py-2 text-left">Notes</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y line">
                     {(device.commands || []).map((c: any) => (
                       <tr key={c.id}>
-                        <td className="px-4 py-2 text-slate-400">{fmtDateTime(c.created_at)}</td>
+                        <td className="px-4 py-2 text-ink-muted">{fmtDateTime(c.created_at)}</td>
                         <td className="px-4 py-2"><Badge tone="slate">{c.action}</Badge></td>
-                        <td className="px-4 py-2 font-mono text-slate-300">{c.tag_name}</td>
+                        <td className="px-4 py-2 font-mono text-ink">{c.tag_name}</td>
                         <td className="px-4 py-2 font-mono">{c.value ?? '—'}</td>
-                        <td className="px-4 py-2 text-slate-500">{c.notes}</td>
+                        <td className="px-4 py-2 text-ink-subtle">{c.notes}</td>
                       </tr>
                     ))}
                   </tbody>

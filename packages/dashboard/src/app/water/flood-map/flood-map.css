@@ -60,7 +60,7 @@
   animation: risk-blink 1s ease-in-out infinite;
 }
 
-/* Time slider track */
+/* Time slider track — travel-time ramp is data, not theme */
 input[type="range"].flood-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -77,20 +77,20 @@ input[type="range"].flood-slider::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #38bdf8;
+  background: rgb(var(--brand));
   cursor: pointer;
-  border: 2px solid #0f172a;
-  box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+  border: 2px solid rgb(var(--brand-hover));
+  box-shadow: 0 0 6px rgb(var(--brand) / 0.4);
 }
 
 input[type="range"].flood-slider::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #38bdf8;
+  background: rgb(var(--brand));
   cursor: pointer;
-  border: 2px solid #0f172a;
-  box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+  border: 2px solid rgb(var(--brand-hover));
+  box-shadow: 0 0 6px rgb(var(--brand) / 0.4);
 }
 
 /* Sidebar custom scrollbar */
@@ -103,27 +103,21 @@ input[type="range"].flood-slider::-moz-range-thumb {
 }
 
 .flood-sidebar .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: rgb(var(--line-strong));
   border-radius: 2px;
 }
 
 .flood-sidebar .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: rgb(var(--ink-subtle));
 }
 
 /* Leaflet tooltip styling */
-.asset-label-tooltip {
-  background: rgba(15, 23, 42, 0.9) !important;
-  border: 1px solid rgba(51, 65, 85, 0.6) !important;
-  border-radius: 6px !important;
-  padding: 4px 8px !important;
-  color: #e2e8f0 !important;
-  font-size: 11px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-}
-
-.asset-label-tooltip::before {
-  border-right-color: rgba(51, 65, 85, 0.6) !important;
+.leaflet-tooltip {
+  background: rgb(var(--surface)) !important;
+  border: 1px solid rgb(var(--line)) !important;
+  border-radius: 8px !important;
+  color: rgb(var(--ink)) !important;
+  box-shadow: 0 8px 24px rgb(var(--ink) / 0.14), 0 2px 6px rgb(var(--ink) / 0.08) !important;
 }
 
 .leaflet-tooltip-top::before,
@@ -133,35 +127,49 @@ input[type="range"].flood-slider::-moz-range-thumb {
   display: none !important;
 }
 
+.asset-label-tooltip {
+  background: rgb(var(--surface)) !important;
+  border: 1px solid rgb(var(--line)) !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  color: rgb(var(--ink)) !important;
+  font-size: 11px !important;
+  box-shadow: 0 4px 12px rgb(var(--ink) / 0.14) !important;
+}
+
+.asset-label-tooltip::before {
+  border-right-color: rgb(var(--line)) !important;
+}
+
 /* Leaflet popup styling */
 .leaflet-popup-content-wrapper {
-  background: rgba(15, 23, 42, 0.95) !important;
-  border: 1px solid rgba(51, 65, 85, 0.6) !important;
+  background: rgb(var(--surface)) !important;
+  border: 1px solid rgb(var(--line)) !important;
   border-radius: 10px !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
-  color: #e2e8f0 !important;
+  box-shadow: 0 8px 24px rgb(var(--ink) / 0.14), 0 2px 6px rgb(var(--ink) / 0.08) !important;
+  color: rgb(var(--ink)) !important;
 }
 
 .leaflet-popup-tip {
-  background: rgba(15, 23, 42, 0.95) !important;
-  border: 1px solid rgba(51, 65, 85, 0.6) !important;
+  background: rgb(var(--surface)) !important;
+  border: 1px solid rgb(var(--line)) !important;
 }
 
 .leaflet-popup-close-button {
-  color: #94a3b8 !important;
+  color: rgb(var(--ink-muted)) !important;
 }
 
 .leaflet-popup-close-button:hover {
-  color: #e2e8f0 !important;
+  color: rgb(var(--ink)) !important;
 }
 
-/* Leaflet control zoom buttons dark theme */
+/* Leaflet control zoom buttons themed to the global surface */
 .leaflet-control-zoom a {
-  background: rgba(15, 23, 42, 0.9) !important;
-  color: #e2e8f0 !important;
-  border-color: rgba(51, 65, 85, 0.6) !important;
+  background: rgb(var(--surface)) !important;
+  color: rgb(var(--ink)) !important;
+  border-color: rgb(var(--line)) !important;
 }
 
 .leaflet-control-zoom a:hover {
-  background: rgba(30, 41, 59, 0.9) !important;
+  background: rgb(var(--surface-alt)) !important;
 }

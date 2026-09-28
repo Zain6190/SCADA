@@ -18,41 +18,41 @@ const RIVER_COLORS: Record<string, string> = {
 }
 
 const STATUS_LEVELS = [
-  { color: '#ef4444', label: 'Critical', desc: 'Exceeds critical level' },
-  { color: '#f97316', label: 'Danger', desc: 'Above danger threshold' },
-  { color: '#eab308', label: 'Warning', desc: 'Exceeds warning level' },
-  { color: '#22c55e', label: 'Normal', desc: 'Within safe range' },
-  { color: '#6b7280', label: 'No reading', desc: 'No official observation' },
+  { color: 'rgb(var(--crit))', label: 'Critical', desc: 'Exceeds critical level' },
+  { color: 'rgb(var(--sev-severe))', label: 'Danger', desc: 'Above danger threshold' },
+  { color: 'rgb(var(--sev-warning))', label: 'Warning', desc: 'Exceeds warning level' },
+  { color: 'rgb(var(--ok))', label: 'Normal', desc: 'Within safe range' },
+  { color: 'rgb(var(--ink-subtle))', label: 'No reading', desc: 'No official observation' },
 ]
 
 const FRESHNESS = [
-  { color: '#22c55e', label: '≤ 24h', desc: 'Fresh reading' },
-  { color: '#eab308', label: '24-48h', desc: 'Aging data' },
-  { color: '#ef4444', label: '> 48h', desc: 'Stale — verify' },
-  { color: '#94a3b8', label: 'No data', desc: 'No reading yet' },
+  { color: 'rgb(var(--ok))', label: '≤ 24h', desc: 'Fresh reading' },
+  { color: 'rgb(var(--warn))', label: '24-48h', desc: 'Aging data' },
+  { color: 'rgb(var(--crit))', label: '> 48h', desc: 'Stale — verify' },
+  { color: 'rgb(var(--ink-subtle))', label: 'No data', desc: 'No reading yet' },
 ]
 
 const FLOOD_PROB = [
-  { color: '#ef4444', label: '>50%', tag: 'Critical' },
-  { color: '#f97316', label: '20-50%', tag: 'Elevated' },
-  { color: '#22c55e', label: '<20%', tag: 'Low' },
+  { color: 'rgb(var(--sev-critical))', label: '>50%', tag: 'Critical' },
+  { color: 'rgb(var(--sev-warning))', label: '20-50%', tag: 'Elevated' },
+  { color: 'rgb(var(--sev-normal))', label: '<20%', tag: 'Low' },
 ]
 
 const TERRITORY_SEVERITY = [
-  { color: '#64748b', label: 'None' },
-  { color: '#3b82f6', label: 'Low' },
-  { color: '#f59e0b', label: 'Moderate' },
-  { color: '#f97316', label: 'High' },
-  { color: '#ef4444', label: 'Extreme' },
+  { color: 'rgb(var(--ink-subtle))', label: 'None' },
+  { color: 'rgb(var(--sev-normal))', label: 'Low' },
+  { color: 'rgb(var(--sev-moderate))', label: 'Moderate' },
+  { color: 'rgb(var(--sev-warning))', label: 'High' },
+  { color: 'rgb(var(--sev-severe))', label: 'Extreme' },
 ]
 
 const SEVERITY_COLOR: Record<string, string> = {
-  NONE: '#64748b',
-  LOW: '#3b82f6',
-  MODERATE: '#f59e0b',
-  HIGH: '#f97316',
-  EXTREME: '#ef4444',
-  CRITICAL: '#ef4444',
+  NONE: 'rgb(var(--ink-subtle))',
+  LOW: 'rgb(var(--sev-normal))',
+  MODERATE: 'rgb(var(--sev-moderate))',
+  HIGH: 'rgb(var(--sev-warning))',
+  EXTREME: 'rgb(var(--sev-severe))',
+  CRITICAL: 'rgb(var(--sev-critical))',
 }
 
 function formatPeople(count: number): string {
@@ -199,12 +199,12 @@ export function FloodMapSidebar({
         <Section title="Scenario" icon={<FlaskConical className="h-3 w-3" />} defaultOpen={true}>
           <div className="space-y-2">
             {activeScenario.length > 0 ? (
-              <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-2.5 py-2">
-                <p className="text-[11px] font-semibold text-amber-300">
+              <div className="rounded-lg border border-warn/25 bg-warn-soft px-2.5 py-2">
+                <p className="text-[11px] font-semibold text-warn">
                   {activeScenario.length} district{activeScenario.length === 1 ? '' : 's'} on Soft OT scenario
                 </p>
                 {activeDevices.length > 0 && (
-                  <p className="text-[9px] text-amber-200/70">{activeDevices.join(' · ')}</p>
+                  <p className="text-[9px] text-ink-muted">{activeDevices.join(' · ')}</p>
                 )}
               </div>
             ) : (
@@ -231,7 +231,7 @@ export function FloodMapSidebar({
                 type="button"
                 onClick={() => scenarioAssetId != null && onRunScenario?.(scenarioAssetId, 'inflow_surge')}
                 disabled={scenarioBusy || scenarioAssetId == null || !onRunScenario}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-400/40 bg-amber-500/10 px-2 py-1.5 text-[11px] font-medium text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-warn/25 bg-warn-soft px-2 py-1.5 text-[11px] font-medium text-warn hover:border-warn/50 transition-colors disabled:opacity-40"
               >
                 {scenarioBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FlaskConical className="h-3 w-3" />}
                 Inject surge

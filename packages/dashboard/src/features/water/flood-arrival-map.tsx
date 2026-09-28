@@ -19,13 +19,19 @@ import '@/app/water/flood-map/flood-map.css'
 import { RIVER_GEOMETRY, SEGMENT_RIVER } from './rivers'
 import type { AssetReading, FloodTerritoryFeature, SegmentData, AlertMarker } from './use-flood-map-state'
 
+function token(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value ? `rgb(${value.split(/\s+/).join(',')})` : fallback
+}
+
 const TERRITORY_STYLE: Record<string, { fill: string; opacity: number }> = {
-  NONE: { fill: '#64748b', opacity: 0.12 },
-  LOW: { fill: '#3b82f6', opacity: 0.28 },
-  MODERATE: { fill: '#f59e0b', opacity: 0.42 },
-  HIGH: { fill: '#f97316', opacity: 0.52 },
-  EXTREME: { fill: '#ef4444', opacity: 0.58 },
-  CRITICAL: { fill: '#ef4444', opacity: 0.58 },
+  NONE: { fill: token('--ink-subtle', '#64748b'), opacity: 0.12 },
+  LOW: { fill: token('--sev-normal', '#3b82f6'), opacity: 0.28 },
+  MODERATE: { fill: token('--sev-moderate', '#f59e0b'), opacity: 0.42 },
+  HIGH: { fill: token('--sev-warning', '#f97316'), opacity: 0.52 },
+  EXTREME: { fill: token('--sev-severe', '#ef4444'), opacity: 0.58 },
+  CRITICAL: { fill: token('--sev-critical', '#ef4444'), opacity: 0.58 },
 }
 
 function ringsForGeometry(geometry: { type?: string; coordinates?: any } | undefined): [number, number][][] {
@@ -77,10 +83,10 @@ function formatAge(hours: number): string {
 }
 
 function freshness(ageHours: number | null): { color: string; label: string } {
-  if (ageHours == null) return { color: '#94a3b8', label: 'No official reading' }
-  if (ageHours <= 24) return { color: '#22c55e', label: `observed ${formatAge(ageHours)} ago` }
-  if (ageHours <= 48) return { color: '#eab308', label: `aging · observed ${formatAge(ageHours)} ago` }
-  return { color: '#ef4444', label: `STALE · observed ${formatAge(ageHours)} ago` }
+  if (ageHours == null) return { color: 'rgb(var(--ink-subtle))', label: 'No official reading' }
+  if (ageHours <= 24) return { color: 'rgb(var(--ok))', label: `observed ${formatAge(ageHours)} ago` }
+  if (ageHours <= 48) return { color: 'rgb(var(--warn))', label: `aging · observed ${formatAge(ageHours)} ago` }
+  return { color: 'rgb(var(--crit))', label: `STALE · observed ${formatAge(ageHours)} ago` }
 }
 
 interface FfdMarker {
@@ -120,17 +126,17 @@ function getTravelTimeColor(hours: number): string {
   for (const t of TRAVEL_TIMES) {
     if (hours >= t.min && hours < t.max) return t.color
   }
-  return '#6b7280'
+  return token('--ink-subtle', '#6b7280')
 }
 
 function getAssetStatusColor(asset?: AssetReading): string {
-  if (!asset || asset.unit !== 'ft' || asset.value == null) return '#6b7280'
+  if (!asset || asset.unit !== 'ft' || asset.value == null) return token('--ink-subtle', '#6b7280')
   const { warningFt, dangerFt, criticalFt, value } = asset
-  if (warningFt == null && dangerFt == null && criticalFt == null) return '#6b7280'
-  if (criticalFt != null && value >= criticalFt) return '#ef4444'
-  if (dangerFt != null && value >= dangerFt) return '#f97316'
-  if (warningFt != null && value >= warningFt) return '#eab308'
-  return '#22c55e'
+  if (warningFt == null && dangerFt == null && criticalFt == null) return token('--ink-subtle', '#6b7280')
+  if (criticalFt != null && value >= criticalFt) return token('--sev-critical', '#ef4444')
+  if (dangerFt != null && value >= dangerFt) return token('--sev-severe', '#f97316')
+  if (warningFt != null && value >= warningFt) return token('--sev-warning', '#eab308')
+  return token('--sev-normal', '#22c55e')
 }
 
 function getPulseClass(hours: number): string {
@@ -166,7 +172,7 @@ function makeArrowIcon(from: [number, number], to: [number, number]): L.DivIcon 
   const dx = to[1] - from[1]
   const dy = to[0] - from[0]
   const angle = (Math.atan2(dy, dx) * 180) / Math.PI
-  const svg = `<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 10 L15 10 M11 6 L15 10 L11 14" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="rotate(${angle} 10 10)"/></svg>`
+  const svg = `<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 10 L15 10 M11 6 L15 10 L11 14" stroke="${token('--ink-subtle', '#94a3b8')}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="rotate(${angle} 10 10)"/></svg>`
   return L.divIcon({
     html: svg,
     className: 'river-arrow',
@@ -334,16 +340,16 @@ export function FloodArrivalMap({
       {otTerritories.length > 0 && (
         <div className="absolute top-4 right-4 z-[1000]">
           {scenarioDistricts > 0 ? (
-            <div className="rounded-lg border border-amber-400/50 bg-amber-500/15 px-3 py-2 text-right shadow-lg backdrop-blur">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-amber-300">Soft OT scenario</p>
-              <p className="m-0 text-[10px] text-amber-200/80">
+            <div className="rounded-lg border border-warn/25 bg-warn-soft px-3 py-2 text-right shadow-lg backdrop-blur">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-warn">Soft OT scenario</p>
+              <p className="m-0 text-[10px] text-ink-muted">
                 {scenarioDistricts} of {otTerritories.length} districts · rest official
               </p>
             </div>
           ) : (
-            <div className="rounded-lg border border-sky-400/40 bg-sky-500/15 px-3 py-2 text-right shadow-lg backdrop-blur">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Official · IRSA / FFD</p>
-              <p className="m-0 text-[10px] text-sky-200/80">No active Soft OT scenario</p>
+            <div className="rounded-lg border border-info/25 bg-info-soft px-3 py-2 text-right shadow-lg backdrop-blur">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-info">Official · IRSA / FFD</p>
+              <p className="m-0 text-[10px] text-ink-muted">No active Soft OT scenario</p>
             </div>
           )}
         </div>
@@ -351,7 +357,7 @@ export function FloodArrivalMap({
 
       {/* Empty state - no assets from the official feed */}
       {assets.length === 0 && (
-        <div className="absolute inset-0 z-[999] flex items-center justify-center bg-slate-950/60 backdrop-blur-[2px]">
+        <div className="absolute inset-0 z-[999] flex items-center justify-center bg-canvas/60 backdrop-blur-[2px]">
           <div className="mx-6 max-w-sm rounded-xl border border-line bg-surface/95 px-6 py-5 text-center shadow-2xl">
             <p className="m-0 text-sm font-semibold text-ink">No monitoring assets available</p>
             <p className="mt-1.5 m-0 text-xs text-ink-subtle">
@@ -365,11 +371,11 @@ export function FloodArrivalMap({
         center={[30.5, 70.5]}
         zoom={6}
         scrollWheelZoom={true}
-        style={{ height: '100%', width: '100%', background: '#0b1220' }}
+        style={{ height: '100%', width: '100%', background: 'rgb(var(--canvas))' }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
 
         {showTerritories && territories.map((feature) => {
@@ -385,7 +391,7 @@ export function FloodArrivalMap({
               key={`territory-${props.district}-${ringIndex}`}
               positions={ring}
               pathOptions={{
-                color: selected ? '#7dd3fc' : style.fill,
+                color: selected ? token('--brand', '#7dd3fc') : style.fill,
                 weight: selected ? 3.5 : 2.5,
                 fillColor: style.fill,
                 fillOpacity: selected ? Math.min(style.opacity + 0.12, 0.72) : style.opacity,
@@ -397,13 +403,13 @@ export function FloodArrivalMap({
             >
               <Tooltip>
                 <div className="p-1">
-                  <p className="text-sm font-semibold text-slate-900 m-0">{props.district} zone</p>
-                  <p className="text-xs text-slate-700 m-0">
+                  <p className="text-sm font-semibold text-ink m-0">{props.district} zone</p>
+                  <p className="text-xs text-ink-muted m-0">
                     {severity} · {Math.round((props.flood_probability || 0) * 100)}% · {formatPeople(props.population_exposed || 0)} people
                   </p>
-                  <p className="text-xs text-slate-700 m-0">{inside.length} places inside</p>
+                  <p className="text-xs text-ink-muted m-0">{inside.length} places inside</p>
                   {props.ot_source === 'SOFT_OT_SCENARIO' && (
-                    <p className="text-xs font-semibold text-amber-700 m-0">
+                    <p className="text-xs font-semibold text-warn m-0">
                       Scenario · Soft OT twin{props.ot_device_code ? ` · ${props.ot_device_code}` : ''}
                     </p>
                   )}
@@ -412,7 +418,7 @@ export function FloodArrivalMap({
               <Popup>
                 <div className="space-y-1 min-w-[180px]">
                   <p className="text-xs font-bold m-0">{props.district}</p>
-                  <p className="text-[10px] text-slate-400 m-0">{props.province} · threatened area</p>
+                  <p className="text-[10px] text-ink-subtle m-0">{props.province} · threatened area</p>
                   <p className="text-[10px] m-0">
                     Prediction: <span className="font-semibold">{severity}</span>
                     {' '}({Math.round((props.flood_probability || 0) * 100)}%)
@@ -423,12 +429,12 @@ export function FloodArrivalMap({
                     <p className="text-[10px] m-0">Inside: {inside.map((place) => place.name).slice(0, 6).join(', ')}{inside.length > 6 ? '…' : ''}</p>
                   )}
                   {props.ot_source === 'SOFT_OT_SCENARIO' && (
-                    <p className="text-[10px] font-semibold text-amber-600 m-0">
+                    <p className="text-[10px] font-semibold text-warn m-0">
                       Painted from Soft OT scenario{props.ot_device_code ? ` · ${props.ot_device_code}` : ''}
                     </p>
                   )}
                   {props.recommendation && <p className="text-[10px] m-0">{props.recommendation}</p>}
-                  <p className="text-[10px] text-slate-400 m-0">Source: {props.source_asset_name}</p>
+                  <p className="text-[10px] text-ink-subtle m-0">Source: {props.source_asset_name}</p>
                 </div>
               </Popup>
             </Polygon>
@@ -594,9 +600,9 @@ export function FloodArrivalMap({
               center={coords}
               radius={radius}
               pathOptions={{
-                color: isSelected ? '#38bdf8' : statusColor,
+                color: isSelected ? token('--brand', '#38bdf8') : statusColor,
                 weight: isSelected ? 3 : 2,
-                fillColor: isSelected ? '#38bdf8' : statusColor,
+                fillColor: isSelected ? token('--brand', '#38bdf8') : statusColor,
                 fillOpacity: isSelected ? 0.9 : 0.7,
               }}
               eventHandlers={{
@@ -622,7 +628,7 @@ export function FloodArrivalMap({
                       </p>
                     )}
                     {classification && (
-                      <p className="text-[10px] m-0 font-semibold" style={{ color: classification.severity === 'HIGH' ? '#ef4444' : classification.severity === 'MEDIUM' ? '#f97316' : '#22c55e' }}>
+                      <p className="text-[10px] m-0 font-semibold" style={{ color: classification.severity === 'HIGH' ? 'rgb(var(--sev-critical))' : classification.severity === 'MEDIUM' ? 'rgb(var(--sev-severe))' : 'rgb(var(--sev-normal))' }}>
                         Flood: {(classification.probability * 100).toFixed(0)}%
                       </p>
                     )}
@@ -650,13 +656,13 @@ export function FloodArrivalMap({
                     </div>
                   )}
                   {classification && (
-                    <p className="text-[11px] m-0 font-semibold" style={{ color: classification.severity === 'HIGH' ? '#ef4444' : classification.severity === 'MEDIUM' ? '#f97316' : '#22c55e' }}>
+                    <p className="text-[11px] m-0 font-semibold" style={{ color: classification.severity === 'HIGH' ? 'rgb(var(--sev-critical))' : classification.severity === 'MEDIUM' ? 'rgb(var(--sev-severe))' : 'rgb(var(--sev-normal))' }}>
                       Flood Probability: {(classification.probability * 100).toFixed(0)}% ({classification.severity})
                     </p>
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); if (onAssetClick) onAssetClick(id) }}
-                    className="w-full mt-1 rounded bg-brand px-2 py-1 text-[10px] font-medium text-white hover:bg-brand cursor-pointer"
+                    className="w-full mt-1 rounded bg-brand px-2 py-1 text-[10px] font-medium text-brand-on hover:bg-brand-hover cursor-pointer"
                   >
                     Calculate Impact
                   </button>
@@ -667,7 +673,7 @@ export function FloodArrivalMap({
         })}
 
         {showWarnings && ffdWarnings?.map((w) => {
-          const severityColor = w.severity === 'Critical' ? '#ef4444' : w.severity === 'Danger' ? '#f97316' : '#eab308'
+          const severityColor = w.severity === 'Critical' ? token('--sev-critical', '#ef4444') : w.severity === 'Danger' ? token('--sev-severe', '#f97316') : token('--sev-warning', '#eab308')
           return (
             <CircleMarker
               key={`warn-${w.id}`}
@@ -699,10 +705,10 @@ export function FloodArrivalMap({
 
         {showRainfall && ffdMarkers?.map((marker) => {
           if (marker.latitude == null || marker.longitude == null) return null
-          const statusColor = marker.flood_status === 'HIGH' ? '#ef4444'
-            : marker.flood_status === 'MEDIUM' ? '#f97316'
-            : marker.flood_status === 'ABOVE_NORMAL' ? '#eab308'
-            : '#22c55e'
+          const statusColor = marker.flood_status === 'HIGH' ? token('--sev-critical', '#ef4444')
+            : marker.flood_status === 'MEDIUM' ? token('--sev-severe', '#f97316')
+            : marker.flood_status === 'ABOVE_NORMAL' ? token('--sev-warning', '#eab308')
+            : token('--sev-normal', '#22c55e')
           const radius = marker.flood_status === 'HIGH' ? 10
             : marker.flood_status === 'MEDIUM' ? 8
             : 6
