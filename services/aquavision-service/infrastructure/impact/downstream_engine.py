@@ -30,6 +30,13 @@ def _to_int(val) -> int:
         return 0
     return int(val)
 
+
+def _maybe_float(val):
+    """Convert Decimal/int/float to float, preserving None (absent values)."""
+    if val is None:
+        return None
+    return float(val)
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +58,8 @@ class SegmentImpact:
     hospitals_count: int
     roads_km: float
     confidence: str
+    travel_time_hours_min: Optional[float] = None
+    travel_time_hours_max: Optional[float] = None
     notes: str = ""
 
 
@@ -157,6 +166,8 @@ class DownstreamImpactEngine:
                 hospitals_count=_to_int(impact.get("hospitals_count", 0)),
                 roads_km=_to_float(impact.get("roads_km", 0)),
                 confidence=confidence,
+                travel_time_hours_min=_maybe_float(impact.get("travel_time_hours_min")),
+                travel_time_hours_max=_maybe_float(impact.get("travel_time_hours_max")),
                 notes=notes,
             )
             result.segments.append(segment_impact)
@@ -322,7 +333,8 @@ class DownstreamImpactEngine:
                 text("""
                     SELECT affected_population_est, affected_village_count,
                            affected_town_count, bridges_count, hospitals_count,
-                           roads_km, notes
+                           roads_km, notes,
+                           travel_time_hours_min, travel_time_hours_max
                     FROM aquavision.water_downstream_impacts
                     WHERE source_asset_id = :src_id
                     AND downstream_asset_id = :dst_id

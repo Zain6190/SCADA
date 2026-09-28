@@ -39,6 +39,8 @@ class SegmentImpactResponse(BaseModel):
     hospitals_count: int
     roads_km: float
     confidence: str
+    travel_time_hours_min: Optional[float] = None
+    travel_time_hours_max: Optional[float] = None
     notes: str
 
 
@@ -125,6 +127,8 @@ def calculate_impact(
                 hospitals_count=s.hospitals_count,
                 roads_km=s.roads_km,
                 confidence=s.confidence,
+                travel_time_hours_min=s.travel_time_hours_min,
+                travel_time_hours_max=s.travel_time_hours_max,
                 notes=s.notes,
             )
             for s in result.segments

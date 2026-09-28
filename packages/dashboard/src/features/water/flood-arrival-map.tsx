@@ -17,7 +17,7 @@ import 'leaflet/dist/leaflet.css'
 import '@/app/water/flood-map/flood-map.css'
 
 import { RIVER_GEOMETRY, SEGMENT_RIVER } from './rivers'
-import type { AssetReading, FloodTerritoryFeature, SegmentData, AlertMarker } from './use-flood-map-state'
+import type { AssetReading, FloodTerritoryFeature, ArrivalSegment, AlertMarker } from './use-flood-map-state'
 
 function token(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback
@@ -103,7 +103,7 @@ interface FfdMarker {
 }
 
 interface FloodArrivalMapProps {
-  segments?: SegmentData[]
+  segments?: ArrivalSegment[]
   selectedAssetId?: number | null
   onAssetClick?: (assetId: number | null) => void
   height?: number | string
@@ -119,7 +119,7 @@ interface FloodArrivalMapProps {
   territories?: FloodTerritoryFeature[]
   selectedDistrict?: string | null
   onDistrictClick?: (district: string | null) => void
-  timeSlider?: number
+  arrivalNow?: number
 }
 
 function getTravelTimeColor(hours: number): string {
@@ -168,6 +168,22 @@ function midPt(a: [number, number], b: [number, number]): [number, number] {
   return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
 }
 
+function formatClock(ms: number | null): string {
+  if (ms == null) return '—'
+  return new Date(ms).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function hoursUntil(ms: number, now: number): string {
+  const h = (ms - now) / 3_600_000
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))}m`
+  return `${h.toFixed(1)}h`
+}
+
 function makeArrowIcon(from: [number, number], to: [number, number]): L.DivIcon {
   const dx = to[1] - from[1]
   const dy = to[0] - from[0]
@@ -209,21 +225,23 @@ function FitBounds({ assets, districtKey }: { assets: AssetReading[]; districtKe
 function FloodPulsePolyline({
   positions,
   travelTime,
+  arrived = false,
   tooltipContent,
 }: {
   positions: [number, number][]
   travelTime: number
+  arrived?: boolean
   tooltipContent?: React.ReactNode
 }) {
   const color = getTravelTimeColor(travelTime)
-  const pulseClass = getPulseClass(travelTime)
+  const pulseClass = arrived ? '' : getPulseClass(travelTime)
   const polylineRef = useCallback(
     (el: L.Polyline | null) => {
       if (el) {
         const pathEl = el.getElement?.()
         if (pathEl) {
           pathEl.classList.remove('flood-pulse', 'flood-pulse-critical', 'flood-pulse-slow')
-          pathEl.classList.add(pulseClass)
+          if (pulseClass) pathEl.classList.add(pulseClass)
         }
       }
     },
@@ -236,9 +254,9 @@ function FloodPulsePolyline({
       positions={positions}
       pathOptions={{
         color,
-        weight: 5,
+        weight: arrived ? 6 : 5,
         opacity: 0.9,
-        dashArray: travelTime > 24 ? '10, 8' : undefined,
+        dashArray: !arrived && travelTime > 24 ? '10, 8' : undefined,
         className: pulseClass,
       }}
     >
@@ -281,7 +299,7 @@ export function FloodArrivalMap({
   territories = [],
   selectedDistrict = null,
   onDistrictClick,
-  timeSlider = 48,
+  arrivalNow = Date.now(),
 }: FloodArrivalMapProps) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -292,10 +310,7 @@ export function FloodArrivalMap({
     return map
   }, [assets])
 
-  const visibleSegments = useMemo(
-    () => segments.filter((s) => s.travel_time_hours != null && s.travel_time_hours <= timeSlider),
-    [segments, timeSlider]
-  )
+  const visibleSegments = segments
 
   const alertAssetIds = useMemo(() => {
     const ids = new Set<number>()
@@ -525,29 +540,52 @@ export function FloodArrivalMap({
           const travel = seg.travel_time_hours
           if (!from || !to || travel == null) return null
           const riverName = SEGMENT_RIVER[`${seg.from_id}-${seg.to_id}`] || seg.river
-          const arrival = seg.arrival_time ? new Date(seg.arrival_time) : null
-          const arrivalValid = arrival != null && !Number.isNaN(arrival.getTime())
+          const hasBand = seg.travel_time_hours_min != null && seg.travel_time_hours_max != null
           return (
             <FloodPulsePolyline
               key={`segment-${seg.from_id}-${seg.to_id}-${i}`}
               positions={[from, to]}
               travelTime={travel}
+              arrived={seg.arrived}
               tooltipContent={
                 <Tooltip>
                   <div className="space-y-0.5">
                     <p className="text-[11px] font-semibold">{fromAsset?.name ?? '—'} → {toAsset?.name ?? '—'}</p>
                     {riverName && <p className="text-[10px] text-ink-subtle">{riverName} River</p>}
-                    <p className="text-[10px]">Travel: <span className="font-semibold">{travel}h</span> <span className="text-ink-subtle">(model estimate)</span></p>
                     <p className="text-[10px]">
-                      Arrival:{' '}
-                      {arrivalValid ? (
-                        <span className="font-semibold">
-                          {arrival!.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      Travel: <span className="font-semibold">{travel.toFixed(1)}h</span>{' '}
+                      {hasBand ? (
+                        <span className="text-ink-subtle">
+                          (min {seg.travel_time_hours_min!.toFixed(1)}h · max {seg.travel_time_hours_max!.toFixed(1)}h)
                         </span>
                       ) : (
-                        <span className="font-semibold">in {travel}h <span className="text-ink-subtle">(from now)</span></span>
+                        <span className="text-ink-subtle">(model estimate)</span>
                       )}
                     </p>
+                    <p className="text-[10px]">
+                      {seg.arrived ? (
+                        <>
+                          Arrived:{' '}
+                          <span className="font-semibold">{formatClock(seg.arrivalMs)}</span>
+                        </>
+                      ) : seg.arrivalMs != null ? (
+                        <>
+                          Arrives:{' '}
+                          <span className="font-semibold">{formatClock(seg.arrivalMs)}</span>{' '}
+                          <span className="text-ink-subtle">
+                            (in {hoursUntil(seg.arrivalMs, arrivalNow)}
+                            {seg.arrivalEstimated ? ', estimated from now' : ''})
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-ink-subtle">Arrival unknown</span>
+                      )}
+                    </p>
+                    {seg.confidence && (
+                      <p className="text-[10px] uppercase tracking-wide text-ink-muted">
+                        Confidence: <span className="font-semibold text-ink">{seg.confidence}</span>
+                      </p>
+                    )}
                     <p className="text-[10px]">Distance: <span className="font-semibold">{seg.distance_km != null ? `${seg.distance_km} km` : '—'}</span></p>
                     <p className="text-[10px]">Pop: <span className="font-semibold text-warn">{(seg.population_exposed / 1000000).toFixed(1)}M</span></p>
                   </div>

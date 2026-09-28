@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronUp, X, Layers, Activity, Gauge, FlaskConical, Loader2 } from 'lucide-react'
-import type { AssetReading, FloodTerritoryFeature, LayerState, RegionAlert, ScenarioMessage } from './use-flood-map-state'
+import { ChevronDown, ChevronUp, X, Layers, Activity, Gauge, FlaskConical, Loader2, Clock } from 'lucide-react'
+import type { AssetReading, ArrivalSegment, FloodTerritoryFeature, LayerState, RegionAlert, ScenarioMessage } from './use-flood-map-state'
 
 const TRAVEL_TIMES = [
   { color: '#ef4444', label: '0-6h', tag: 'Critical' },
@@ -75,6 +75,20 @@ function formatArrival(iso: string | null | undefined): { text: string; known: b
   }
 }
 
+function formatClockMs(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+function dayGroupLabel(ms: number, now: number): string {
+  const d = new Date(ms)
+  const today = new Date(now)
+  const tomorrow = new Date(now + 86_400_000)
+  const datePart = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  if (d.toDateString() === today.toDateString()) return `Today · ${datePart}`
+  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow · ${datePart}`
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 interface SidebarProps {
   timeSlider: number
   onTimeSliderChange: (v: number) => void
@@ -101,6 +115,8 @@ interface SidebarProps {
   onClearSelection?: () => void
   assets?: AssetReading[]
   territories?: FloodTerritoryFeature[]
+  arrivalSegments?: ArrivalSegment[]
+  arrivalNow?: number
   scenarioBusy?: boolean
   scenarioMessage?: ScenarioMessage | null
   onRunScenario?: (assetId: number, kind: 'inflow_surge' | 'clear') => void
@@ -129,7 +145,8 @@ export function FloodMapSidebar({
   regionAlerts, alertedPopulation, selectedDistrict, selectedTerritory, onSelectDistrict,
   totalPopulation, totalBridges, totalHospitals, visibleSegments, totalSegments,
   selectedAssetId, impactSummary, impactReason, calculating, onClearSelection,
-  assets = [], territories = [], scenarioBusy = false, scenarioMessage = null, onRunScenario,
+  assets = [], territories = [], arrivalSegments = [], arrivalNow = Date.now(),
+  scenarioBusy = false, scenarioMessage = null, onRunScenario,
 }: SidebarProps) {
   const layers: { key: keyof LayerState; label: string; state: boolean }[] = [
     { key: 'showTerritories', label: 'District Zones', state: showTerritories },
@@ -165,6 +182,26 @@ export function FloodMapSidebar({
       setScenarioAssetId(scenarioTargets[0].id)
     }
   }, [scenarioTargets, scenarioAssetId])
+
+  const assetsById = useMemo(() => {
+    const map: Record<number, AssetReading> = {}
+    for (const asset of assets) map[asset.id] = asset
+    return map
+  }, [assets])
+
+  const timelineGroups = useMemo(() => {
+    const sorted = arrivalSegments
+      .filter(s => s.arrivalMs != null)
+      .sort((a, b) => (a.arrivalMs ?? 0) - (b.arrivalMs ?? 0))
+    const groups: { label: string; items: ArrivalSegment[] }[] = []
+    for (const seg of sorted) {
+      const label = dayGroupLabel(seg.arrivalMs!, arrivalNow)
+      const last = groups[groups.length - 1]
+      if (last && last.label === label) last.items.push(seg)
+      else groups.push({ label, items: [seg] })
+    }
+    return groups
+  }, [arrivalSegments, arrivalNow])
 
   const activeScenario = useMemo(
     () => territories.filter((f) => f.properties.ot_source === 'SOFT_OT_SCENARIO'),
@@ -547,10 +584,60 @@ export function FloodMapSidebar({
           </Section>
         )}
 
-        <Section title="Travel Time Filter" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} defaultOpen={false}>
+        <Section title="Arrival Timeline" icon={<Clock className="h-3 w-3" />} defaultOpen={true}>
+          {arrivalSegments.length === 0 ? (
+            <p className="text-[11px] text-ink-subtle">
+              {totalSegments === 0
+                ? 'No travel segments available.'
+                : `Nothing arrives within the next ${timeSlider}h — widen the arrival horizon.`}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {timelineGroups.map((group) => (
+                <div key={group.label}>
+                  <p className="text-[9px] uppercase tracking-wider text-ink-subtle mb-1">{group.label}</p>
+                  <ul className="space-y-1">
+                    {group.items.map((seg) => {
+                      const fromName = assetsById[seg.from_id]?.name ?? `Asset ${seg.from_id}`
+                      const toName = assetsById[seg.to_id]?.name ?? `Asset ${seg.to_id}`
+                      const remaining = seg.arrivalMs != null ? (seg.arrivalMs - arrivalNow) / 3_600_000 : null
+                      return (
+                        <li
+                          key={`${seg.from_id}-${seg.to_id}`}
+                          className={`flex items-start justify-between gap-2 rounded-lg border border-line bg-surface px-2 py-1.5 ${seg.arrived ? 'opacity-60' : ''}`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-medium text-ink truncate">{fromName} → {toName}</p>
+                            <p className="text-[9px] text-ink-subtle truncate">
+                              {seg.river ? `${seg.river} · ` : ''}{formatPeople(seg.population_exposed)} exposed
+                            </p>
+                          </div>
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-[10px] font-mono font-semibold text-brand">
+                              {seg.arrivalEstimated ? '~' : ''}{formatClockMs(seg.arrivalMs!)}
+                            </p>
+                            <p className={`text-[9px] ${seg.arrived ? 'text-ok' : 'text-ink-subtle'}`}>
+                              {seg.arrived
+                                ? 'Arrived'
+                                : remaining != null
+                                  ? `in ${remaining < 1 ? `${Math.max(1, Math.round(remaining * 60))}m` : `${remaining.toFixed(1)}h`}`
+                                  : '—'}
+                            </p>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Arrival Horizon" icon={<svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} defaultOpen={false}>
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-ink-subtle">Show segments up to</span>
+              <span className="text-[10px] text-ink-subtle">Show arrivals up to</span>
               <span className="text-xs font-semibold text-brand">{timeSlider}h</span>
             </div>
             <input

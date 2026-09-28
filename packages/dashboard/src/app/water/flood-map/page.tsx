@@ -18,7 +18,7 @@ export default function FloodMapPage() {
     mobileSidebarOpen, setMobileSidebarOpen,
     layers, toggleLayer,
     timeSlider, setTimeSlider,
-    displaySegments, totals, visibleSegments, impactSummary,
+    displaySegments, totals, visibleSegments, arrivalNow, impactSummary,
     assets, ffdWarnings, floodClassifications,
     ffdMarkers,
     territories, regionAlerts, selectedDistrict, selectedTerritory, alertedPopulation,
@@ -72,7 +72,7 @@ export default function FloodMapPage() {
                 </div>
               ) : (
                 <FloodArrivalMapDynamic
-                  segments={displaySegments}
+                  segments={visibleSegments}
                   selectedAssetId={selectedAsset}
                   onAssetClick={setSelectedAsset}
                   assets={assets}
@@ -87,7 +87,7 @@ export default function FloodMapPage() {
                   territories={territories}
                   selectedDistrict={selectedDistrict}
                   onDistrictClick={setSelectedDistrict}
-                  timeSlider={timeSlider}
+                  arrivalNow={arrivalNow}
                 />
               )}
             </div>
@@ -120,6 +120,8 @@ export default function FloodMapPage() {
                 onClearSelection={() => setSelectedAsset(null)}
                 assets={assets}
                 territories={territories}
+                arrivalSegments={visibleSegments}
+                arrivalNow={arrivalNow}
                 scenarioBusy={scenarioBusy}
                 scenarioMessage={scenarioMessage}
                 onRunScenario={runScenarioFault}
@@ -170,6 +172,8 @@ export default function FloodMapPage() {
                   onClearSelection={() => { setSelectedAsset(null); setMobileSidebarOpen(false) }}
                   assets={assets}
                   territories={territories}
+                  arrivalSegments={visibleSegments}
+                  arrivalNow={arrivalNow}
                   scenarioBusy={scenarioBusy}
                   scenarioMessage={scenarioMessage}
                   onRunScenario={runScenarioFault}

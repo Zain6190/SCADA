@@ -12,11 +12,20 @@ export interface SegmentData {
   to_id: number
   river: string | null
   travel_time_hours: number | null
+  travel_time_hours_min?: number | null
+  travel_time_hours_max?: number | null
+  confidence?: string | null
   arrival_time?: string | null
   distance_km: number | null
   population_exposed: number
   bridges: number
   hospitals: number
+}
+
+export interface ArrivalSegment extends SegmentData {
+  arrivalMs: number | null
+  arrivalEstimated: boolean
+  arrived: boolean
 }
 
 export interface ImpactSummary {
@@ -35,6 +44,9 @@ export interface ImpactSummary {
     downstream_asset: string
     distance_km: number
     travel_time_hours: number | null
+    travel_time_hours_min?: number | null
+    travel_time_hours_max?: number | null
+    confidence?: string | null
     arrival_time: string | null
     population_exposed: number
     bridges_count: number
@@ -217,6 +229,8 @@ async function fetchOverview(): Promise<FloodMapOverview> {
         to_id: imp.downstream_asset_id,
         river: riverFromNotes(imp.notes),
         travel_time_hours: imp.travel_time_hours_expected ?? imp.travel_time_hours_min ?? null,
+        travel_time_hours_min: imp.travel_time_hours_min ?? null,
+        travel_time_hours_max: imp.travel_time_hours_max ?? null,
         distance_km: imp.distance_km ?? null,
         population_exposed: imp.affected_population_est ?? 0,
         bridges: imp.bridges_count ?? 0,
@@ -477,6 +491,9 @@ export function useFloodMapState() {
             to_id: to.id,
             river: s.river_name || null,
             travel_time_hours: s.travel_time_hours ?? null,
+            travel_time_hours_min: s.travel_time_hours_min ?? null,
+            travel_time_hours_max: s.travel_time_hours_max ?? null,
+            confidence: s.confidence ?? null,
             arrival_time: s.arrival_time ?? null,
             distance_km: s.distance_km ?? null,
             population_exposed: s.population_exposed,
@@ -489,15 +506,44 @@ export function useFloodMapState() {
     return segments
   }, [selectedAsset, impactSummary, segments, assetsByName])
 
+  // Arrival model: real backend arrival_time when present, otherwise an
+  // honest "from now" estimate (arrivalEstimated) anchored to a now that
+  // ticks every 30s so countdowns and arrived-states stay current.
+  const [arrivalNow, setArrivalNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setArrivalNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const enrichedSegments = useMemo<ArrivalSegment[]>(() => {
+    return displaySegments.map((s) => {
+      const parsed = s.arrival_time ? new Date(s.arrival_time) : null
+      if (parsed && !Number.isNaN(parsed.getTime())) {
+        const ms = parsed.getTime()
+        return { ...s, arrivalMs: ms, arrivalEstimated: false, arrived: ms <= arrivalNow }
+      }
+      if (s.travel_time_hours != null) {
+        return {
+          ...s,
+          arrivalMs: arrivalNow + s.travel_time_hours * 3_600_000,
+          arrivalEstimated: true,
+          arrived: false,
+        }
+      }
+      return { ...s, arrivalMs: null, arrivalEstimated: false, arrived: false }
+    })
+  }, [displaySegments, arrivalNow])
+
   const totals = useMemo(() => ({
     population: displaySegments.reduce((sum, s) => sum + s.population_exposed, 0),
     bridges: displaySegments.reduce((sum, s) => sum + s.bridges, 0),
     hospitals: displaySegments.reduce((sum, s) => sum + s.hospitals, 0),
   }), [displaySegments])
 
+  const horizonMs = arrivalNow + timeSlider * 3_600_000
   const visibleSegments = useMemo(
-    () => displaySegments.filter(s => s.travel_time_hours != null && s.travel_time_hours <= timeSlider),
-    [displaySegments, timeSlider]
+    () => enrichedSegments.filter(s => s.arrivalMs != null && s.arrivalMs <= horizonMs),
+    [enrichedSegments, horizonMs]
   )
 
   const alertedPopulation = useMemo(
@@ -537,7 +583,7 @@ export function useFloodMapState() {
     // Controls
     timeSlider, setTimeSlider,
     // Derived
-    displaySegments, totals, visibleSegments, newestObservedAt, impactSummary,
+    displaySegments, totals, visibleSegments, arrivalNow, newestObservedAt, impactSummary,
     // Actions
     setSelectedAsset, setSelectedDistrict, setMobileSidebarOpen,
     // Scenario
