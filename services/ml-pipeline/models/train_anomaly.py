@@ -11,16 +11,20 @@ Artifacts -> models/artifacts/anomaly_if.joblib
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import joblib
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
-DSET_CSV = Path(__file__).resolve().parent.parent / "Data" / "features" / "dataset.csv"
-ARTIFACT_DIR = Path(__file__).resolve().parent.parent / "models" / "artifacts"
+ML_ROOT = Path(__file__).resolve().parent.parent
+DSET_CSV = ML_ROOT / "Data" / "features" / "dataset.csv"
+ARTIFACT_DIR = ML_ROOT / "models" / "artifacts"
 
-FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "month_idx"]
+sys.path.insert(0, str(ML_ROOT))
+from wai_features import FEATURE_COLS  # noqa: E402
+
 CONTAMINATION = 0.05
 
 

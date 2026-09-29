@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import glob
 import os
+import sys
 from pathlib import Path
 
 import joblib
@@ -27,7 +28,9 @@ RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
 DB_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
 )
-FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "month_idx"]
+
+sys.path.insert(0, str(ML_ROOT))
+from wai_features import FEATURE_COLS  # noqa: E402
 
 DB_ENGINE = None
 

@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import joblib
@@ -29,12 +30,13 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import LabelEncoder
 
-DATASET_CSV = Path(__file__).resolve().parent.parent / "Data" / "features" / "dataset.csv"
-ARTIFACT_DIR = Path(__file__).resolve().parent.parent / "models" / "artifacts"
+ML_ROOT = Path(__file__).resolve().parent.parent
+DATASET_CSV = ML_ROOT / "Data" / "features" / "dataset.csv"
+ARTIFACT_DIR = ML_ROOT / "models" / "artifacts"
 
-FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "sm_rootzone", "sm_surface", "month_idx"]
-TARGET_COL = "wai_score"
-SEVERITY_COL = "severity"
+sys.path.insert(0, str(ML_ROOT))
+from wai_features import FEATURE_COLS, SEVERITY_COL, TARGET_COL  # noqa: E402
+
 SEVERITY_ORDER = ["Normal", "Moderate", "Stressed", "Severe", "Critical"]
 MODEL_VERSION = "xgb-v1.0"
 

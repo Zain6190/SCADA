@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -34,9 +35,13 @@ RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
 DB_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
 )
-FEATURE_COLS = ["rainfall_mm", "et_mm", "water_extent", "ndvi", "month_idx"]
+
+sys.path.insert(0, str(ML_ROOT))
+from wai_features import FEATURE_COLS  # noqa: E402
+
 RULE_VERSION = os.getenv("GEE_RULE_VERSION", "risk-v1.0")
 _ONE_MONTH = timedelta(days=31)
+th: dict = {}
 
 _engine = None
 
@@ -232,10 +237,14 @@ def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
     return written, resolved
 
 
-th = load_thresholds()
-
-
 def main() -> dict:
+    """Generate severity alerts for the latest complete month.
+
+    Thresholds load here, not at module level, so importing this module
+    (unit tests, feature-contract checks) never needs a live database.
+    """
+    global th
+    th = load_thresholds()
     reg = joblib.load(latest_artifact("wai_reg_*.joblib"))
     detector = joblib.load(latest_artifact("anomaly_if.joblib"))
 
