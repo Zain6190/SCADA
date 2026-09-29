@@ -10,7 +10,8 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { waterApi } from '@/features/water/api'
-import type { MLPrediction } from '@/features/water/types'
+import { ReliabilityBadge } from '@/features/water/reliability-badge'
+import type { MLPrediction, V2AssetReliability } from '@/features/water/types'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fmtDateTime } from '@/lib/format'
 import V2PredictionsTab from './v2-tab'
@@ -130,6 +131,13 @@ function FloodPredictionsTab() {
     staleTime: 5 * 60_000,
   })
 
+  const { data: reliability } = useQuery({
+    queryKey: ['v2-reliability'],
+    queryFn: () => waterApi.getV2Reliability(),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
+
   return (
     <>
       {trainMutation.isSuccess && (
@@ -191,6 +199,7 @@ function FloodPredictionsTab() {
             isExpanded={expanded === id}
             onToggle={() => setExpanded(expanded === id ? null : id)}
             metadata={metadata}
+            reliability={reliability?.assets?.[String(id)]}
           />
         ))}
       </div>
@@ -203,11 +212,13 @@ function PredictionCard({
   isExpanded,
   onToggle,
   metadata,
+  reliability,
 }: {
   assetId: number
   isExpanded: boolean
   onToggle: () => void
   metadata?: any
+  reliability?: V2AssetReliability
 }) {
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['ml-predictions', assetId],
@@ -238,6 +249,7 @@ function PredictionCard({
             )
           }
           accent={pred ? RISK_COLORS[pred.risk_level] ?? 'bg-surface-sunken text-ink-muted' : 'bg-surface-sunken text-ink-subtle'}
+          action={reliability ? <ReliabilityBadge r={reliability} /> : undefined}
         />
       </button>
 

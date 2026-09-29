@@ -29,6 +29,7 @@ import type {
   V2AssetPrediction,
   V2NationalOverview,
   V2ForecastChart,
+  V2Reliability,
   AlertQueue,
   TimelineItem,
   EscalationsBoard,
@@ -258,6 +259,11 @@ export const waterApi = {
 
   getV2ForecastChart: async (assetId: number): Promise<V2ForecastChart> => {
     const { data } = await waterClient.get(`/v2/asset/${assetId}/forecast-chart`)
+    return data
+  },
+
+  getV2Reliability: async (): Promise<V2Reliability> => {
+    const { data } = await waterClient.get('/v2/reliability')
     return data
   },
 

@@ -579,6 +579,24 @@ export interface V2ForecastChart {
   danger_level: number | null
 }
 
+// GET /water/v2/reliability — REAL scored-forecast track record per asset
+export interface V2AssetReliability {
+  asset_id: number
+  asset_name: string
+  n: number
+  mape_pct: number | null
+  first_scored: string | null
+  last_scored: string | null
+  tier: string // VALIDATED | TRACKING | LOW_CONFIDENCE | UNRELIABLE | UNPROVEN
+  label: string
+  tone: string // badge tone: neutral | info | ok | warn | crit
+}
+
+export interface V2Reliability {
+  timestamp: string
+  assets: Record<string, V2AssetReliability>
+}
+
 // ─── Alert workflow (instructions, queue, timeline, KPIs) ──────────────────
 export interface WorkflowInstruction {
   id: number

@@ -8,6 +8,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
 import { waterApi } from '@/features/water/api'
+import { ReliabilityBadge } from '@/features/water/reliability-badge'
 import { useQuery } from '@tanstack/react-query'
 import type {
   V2LeadTimeForecast, V2NationalOverview, V2ForecastChart,
@@ -193,6 +194,13 @@ function AssetPredictionDetail({ assetId }: { assetId: number }) {
     retry: 1,
   })
 
+  const { data: reliability } = useQuery({
+    queryKey: ['v2-reliability'],
+    queryFn: () => waterApi.getV2Reliability(),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
+
   if (isPending) return <Spinner />
   if (isError) return <ErrorState onRetry={() => refetch()} />
   if (!data) return <EmptyState title="No prediction" message="No data available." />
@@ -212,7 +220,10 @@ function AssetPredictionDetail({ assetId }: { assetId: number }) {
             )}
           </p>
         </div>
-        <Badge tone="amber">EXPERIMENTAL</Badge>
+        <div className="flex items-center gap-2">
+          <ReliabilityBadge r={reliability?.assets?.[String(assetId)]} />
+          <Badge tone="amber">EXPERIMENTAL</Badge>
+        </div>
       </div>
 
       {/* Alerts */}
