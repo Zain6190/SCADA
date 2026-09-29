@@ -1065,19 +1065,16 @@ def check_prediction_alerts(db: Session, asset_id: int) -> List[WaterOperational
         # Build feature set for prediction
         from ml.features.feature_engineering import FloodFeatureBuilder
         builder = FloodFeatureBuilder(db)
-        
-        from datetime import datetime as dt, timedelta
-        end = dt.now(timezone.utc)
-        start = end - timedelta(days=400)
-        
-        X, y, feature_names, weights = builder.build_training_table(
+
+        from datetime import datetime as dt
+        X, feature_names = builder.build_prediction_features(
             asset_id=asset_id,
-            start_date=start,
-            end_date=end,
-            forecast_horizon=7,
+            as_of_date=dt.now(timezone.utc),
+            real_only=True,
+            source_priority=True,
         )
-        
-        if len(X) == 0:
+
+        if X is None:
             return []
         
         # Predict on latest row
@@ -1219,23 +1216,27 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                 from ml.models.flood_predictor import FloodPredictor
                 from ml.features.feature_engineering import FloodFeatureBuilder
                 from pathlib import Path
-                from datetime import datetime as dt, timedelta
+                from datetime import datetime as dt
                 import numpy as np
                 
                 # Try all horizons
                 predictor = FloodPredictor()
                 builder = FloodFeatureBuilder(db)
                 end_dt = dt.now(timezone.utc)
-                start_dt = end_dt - timedelta(days=400)
-                
-                X, y, feature_names, weights = builder.build_training_table(
+
+                X, feature_names = builder.build_prediction_features(
                     asset_id=asset.id,
-                    start_date=start_dt,
-                    end_date=end_dt,
-                    forecast_horizon=30,
+                    as_of_date=end_dt,
+                    real_only=True,
+                    source_priority=True,
                 )
-                
-                if len(X) == 0:
+
+                if X is None:
+                    logger.warning(
+                        "Prediction pipeline: skipping %s — no REAL observations "
+                        "in the last 60 days to build features from",
+                        asset.canonical_name,
+                    )
                     continue
 
                 for horizon in [3, 7, 14, 30]:

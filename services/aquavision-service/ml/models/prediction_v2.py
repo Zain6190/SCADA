@@ -659,7 +659,14 @@ class AquaVisionPredictionModel:
         return None, None
 
     def _get_ml_predictions(self, asset_id: int) -> Dict[int, Dict]:
-        """Get ML predictions from existing FloodPredictor."""
+        """Get ML predictions from existing FloodPredictor.
+
+        Maps each model's actual target to a flow value in cusecs. A
+        level-target value is FEET — never cusecs (a historic unit bug), so
+        those models don't contribute. 'auto' targets are resolved to their
+        concrete field the same way the batch pipeline does, and only
+        accepted when that field is a flow field.
+        """
         predictions = {}
 
         try:
@@ -691,12 +698,27 @@ class AquaVisionPredictionModel:
                     # A level-target value is FEET — never treat it as cusecs
                     # (that was a unit bug); such models simply don't contribute
                     # to the discharge forecast and the caller falls back.
+                    target_field = pred.target_field
                     if pred.predicted_discharge is not None:
                         predicted_cusecs = pred.predicted_discharge
                     elif pred.predicted_outflow is not None:
                         predicted_cusecs = pred.predicted_outflow
                     elif pred.predicted_inflow is not None:
                         predicted_cusecs = pred.predicted_inflow
+                    elif target_field == "auto" and self.session is not None:
+                        from ml.targets import resolve_target_field
+
+                        resolved = resolve_target_field(self.session, asset_id)
+                        if resolved in ("discharge", "outflow", "inflow") and pred.predicted_level_ft is not None:
+                            predicted_cusecs = pred.predicted_level_ft
+                            target_field = resolved
+                        else:
+                            logger.debug(
+                                "asset %s horizon %ds: auto target resolves to %s "
+                                "— skipping discharge contribution",
+                                asset_id, horizon, resolved,
+                            )
+                            continue
                     else:
                         logger.debug(
                             "asset %s horizon %ds: target_field=%s has no flow "
@@ -705,7 +727,7 @@ class AquaVisionPredictionModel:
                         )
                         continue
 
-                    self._ml_target_fields[asset_id] = pred.target_field
+                    self._ml_target_fields[asset_id] = target_field
                     cov = predictor.training_metrics.get(
                         f"{asset_id}_{horizon}", {}
                     ).get("ci_coverage_80")
@@ -717,7 +739,7 @@ class AquaVisionPredictionModel:
                         "upper_bound": pred.upper_bound,
                         "risk_score": pred.risk_score,
                         "risk_level": pred.risk_level,
-                        "target_field": pred.target_field,
+                        "target_field": target_field,
                         "ci_method": pred.ci_method,
                     }
 

@@ -184,9 +184,18 @@ class FloodFeatureBuilder:
         self,
         asset_id: int,
         as_of_date: datetime,
+        real_only: bool = True,
+        source_priority: bool = True,
     ) -> Tuple[Optional[np.ndarray], List[str]]:
         """Build feature vector for prediction (latest state).
-        
+
+        Defaults mirror the training policy (REAL observations only, best
+        source per date) so serving features match the distribution the
+        models were trained on. When the best-source view has masked most
+        REAL rows with Soft-OT winners (fewer than 10 kept), it retries on
+        the raw observation table so recently-reported REAL data (Kaggle,
+        IRSA) is not lost.
+
         Returns:
             X: Feature vector (1, n_features) or None if insufficient data
             feature_names: List of feature names
@@ -195,7 +204,17 @@ class FloodFeatureBuilder:
             asset_id,
             as_of_date - timedelta(days=60),
             as_of_date,
+            real_only=real_only,
+            source_priority=source_priority,
         )
+        if len(observations) < 10 and source_priority:
+            observations = self._get_observations(
+                asset_id,
+                as_of_date - timedelta(days=60),
+                as_of_date,
+                real_only=real_only,
+                source_priority=False,
+            )
         
         if len(observations) < 10:
             return None, []
