@@ -21,13 +21,18 @@ _OT_ORIGINS = {"SCENARIO", "OFFICIAL_REPLAY", "SYNTHETIC", "SYNTHETIC_HISTORICAL
 
 
 def usable_for_training(data_origin: Optional[str], source_authority: Optional[str]) -> bool:
-    """Soft OT replay and scenario rows never train the flood model."""
+    """Soft OT replay and scenario rows never train the flood model.
+
+    REAL observations and REANALYSIS (GloFAS) rows do: reanalysis is a
+    labelled model product, not an observation, so sample weights keep it
+    below REAL everywhere it is used.
+    """
     if source_authority == "SOFT_OT":
         return False
     origin = (data_origin or "REAL").upper()
     if origin in _OT_ORIGINS:
         return False
-    return origin == "REAL"
+    return origin in {"REAL", "REANALYSIS"}
 
 
 def keep_training_row(data_origin: Optional[str], source_authority: Optional[str], real_only: bool) -> bool:
@@ -301,7 +306,7 @@ class FloodFeatureBuilder:
             # replay adapters write SIMULATED, and both must be excluded.
             # SOFT_OT / SCENARIO / OFFICIAL_REPLAY are never training rows.
             q = q.where(
-                WaterObservation.data_origin == "REAL",
+                WaterObservation.data_origin.in_(("REAL", "REANALYSIS")),
                 WaterObservation.data_status != "SYNTHETIC_HISTORICAL",
                 or_(
                     WaterObservation.source_authority.is_(None),
