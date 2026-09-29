@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
+
 from infrastructure.db.engine import SessionLocal
 from infrastructure.db.models import WaterAsset
 from ml.features.feature_engineering import FloodFeatureBuilder
@@ -147,8 +149,6 @@ def test_prediction(asset_id: int = 1, horizon: int = 7):
 
 
 if __name__ == "__main__":
-    from sqlalchemy import select
-    
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "test":
         asset_id = int(sys.argv[2]) if len(sys.argv) > 2 else 1
