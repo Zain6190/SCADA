@@ -120,7 +120,7 @@ function NationalOverviewPanel({ data }: { data: V2NationalOverview }) {
           <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
             <div className="text-[10px] font-semibold uppercase text-ink-subtle">National WAI</div>
             <div className="mt-1 flex items-center gap-2">
-              <span className="text-2xl font-bold text-ink">{data.national_wai.toFixed(1)}</span>
+              <span className="text-2xl font-bold text-ink">{data.national_wai?.toFixed(1) ?? '—'}</span>
               <Badge tone={statusTone(data.national_status)}>{data.national_status}</Badge>
             </div>
           </div>
@@ -403,13 +403,13 @@ function LeadTimeCard({
             Discharge
           </div>
           <div className="mt-1 text-xl font-bold text-ink">
-            {discharge.value_m3s.toFixed(0)} <span className="text-xs font-normal text-ink-muted">m³/s</span>
+            {discharge.value_m3s?.toFixed(0) ?? '—'} <span className="text-xs font-normal text-ink-muted">m³/s</span>
           </div>
           <div className="text-[10px] text-ink-subtle">
-            {discharge.value_cusecs.toLocaleString()} cusecs
+            {discharge.value_cusecs != null ? discharge.value_cusecs.toLocaleString() : '—'} cusecs
           </div>
           <div className="mt-1 text-[10px] text-ink-subtle">
-            CI: [{discharge.confidence_lower_m3s.toFixed(0)}, {discharge.confidence_upper_m3s.toFixed(0)}] m³/s
+            CI: [{discharge.confidence_lower_m3s?.toFixed(0) ?? '—'}, {discharge.confidence_upper_m3s?.toFixed(0) ?? '—'}] m³/s
           </div>
           {ci && (
             <div className="mt-1.5 flex items-center gap-1.5">
@@ -452,7 +452,7 @@ function LeadTimeCard({
             <span className="text-xs text-ink-muted">Rainfall</span>
           </div>
           <span className="text-xs font-medium text-ink-muted">
-            {rain.value_mm.toFixed(0)}mm ({(rain.probability * 100).toFixed(0)}%)
+            {rain.value_mm?.toFixed(0) ?? '—'}mm ({rain.probability != null ? `${(rain.probability * 100).toFixed(0)}%` : '—'})
           </span>
         </div>
 

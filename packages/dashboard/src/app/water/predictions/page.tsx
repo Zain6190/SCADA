@@ -477,7 +477,7 @@ function WAIPredictionCard({ pred }: { pred: WAIPrediction }) {
         <div className="space-y-1 text-xs">
           <div className="flex justify-between">
             <span className="text-ink-subtle">WAI Score</span>
-            <span className="font-mono font-bold text-ink">{pred.predicted_wai_score.toFixed(1)}</span>
+            <span className="font-mono font-bold text-ink">{pred.predicted_wai_score?.toFixed(1) ?? '—'}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-ink-subtle">Confidence</span>

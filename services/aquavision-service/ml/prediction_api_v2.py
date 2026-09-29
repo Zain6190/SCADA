@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _require_data(result) -> None:
+    """Refuse to serve _empty_prediction placeholders (50/Moderate/0) as real
+    forecasts — an asset with no observations gets an honest 404 instead."""
+    if result.model_metadata.get("status") == "NO_DATA":
+        raise HTTPException(
+            status_code=404,
+            detail=f"No observation data for asset {result.asset_id} yet — forecast unavailable",
+        )
+
+
 # ─── Pydantic Response Models ────────────────────────────────────────────────
 
 class DischargeResponse(BaseModel):
@@ -142,6 +152,7 @@ def get_prediction(
             asset_type=asset.asset_type or "barrage",
             lead_times=lt_list,
         )
+        _require_data(result)
 
         return PredictionResponse(
             asset_id=result.asset_id,
@@ -163,6 +174,8 @@ def get_prediction(
             model_metadata=result.model_metadata,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Prediction failed for asset {asset_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
@@ -192,6 +205,7 @@ def get_single_lead_prediction(
             asset_type=asset.asset_type or "barrage",
             lead_times=[lead_time],
         )
+        _require_data(result)
 
         forecast = result.predictions[f"{lead_time}_day"]
         return LeadTimeResponse(
@@ -203,6 +217,8 @@ def get_single_lead_prediction(
             confidence=forecast.confidence,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Prediction failed for asset {asset_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
@@ -291,33 +307,20 @@ def get_forecast_chart_data(
     asset_id: int,
     session: Session = Depends(get_session),
 ):
-    """Get time series data for forecast chart (for frontend)."""
+    """Time series for the forecast chart (frontend).
+
+    Runs the prediction first: which flow series the forecast refers to
+    (discharge vs outflow vs inflow) comes from the loaded ML models, so
+    actuals are plotted on the same series/unit as the forecast. Actuals are
+    the last 30 calendar days at daily grain (the old LIMIT 30 grabbed 30
+    raw rows — under a day of Soft OT ticks or an arbitrary slice of history).
+    """
     asset = session.get(WaterAsset, asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
     from sqlalchemy import text as sql_text
 
-    # Get historical observations (last 30 days)
-    rows = session.execute(
-        sql_text("""
-            SELECT observed_at, discharge_cusecs, water_level_ft
-            FROM aquavision.water_observations
-            WHERE asset_id = :aid
-            ORDER BY observed_at DESC
-            LIMIT 30
-        """),
-        {"aid": asset_id},
-    ).mappings().all()
-
-    dates = []
-    actual = []
-
-    for row in reversed(rows):
-        dates.append(row["observed_at"].strftime("%Y-%m-%d") if row["observed_at"] else "")
-        actual.append(float(row["discharge_cusecs"]) if row["discharge_cusecs"] else None)
-
-    # Get predictions for each lead time
     from ml.models.prediction_v2 import AquaVisionPredictionModel
 
     model = AquaVisionPredictionModel(session=session)
@@ -327,6 +330,42 @@ def get_forecast_chart_data(
         asset_type=asset.asset_type or "barrage",
         lead_times=[3, 7, 14],
     )
+    _require_data(result)
+
+    target = model._ml_target_fields.get(asset_id)
+    target_col = {"discharge": "discharge_cusecs",
+                  "outflow": "outflow_cusecs",
+                  "inflow": "inflow_cusecs"}.get(target)
+    if target_col:
+        flow_expr = target_col
+    else:
+        flow_expr = "COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs)"
+
+    from datetime import timedelta
+
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    rows = session.execute(
+        sql_text(f"""
+            SELECT d, AVG(flow) AS v
+            FROM (
+                SELECT to_char(observed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d,
+                       {flow_expr} AS flow
+                FROM aquavision.water_observations
+                WHERE asset_id = :aid AND observed_at >= :cutoff
+            ) s
+            WHERE flow IS NOT NULL AND flow > 0
+            GROUP BY d
+            ORDER BY d
+        """),
+        {"aid": asset_id, "cutoff": cutoff},
+    ).mappings().all()
+
+    dates = []
+    actual = []
+
+    for row in rows:
+        dates.append(row["d"])
+        actual.append(round(float(row["v"]), 1))
 
     # Build forecast arrays
     forecast_3d = [None] * len(dates)
