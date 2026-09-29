@@ -194,7 +194,7 @@ def write_spi_to_db(engine, spi_results: dict[int, dict]) -> int:
                     "spi3": spi.get("spi_3"),
                     "spi6": spi.get("spi_6"),
                     "spi12": spi.get("spi_12"),
-                    "dclass": _classify_drought(spi.get("spi_1")),
+                    "dclass": _classify_drought(spi["spi_1"]) if spi.get("spi_1") is not None else None,
                     "id": latest,
                 },
             )
@@ -221,10 +221,10 @@ def main(csv_path: Path | None = None) -> None:
         months_data = data[region_id]
         spi = compute_spi_for_region(months_data)
         spi_results[region_id] = spi
-        spi1 = spi.get("spi_1")
-        spi3 = spi.get("spi_3")
-        drought = _classify_drought(spi1) if spi1 is not None else "N/A"
-        print(f"  Region {region_id:2d}: SPI-1={spi1 or 'N/A':>6}  SPI-3={spi3 or 'N/A':>6}  class={drought}")
+        s1 = spi.get("spi_1")
+        s3 = spi.get("spi_3")
+        drought = _classify_drought(s1) if s1 is not None else "N/A"
+        print(f"  Region {region_id:2d}: SPI-1={s1 if s1 is not None else 'N/A':>6}  SPI-3={s3 if s3 is not None else 'N/A':>6}  class={drought}")
 
     updated = write_spi_to_db(engine, spi_results)
     print(f"[compute_spi] Updated {updated} rows in water_indicators_weekly")

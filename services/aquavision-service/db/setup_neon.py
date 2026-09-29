@@ -393,6 +393,8 @@ for col in [
     'ALTER TABLE aquavision.water_indicators_weekly ADD COLUMN IF NOT EXISTS spi_6 NUMERIC',
     'ALTER TABLE aquavision.water_indicators_weekly ADD COLUMN IF NOT EXISTS spi_12 NUMERIC',
     'ALTER TABLE aquavision.water_indicators_weekly ADD COLUMN IF NOT EXISTS spi_drought_class VARCHAR(20)',
+    'ALTER TABLE aquavision.water_indicators_weekly ADD COLUMN IF NOT EXISTS sm_rootzone NUMERIC',
+    'ALTER TABLE aquavision.water_indicators_weekly ADD COLUMN IF NOT EXISTS sm_surface NUMERIC',
     # Access-lifecycle columns on pre-existing shared.users (backend migrations 10/13)
     "ALTER TABLE shared.users ADD COLUMN IF NOT EXISTS access_status TEXT NOT NULL DEFAULT 'ACTIVE'",
     'ALTER TABLE shared.users ADD COLUMN IF NOT EXISTS access_requested_at TIMESTAMPTZ',
