@@ -123,6 +123,23 @@ class ForecastChartResponse(BaseModel):
     danger_level: Optional[float]
 
 
+class AssetReliabilityResponse(BaseModel):
+    asset_id: int
+    asset_name: str
+    tier: str
+    label: str
+    tone: str
+    n: int
+    mape_pct: Optional[float] = None
+    first_scored: Optional[str] = None
+    last_scored: Optional[str] = None
+
+
+class ReliabilityResponse(BaseModel):
+    timestamp: str
+    assets: Dict[str, AssetReliabilityResponse]
+
+
 # ─── API Endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/v2/predict/{asset_id}", response_model=PredictionResponse)
@@ -425,4 +442,22 @@ def get_forecast_chart_data(
         # them against a cusecs axis would mix units. No rating curve ⇒ None.
         warning_level=None,
         danger_level=None,
+    )
+
+
+@router.get("/v2/reliability", response_model=ReliabilityResponse)
+def get_reliability(
+    session: Session = Depends(get_session),
+):
+    """Per-asset forecast reliability for the UI badges.
+
+    Tier + honest label for every active asset from its REAL scored
+    forecasts, so a barrage model with one 700%-MAPE score never renders
+    with the same confidence as a validated reservoir model.
+    """
+    from ml.models.reliability import fetch_reliability
+
+    return ReliabilityResponse(
+        timestamp=datetime.utcnow().isoformat(),
+        assets=fetch_reliability(session),
     )
