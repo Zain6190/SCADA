@@ -347,6 +347,37 @@ def job_validate_all_models():
             release_pipeline_lock(session, pipeline_type)
 
 
+def job_register_models():
+    """Refresh model registry + apply validation lifecycle transitions (Sunday 03:58 UTC)."""
+    pipeline_type = "REGISTER_MODELS"
+
+    with get_db_session() as session:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(session, pipeline_type)
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, "-c",
+                 f"import sys; sys.path.insert(0, r'{APP_ROOT}'); from scripts.register_models import main; main()"],
+                capture_output=True, text=True, timeout=300, cwd=APP_ROOT
+            )
+            if result.returncode == 0:
+                complete_pipeline_run(session, run_id, "SUCCESS")
+                logger.info("Model registry refresh completed successfully")
+            else:
+                complete_pipeline_run(session, run_id, "FAILED", result.stderr[-500:] if result.stderr else "unknown error")
+                logger.error(f"Model registry refresh failed: {result.stderr[-500:]}")
+        except Exception as e:
+            complete_pipeline_run(session, run_id, "FAILED", str(e))
+            logger.exception(f"Model registry refresh error: {e}")
+        finally:
+            release_pipeline_lock(session, pipeline_type)
+
+
 def job_backfill_inflow():
     """Backfill missing inflow using physics after FFD ingestion."""
     pipeline_type = "backfill_inflow"
@@ -439,6 +470,8 @@ if __name__ == "__main__":
 
     # Batch validate all models: Sunday 03:45 UTC (08:45 PKT)
     schedule.every().sunday.at("03:45").do(job_validate_all_models)
+
+    schedule.every().sunday.at("03:58").do(job_register_models)
 
     # WAI pipeline: weekly on Sunday at 04:00 UTC (09:00 PKT) — after ML retrain
     schedule.every().sunday.at("04:00").do(job_run_wai_pipeline)
