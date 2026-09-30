@@ -514,6 +514,7 @@ export interface V2LeadTimeForecast {
   discharge: V2DischargePrediction
   rainfall: V2RainfallPrediction
   confidence: number | null
+  model_status?: string | null
 }
 
 export interface V2AssetPrediction {
@@ -539,6 +540,7 @@ export interface V2AssetPrediction {
     features_used: number | null
     prediction_method: string
     accuracy_status?: string
+    model_validation?: Record<string, string>
     // holdout coverage of the q10-q90 interval per horizon (3/7/14);
     // null for physics assets / models without quantile intervals
     ci_coverage_80?: Record<string, number> | null

@@ -291,7 +291,7 @@ def main():
     logger.info(f"Found {len(assets)} assets with trained models")
 
     all_results = []
-    horizons = [7, 14, 30]
+    horizons = [3, 7, 14, 30]
 
     for asset in assets:
         aid = asset["id"]

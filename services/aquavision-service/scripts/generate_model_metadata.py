@@ -42,10 +42,10 @@ for f in sorted(clf_dir.glob("flood_classifier_asset_*.pkl")):
         "model_file": f.name,
     })
 
-# Flood predictors (.joblib) — standard
+# Flood predictors (.joblib) — standard (interval companions lack metrics)
 pred_dir = _BASE / "models" / "flood_xgb"
 for f in sorted(pred_dir.glob("*.joblib")):
-    if "_hf" in f.name:
+    if "_hf" in f.name or "_interval" in f.name:
         continue
     try:
         data = joblib.load(f)
@@ -92,7 +92,7 @@ for f in sorted(pred_dir.glob("*_hf.joblib")):
         results.append({
             "asset_id": metrics.get("asset_id", int(parts[0])),
             "asset_name": f"Asset {parts[0]}",
-            "model_type": "high_flow_predictor",
+            "model_type": "high_flow",
             "model_status": data.get("model_status", "EXPERIMENTAL"),
             "trained_at": metrics.get("trained_at"),
             "saved_at": data.get("saved_at"),

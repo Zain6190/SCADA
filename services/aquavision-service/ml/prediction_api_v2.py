@@ -74,6 +74,7 @@ class LeadTimeResponse(BaseModel):
     discharge: DischargeResponse
     rainfall: RainfallResponse
     confidence: Optional[float] = None
+    model_status: Optional[str] = None
 
 
 class AlertResponse(BaseModel):
@@ -184,6 +185,7 @@ def get_prediction(
                     discharge=DischargeResponse(**v.discharge.__dict__),
                     rainfall=RainfallResponse(**v.rainfall.__dict__),
                     confidence=v.confidence,
+                    model_status=v.model_status,
                 )
                 for k, v in result.predictions.items()
             },
@@ -232,6 +234,7 @@ def get_single_lead_prediction(
             discharge=DischargeResponse(**forecast.discharge.__dict__),
             rainfall=RainfallResponse(**forecast.rainfall.__dict__),
             confidence=forecast.confidence,
+            model_status=forecast.model_status,
         )
 
     except HTTPException:

@@ -108,13 +108,19 @@ class RainfallPrediction:
 
 @dataclass
 class LeadTimeForecast:
-    """Complete forecast for a single lead time."""
+    """Complete forecast for a single lead time.
+
+    model_status carries the registry walk-forward gate for this horizon
+    (EXPERIMENTAL | SHADOW | APPROVED | PRODUCTION | REJECTED |
+    UNREGISTERED) so callers can render weak models honestly.
+    """
     lead_time_days: int
     water_stress: WaterStressPrediction
     flood_risk: FloodRiskPrediction
     discharge: DischargePrediction
     rainfall: RainfallPrediction
     confidence: Optional[float]  # None until walk-forward validation fills it
+    model_status: Optional[str] = None
 
 
 @dataclass
@@ -382,6 +388,7 @@ class AquaVisionPredictionModel:
 
         # Real accuracy from prediction_errors (holdout seed + daily scorer)
         accuracy_by_lead = self._get_accuracy_by_lead(asset_id)
+        validation_by_lead = self._get_validation_by_lead(asset_id, lead_times)
 
         for lead_time in lead_times:
             forecast = self._build_lead_time_forecast(
@@ -400,6 +407,7 @@ class AquaVisionPredictionModel:
                 upstream_discharge=upstream_discharge,
                 confidence=accuracy_by_lead.get(lead_time),
             )
+            forecast.model_status = validation_by_lead.get(lead_time)
             predictions[f"{lead_time}_day"] = forecast
 
             # Generate alerts for this lead time
@@ -424,6 +432,7 @@ class AquaVisionPredictionModel:
             "features_used": None,
             "prediction_method": self._get_prediction_method(asset_id),
             "accuracy_status": "VALIDATED" if validated else "NOT_VALIDATED",
+            "model_validation": {str(lt): s for lt, s in validation_by_lead.items()},
             # Holdout coverage of the q10-q90 interval (honest, measured;
             # None for physics assets / models without quantile intervals)
             "ci_coverage_80": self._ml_ci_coverage.get(asset_id),
@@ -438,6 +447,38 @@ class AquaVisionPredictionModel:
             alerts=alerts,
             model_metadata=metadata,
         )
+
+    def _get_validation_by_lead(self, asset_id: int, lead_times: List[int]) -> Dict[int, str]:
+        """Walk-forward gate per lead time from the model registry.
+
+        One query pulls every flood-predictor row for the asset; the horizon
+        comes from the '-h{N}' version suffix and the newest row wins.
+        Horizons with no registry entry are reported as UNREGISTERED so the
+        UI never implies validation that did not happen.
+        """
+        if self.session is None:
+            return {}
+        from sqlalchemy import text as sql_text
+        rows = self.session.execute(
+            sql_text("""
+                SELECT version, status
+                FROM aquavision.model_versions
+                WHERE model_type = 'flood_predictor'
+                  AND asset_id = :asset_id
+                ORDER BY created_at DESC
+            """),
+            {"asset_id": asset_id},
+        ).all()
+        by_lead: Dict[int, str] = {}
+        for version, status in rows:
+            if version is None or "-h" not in version:
+                continue
+            try:
+                horizon = int(version.rsplit("-h", 1)[1])
+            except ValueError:
+                continue
+            by_lead.setdefault(horizon, status)
+        return {lt: by_lead.get(lt, "UNREGISTERED") for lt in lead_times}
 
     def _get_accuracy_by_lead(self, asset_id: int) -> Dict[int, Optional[float]]:
         """Accuracy 0-1 per lead time from prediction_errors (REAL, n>=ACCURACY_MIN_SAMPLES).
@@ -601,9 +642,9 @@ class AquaVisionPredictionModel:
         """Get flood classifier probability."""
         try:
             from pathlib import Path
-            from ml.models.flood_classifier import FloodClassifier
+            from ml.models.flood_classifier import MODEL_DIR, FloodClassifier
 
-            model_path = Path(__file__).parent.parent / "data" / "models" / f"flood_classifier_asset_{asset_id}.pkl"
+            model_path = MODEL_DIR / f"flood_classifier_asset_{asset_id}.pkl"
             if not model_path.exists():
                 return None
 
@@ -614,8 +655,9 @@ class AquaVisionPredictionModel:
 
             rows = self.session.execute(
                 sql_text("""
-                    SELECT observed_at, inflow_cusecs, outflow_cusecs,
-                           water_level_ft, discharge_cusecs
+                    SELECT observed_at,
+                           COALESCE(inflow_cusecs, discharge_cusecs) AS inflow_cusecs,
+                           outflow_cusecs, water_level_ft, discharge_cusecs
                     FROM aquavision.water_observations
                     WHERE asset_id = :aid
                     ORDER BY observed_at DESC
