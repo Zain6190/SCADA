@@ -3,7 +3,7 @@
 # Builds ML training table from IRSA observations + FFD data.
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
@@ -65,6 +65,11 @@ class FloodFeatureBuilder:
     
     def __init__(self, session: Session):
         self.session = session
+        self._threshold_cache: Dict[int, Optional[WaterAssetThreshold]] = {}
+        self._ffd_status_cache: Dict[tuple, Optional[str]] = {}
+        self._ffd_span: Optional[tuple] = None
+        self._weather_cache: Dict[tuple, Optional[Dict]] = {}
+        self._weather_span: Optional[tuple] = None
     
     def build_training_table(
         self,
@@ -106,6 +111,13 @@ class FloodFeatureBuilder:
             logger.warning(f"Insufficient data for asset {asset_id}: {len(observations)} observations (need 12+)")
             empty = (np.array([]), np.array([]), [], np.array([]), [])
             return empty if return_dates else empty[:4]
+
+        self.prefetch_asset_features(
+            asset_id,
+            start_date,
+            end_date,
+            {row.get("date") for row in observations if row.get("date")},
+        )
 
         # Build feature matrix
         features_list = []
@@ -234,6 +246,81 @@ class FloodFeatureBuilder:
         
         return X, feature_names
     
+    @staticmethod
+    def _as_date(value):
+        return value.date() if hasattr(value, "date") else value
+
+    def prefetch_asset_features(
+        self,
+        asset_id: int,
+        start_date: datetime,
+        end_date: datetime,
+        dates,
+    ) -> None:
+        """Batch-load per-row feature lookups for one training build.
+
+        build_training_table extracts features for thousands of samples and
+        each sample used to issue its own threshold/FFD/weather SELECTs —
+        roughly ten thousand round trips per horizon against a remote
+        database, which dominated training time. Three range queries fill
+        these caches instead; _get_threshold, _get_ffd_status and
+        _get_weather_forecast read them and fall back to a per-call query
+        only for dates outside the prefetched span.
+        """
+        span_start = self._as_date(start_date)
+        span_end = self._as_date(end_date)
+
+        self._get_threshold(asset_id)
+
+        self._ffd_status_cache = {}
+        day_floor = datetime.combine(span_start, time.min)
+        day_ceil = datetime.combine(span_end + timedelta(days=1), time.min)
+        ffd_rows = self.session.execute(
+            select(
+                WaterFFDObservation.observed_at,
+                WaterFFDObservation.flood_status,
+            )
+            .where(
+                WaterFFDObservation.asset_id == asset_id,
+                WaterFFDObservation.observed_at >= day_floor,
+                WaterFFDObservation.observed_at < day_ceil,
+            )
+            .order_by(WaterFFDObservation.observed_at)
+        ).all()
+        for observed_at, flood_status in ffd_rows:
+            key = (asset_id, self._as_date(observed_at))
+            if key not in self._ffd_status_cache:
+                self._ffd_status_cache[key] = flood_status
+        self._ffd_span = (span_start, span_end)
+
+        self._weather_cache = {}
+        weather_rows = self.session.execute(
+            select(WaterWeatherForecast)
+            .where(
+                WaterWeatherForecast.asset_id == asset_id,
+                WaterWeatherForecast.forecast_date >= span_start - timedelta(days=31),
+                WaterWeatherForecast.forecast_date <= span_end,
+            )
+            .order_by(
+                WaterWeatherForecast.horizon_days.asc(),
+                WaterWeatherForecast.fetched_at.desc(),
+            )
+        ).scalars().all()
+        for value in dates:
+            day = self._as_date(value)
+            picked = None
+            for row in weather_rows:
+                forecast_day = self._as_date(row.forecast_date)
+                if forecast_day <= day <= forecast_day + timedelta(days=int(row.horizon_days)):
+                    picked = {
+                        "precip_sum_mm": row.precip_sum_mm,
+                        "temp_max_c": row.temp_max_c,
+                        "humidity_mean_pct": row.humidity_mean_pct,
+                    }
+                    break
+            self._weather_cache[(asset_id, day)] = picked
+        self._weather_span = (span_start, span_end)
+
     def _get_observations(
         self,
         asset_id: int,
@@ -465,24 +552,35 @@ class FloodFeatureBuilder:
     
     def _get_threshold(self, asset_id: int):
         """Get asset threshold configuration."""
-        return self.session.execute(
+        if asset_id in self._threshold_cache:
+            return self._threshold_cache[asset_id]
+        threshold = self.session.execute(
             select(WaterAssetThreshold).where(
                 WaterAssetThreshold.asset_id == asset_id,
                 WaterAssetThreshold.is_active == True,
             )
         ).scalar_one_or_none()
+        self._threshold_cache[asset_id] = threshold
+        return threshold
     
     def _get_ffd_status(self, asset_id: int, date) -> Optional[str]:
         """Get FFD flood status for asset on date."""
         if date is None:
             return None
         d = date.date() if hasattr(date, 'date') else date
+        key = (asset_id, d)
+        if key in self._ffd_status_cache:
+            return self._ffd_status_cache[key]
+        if self._ffd_span is not None and self._ffd_span[0] <= d <= self._ffd_span[1]:
+            self._ffd_status_cache[key] = None
+            return None
         obs = self.session.execute(
             select(WaterFFDObservation.flood_status).where(
                 WaterFFDObservation.asset_id == asset_id,
                 func.date(WaterFFDObservation.observed_at) == d,
             ).limit(1)
         ).scalar_one_or_none()
+        self._ffd_status_cache[key] = obs
         return obs
 
     def _get_weather_forecast(self, asset_id: int, dt) -> Optional[Dict]:
@@ -490,6 +588,12 @@ class FloodFeatureBuilder:
         if dt is None:
             return None
         d = dt.date() if hasattr(dt, 'date') else dt
+        key = (asset_id, d)
+        if key in self._weather_cache:
+            return self._weather_cache[key]
+        if self._weather_span is not None and self._weather_span[0] <= d <= self._weather_span[1]:
+            self._weather_cache[key] = None
+            return None
         row = self.session.execute(
             text("""
                 SELECT precip_sum_mm, temp_max_c, humidity_mean_pct
@@ -504,7 +608,9 @@ class FloodFeatureBuilder:
             """),
             {"asset_id": asset_id, "dt": d},
         ).mappings().first()
-        return dict(row) if row else None
+        result = dict(row) if row else None
+        self._weather_cache[key] = result
+        return result
     
     def _get_target_value(self, obs: Dict, target_field: str = "auto") -> Optional[float]:
         """Get target value for prediction.
