@@ -32,13 +32,13 @@ VALUES
 (2, 'Mangla Reservoir', 'reservoir', 'Jhelum', 'AJK', 'Mirpur', 33.1387, 73.6437, 7.39, 1242, 1040, 1235, 1242, 'IRSA', 'mangla', true),
 (3, 'Chashma Barrage', 'barrage', 'Indus', 'Punjab', 'Mianwali', 32.4927, 71.4707, 0.88, 648, 637, 647, 648, 'IRSA', 'chashma', true),
 (4, 'Kalabagh', 'barrage', 'Indus', 'Punjab', 'Mianwali', 32.9627, 71.4807, NULL, 640, 630, 638, 640, 'IRSA', 'kalabagh', true),
-(5, 'Taunsa Barrage', 'barrage', 'Indus', 'Punjab', 'Dera Ghazi Khan', 30.5007, 71.2577, 1.32, 507, 490, 505, 507, 'IRSA', 'taunsa', true),
-(6, 'Guddu Barrage', 'barrage', 'Indus', 'Sindh', 'Ghotki', 28.4407, 68.7347, 1.22, 404, 390, 402, 404, 'IRSA', 'guddu', true),
+(5, 'Taunsa Barrage', 'barrage', 'Indus', 'Punjab', 'Dera Ghazi Khan', 30.51278, 70.84917, 1.32, 507, 490, 505, 507, 'IRSA', 'taunsa', true),
+(6, 'Guddu Barrage', 'barrage', 'Indus', 'Sindh', 'Ghotki', 28.4186, 69.7132, 1.22, 404, 390, 402, 404, 'IRSA', 'guddu', true),
 (7, 'Sukkur Barrage', 'barrage', 'Indus', 'Sindh', 'Sukkur', 27.7147, 68.8317, 1.36, 268, 255, 266, 268, 'IRSA', 'sukkur', true),
 (8, 'Kotri Barrage', 'barrage', 'Indus', 'Sindh', 'Jamshoro', 25.3507, 68.3157, 0.93, 10, 0, 8, 10, 'IRSA', 'kotri', true),
 (9, 'Kabul @ Nowshera', 'river_station', 'Kabul', 'KPK', 'Nowshera', 34.0107, 71.9787, NULL, NULL, NULL, NULL, NULL, 'FFD/PMD', 'kabul_nowshera', true),
 (10, 'Chenab @ Marala', 'river_station', 'Chenab', 'Punjab', 'Sialkot', 32.4987, 74.5547, NULL, NULL, NULL, NULL, NULL, 'FFD/PMD', 'chenab_marala', true),
-(11, 'Panjnad', 'river_station', 'Panjnad', 'Punjab', 'Bahawalpur', 29.3907, 71.2527, NULL, NULL, NULL, NULL, NULL, 'IRSA', 'panjnad', true)
+(11, 'Panjnad', 'river_station', 'Panjnad', 'Punjab', 'Bahawalpur', 29.3469, 71.0196, NULL, NULL, NULL, NULL, NULL, 'IRSA', 'panjnad', true)
 ON CONFLICT (id) DO UPDATE SET
   canonical_name = EXCLUDED.canonical_name,
   asset_type = EXCLUDED.asset_type,
@@ -70,13 +70,13 @@ VALUES
 (7, 8, 'population_center', 'Karachi', 14910000, 24.8607, 67.0011, 0, 0),
 (8, 5, 'population_center', 'Multan', 1872000, 30.1575, 71.5249, 120, 48),
 (9, 4, 'bridge', 'Kalabagh Bridge', NULL, 32.9627, 71.4807, 0, 0),
-(10, 5, 'bridge', 'Taunsa Barrage Bridge', NULL, 30.5007, 71.2577, 0, 0),
-(11, 6, 'bridge', 'Guddu Bridge', NULL, 28.4407, 68.7347, 0, 0),
+(10, 5, 'bridge', 'Taunsa Barrage Bridge', NULL, 30.51278, 70.84917, 0, 0),
+(11, 6, 'bridge', 'Guddu Bridge', NULL, 28.4186, 69.7132, 0, 0),
 (12, 7, 'bridge', 'Sukkur Bridge', NULL, 27.7147, 68.8317, 0, 0),
 (13, 8, 'bridge', 'Kotri Bridge', NULL, 25.3507, 68.3157, 0, 0),
 (14, 8, 'hospital', 'Civil Hospital Karachi', 3000, 24.8607, 67.0011, 0, 0),
 (15, 7, 'hospital', 'Civil Hospital Sukkur', 1200, 27.7147, 68.8317, 0, 0),
-(16, 6, 'hospital', 'Guddu Hospital', 500, 28.4407, 68.7347, 0, 0)
+(16, 6, 'hospital', 'Guddu Hospital', 500, 28.4186, 69.7132, 0, 0)
 ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('aquavision.water_downstream_impacts_id_seq', 16);

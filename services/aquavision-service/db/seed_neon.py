@@ -12,13 +12,13 @@ WATER_ASSETS = [
     (2, 'Mangla Reservoir', 'reservoir', 'Jhelum', 'AJK', 'Mirpur', 33.1387, 73.6437, 7.39, 1242, 1040, 1235, 1242, 'IRSA', 'mangla'),
     (3, 'Chashma Barrage', 'barrage', 'Indus', 'Punjab', 'Mianwali', 32.4927, 71.4707, 0.88, 648, 637, 647, 648, 'IRSA', 'chashma'),
     (4, 'Kalabagh', 'barrage', 'Indus', 'Punjab', 'Mianwali', 32.9627, 71.4807, None, 640, 630, 638, 640, 'IRSA', 'kalabagh'),
-    (5, 'Taunsa Barrage', 'barrage', 'Indus', 'Punjab', 'Dera Ghazi Khan', 30.5007, 71.2577, 1.32, 507, 490, 505, 507, 'IRSA', 'taunsa'),
-    (6, 'Guddu Barrage', 'barrage', 'Indus', 'Sindh', 'Ghotki', 28.4407, 68.7347, 1.22, 404, 390, 402, 404, 'IRSA', 'guddu'),
+    (5, 'Taunsa Barrage', 'barrage', 'Indus', 'Punjab', 'Dera Ghazi Khan', 30.51278, 70.84917, 1.32, 507, 490, 505, 507, 'IRSA', 'taunsa'),
+    (6, 'Guddu Barrage', 'barrage', 'Indus', 'Sindh', 'Ghotki', 28.4186, 69.7132, 1.22, 404, 390, 402, 404, 'IRSA', 'guddu'),
     (7, 'Sukkur Barrage', 'barrage', 'Indus', 'Sindh', 'Sukkur', 27.7147, 68.8317, 1.36, 268, 255, 266, 268, 'IRSA', 'sukkur'),
     (8, 'Kotri Barrage', 'barrage', 'Indus', 'Sindh', 'Jamshoro', 25.3507, 68.3157, 0.93, 10, 0, 8, 10, 'IRSA', 'kotri'),
     (9, 'Kabul @ Nowshera', 'river_station', 'Kabul', 'KPK', 'Nowshera', 34.0107, 71.9787, None, None, None, None, None, 'FFD/PMD', 'kabul_nowshera'),
     (10, 'Chenab @ Marala', 'river_station', 'Chenab', 'Punjab', 'Sialkot', 32.4987, 74.5547, None, None, None, None, None, 'FFD/PMD', 'chenab_marala'),
-    (11, 'Panjnad', 'river_station', 'Panjnad', 'Punjab', 'Bahawalpur', 29.3907, 71.2527, None, None, None, None, None, 'IRSA', 'panjnad'),
+    (11, 'Panjnad', 'river_station', 'Panjnad', 'Punjab', 'Bahawalpur', 29.3469, 71.0196, None, None, None, None, None, 'IRSA', 'panjnad'),
 ]
 
 DOWNSTREAM_IMPACTS = [

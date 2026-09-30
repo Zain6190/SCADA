@@ -27,11 +27,14 @@ import argparse
 import datetime as dt
 import logging
 import os
+import time
 import zipfile
+from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger("aquavision.backfill_glofas")
 
@@ -42,15 +45,16 @@ AREA_NORTH_WEST_SOUTH_EAST = [38.0, 60.0, 23.0, 77.0]
 SOURCE_AUTHORITY = "GLOFAS"
 SOURCE_PRIORITY = 5
 MISSING_FLOOR = -100.0
+WINDOW_CELLS = 3
 LAT_NAMES = {"latitude", "lat"}
 LON_NAMES = {"longitude", "lon"}
 
 
 def build_request(year: int, start: dt.date, end: dt.date) -> Dict:
-    """CDS/EWDS selection for one year of daily discharge, month-trimmed.
+    """EWDS selection for one year of daily discharge, month-trimmed.
 
     Day-level edges of the window are trimmed later (rows outside
-    [start, end] are dropped before insert), because hmonth/hday is a
+    [start, end] are dropped before insert), because year/month/day is a
     cross-product selection that cannot express per-month day bounds.
     """
     months = [
@@ -62,10 +66,11 @@ def build_request(year: int, start: dt.date, end: dt.date) -> Dict:
         "system_version": ["version_4_0"],
         "hydrological_model": ["lisflood"],
         "product_type": ["consolidated"],
-        "variable": ["river_discharge_in_the_last_24_hours"],
-        "hyear": [str(year)],
-        "hmonth": months,
-        "hday": [f"{d:02d}" for d in range(1, 32)],
+        "timespan": ["time_mean"],
+        "variable": ["average_river_discharge_in_the_last_24_hours"],
+        "year": [str(year)],
+        "month": months,
+        "day": [f"{d:02d}" for d in range(1, 32)],
         "area": list(AREA_NORTH_WEST_SOUTH_EAST),
         "data_format": "netcdf",
         "download_format": "zip",
@@ -135,8 +140,21 @@ def _axis_index(var, candidates: Sequence[str]) -> int:
     raise ValueError(f"None of {sorted(candidates)} in dims {var.dimensions}")
 
 
-def extract_series(path: Path, lat: float, lon: float) -> List[Tuple[dt.date, float]]:
-    """Nearest-grid-cell daily discharge series (m3/s) from a GloFAS file."""
+def extract_series(
+    path: Path,
+    lat: float,
+    lon: float,
+    window: int = WINDOW_CELLS,
+) -> List[Tuple[dt.date, float]]:
+    """Daily discharge series (m3/s) from the wettest GloFAS cell near a point.
+
+    GloFAS carries flow only on river-channel cells, so the geographically
+    nearest cell can be a dry pixel while a real channel runs a few cells
+    away. The channel cell is the wettest cell (highest mean flow over the
+    file) within `window` cells of the nearest cell — about 15 km at the
+    native 0.05 deg grid; window=0 keeps pure nearest-cell behaviour. All
+    cells dry falls back to the nearest one.
+    """
     import netCDF4
     import numpy as np
 
@@ -144,7 +162,7 @@ def extract_series(path: Path, lat: float, lon: float) -> List[Tuple[dt.date, fl
     with netCDF4.Dataset(str(path)) as nc:
         vname = _find_discharge_var(nc)
         var = nc.variables[vname]
-        time_axis = _axis_index(var, ("time",))
+        time_axis = _axis_index(var, ("time", "valid_time"))
         lat_axis = _axis_index(var, LAT_NAMES)
         lon_axis = _axis_index(var, LON_NAMES)
 
@@ -152,8 +170,32 @@ def extract_series(path: Path, lat: float, lon: float) -> List[Tuple[dt.date, fl
         lon_var = nc.variables[var.dimensions[lon_axis]]
         lats = np.atleast_1d(np.ma.filled(lat_var[:], np.nan))
         lons = np.atleast_1d(np.ma.filled(lon_var[:], np.nan))
-        lat_i = int(np.nanargmin(np.abs(lats - lat)))
-        lon_i = int(np.nanargmin(np.abs(lons - lon)))
+        li = int(np.nanargmin(np.abs(lats - lat)))
+        lo = int(np.nanargmin(np.abs(lons - lon)))
+
+        lat0, lat1 = max(0, li - window), min(len(lats), li + window + 1)
+        lon0, lon1 = max(0, lo - window), min(len(lons), lo + window + 1)
+
+        block_sel = [slice(None)] * var.ndim
+        block_sel[lat_axis] = slice(lat0, lat1)
+        block_sel[lon_axis] = slice(lon0, lon1)
+        block = np.ma.filled(var[tuple(block_sel)], np.nan).astype("float64")
+        block[(block <= MISSING_FLOOR) | (block <= 0)] = np.nan
+        counts = np.sum(~np.isnan(block), axis=time_axis)
+        totals = np.nansum(block, axis=time_axis)
+        means = np.divide(
+            totals, counts, out=np.full(totals.shape, np.nan), where=counts > 0
+        )
+        red_lat = lat_axis - 1 if time_axis < lat_axis else lat_axis
+        red_lon = lon_axis - 1 if time_axis < lon_axis else lon_axis
+        if np.all(np.isnan(means)):
+            ci, cj = li - lat0, lo - lon0
+        else:
+            flat = int(np.nanargmax(means))
+            pos = np.unravel_index(flat, means.shape)
+            ci = int(pos[red_lat]) if means.ndim > red_lat else 0
+            cj = int(pos[red_lon]) if means.ndim > red_lon else 0
+        chosen_lat, chosen_lon = lat0 + ci, lon0 + cj
 
         tvar = nc.variables[var.dimensions[time_axis]]
         times = netCDF4.num2date(
@@ -164,8 +206,8 @@ def extract_series(path: Path, lat: float, lon: float) -> List[Tuple[dt.date, fl
         )
 
         selector = [slice(None)] * var.ndim
-        selector[lat_axis] = lat_i
-        selector[lon_axis] = lon_i
+        selector[lat_axis] = chosen_lat
+        selector[lon_axis] = chosen_lon
         values = np.ma.filled(var[tuple(selector)], np.nan)
         values = np.atleast_1d(values)
 
@@ -200,7 +242,7 @@ def rows_for_asset(
                 "data_origin": "REANALYSIS",
                 "source_authority": SOURCE_AUTHORITY,
                 "source_priority": SOURCE_PRIORITY,
-                "notes": "GloFAS v4 consolidated reanalysis (LISFLOOD/ERA5)",
+                "notes": "GloFAS v4 consolidated reanalysis (LISFLOOD/ERA5); nearest river channel cell within ~15 km",
             }
         )
     return rows
@@ -238,27 +280,75 @@ def ensure_source(db) -> int:
     return int(row[0])
 
 
+UPSERT_CHUNK = 500
+
+
+def _sql_literal(v) -> str:
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, (int, float, Decimal)):
+        return str(v)
+    return "'" + str(v).replace("'", "''") + "'"
+
+
 def upsert_rows(db, rows: List[Dict]) -> int:
-    """Idempotent insert of reanalysis rows; returns rows written."""
+    """Idempotent bulk insert of reanalysis rows; returns rows written.
+
+    Row-at-a-time inserts cost one network round trip each — thousands of
+    trips over a high-latency link stretch a transaction across minutes and
+    invite mid-flight stalls, so rows go in as chunked multi-row VALUES.
+    """
     if not rows:
         return 0
-    stmt = text(
-        """
-        INSERT INTO aquavision.water_observations
-            (asset_id, source_id, observed_at, discharge_cusecs, unit,
-             data_status, data_origin, source_authority, source_priority, notes)
-        VALUES
-            (:asset_id, :source_id, :observed_at, :discharge_cusecs, :unit,
-             :data_status, :data_origin, :source_authority, :source_priority, :notes)
-        ON CONFLICT (asset_id, observed_at, source_id) DO UPDATE SET
-            discharge_cusecs = EXCLUDED.discharge_cusecs,
-            notes = EXCLUDED.notes
-        """
+    cols = (
+        "asset_id", "source_id", "observed_at", "discharge_cusecs", "unit",
+        "data_status", "data_origin", "source_authority", "source_priority",
+        "notes",
     )
-    for row in rows:
-        db.execute(stmt, row)
+    head = (
+        "INSERT INTO aquavision.water_observations ("
+        + ", ".join(cols)
+        + ") VALUES "
+    )
+    tail = (
+        " ON CONFLICT (asset_id, observed_at, source_id) DO UPDATE SET"
+        " discharge_cusecs = EXCLUDED.discharge_cusecs,"
+        " notes = EXCLUDED.notes"
+    )
+    for i in range(0, len(rows), UPSERT_CHUNK):
+        chunk = rows[i:i + UPSERT_CHUNK]
+        values = ",\n".join(
+            "(" + ", ".join(_sql_literal(r[c]) for c in cols) + ")"
+            for r in chunk
+        )
+        db.execute(text(head + values + tail))
     db.commit()
     return len(rows)
+
+
+def _with_session(fn):
+    """Run fn(db) on a fresh session; retry when serverless Postgres reaps it.
+
+    Neon suspends idle compute (~65s) and drops stale SSL links, so a phase
+    that follows a long EWDS download must not reuse a pooled connection.
+    """
+    last: Optional[Exception] = None
+    for delay in (0, 5, 30, 70):
+        if delay:
+            time.sleep(delay)
+        from infrastructure.db.engine import SessionLocal
+
+        db = SessionLocal()
+        try:
+            return fn(db)
+        except OperationalError as exc:
+            last = exc
+            logger.warning("DB phase failed (attempt will retry): %s", exc)
+        finally:
+            db.close()
+    raise last  # pragma: no cover
 
 
 def backfill_glofas(
@@ -268,23 +358,21 @@ def backfill_glofas(
     cache_dir: Optional[Path] = None,
     db=None,
 ) -> dict:
-    """Fetch GloFAS history and write labelled REANALYSIS rows per asset."""
-    close_db = False
-    if db is None:
-        from infrastructure.db.engine import SessionLocal
+    """Fetch GloFAS history and write labelled REANALYSIS rows per asset.
 
-        db = SessionLocal()
-        close_db = True
-
+    No session is held across a download: EWDS queues can take minutes and
+    Neon reaps idle connections, so every DB phase opens a fresh session
+    (with a short retry in case the serverless compute is asleep).
+    """
     start = start or dt.date(2022, 1, 1)
     end = dt.date.today() - dt.timedelta(days=7)
     cache_dir = cache_dir or Path("/tmp/glofas")
 
-    try:
-        if end < start:
-            return {"inserted": 0, "reason": "empty_window"}
+    if end < start:
+        return {"inserted": 0, "reason": "empty_window"}
 
-        assets = db.execute(
+    def _load_assets(s):
+        return s.execute(
             text(
                 """
                 SELECT id, canonical_name, latitude, longitude
@@ -297,37 +385,49 @@ def backfill_glofas(
             ),
             {"aid": asset_id},
         ).mappings().all()
-        if not assets:
-            return {"inserted": 0, "reason": "no_assets"}
 
-        client = None if dry_run else _make_client()
-        source_id = ensure_source(db) if not dry_run else -1
-        result = {"inserted": 0, "assets": len(assets), "files": 0,
-                  "window": [str(start), str(end)], "dry_run": dry_run}
-        per_asset: Dict[int, int] = {}
+    if db is not None:
+        assets = _load_assets(db)
+    else:
+        assets = _with_session(_load_assets)
+    if not assets:
+        return {"inserted": 0, "reason": "no_assets"}
 
-        for year in range(start.year, end.year + 1):
-            request = build_request(year, start, end)
-            nc_path = download_year(client, year, request, cache_dir)
-            result["files"] += 1
-            for a in assets:
-                series = extract_series(nc_path, float(a["latitude"]),
-                                        float(a["longitude"]))
-                series = [(d, v) for d, v in series if start <= d <= end]
-                rows = rows_for_asset(a["id"], series, source_id)
-                if dry_run:
-                    per_asset[a["id"]] = per_asset.get(a["id"], 0) + len(rows)
-                    continue
-                written = upsert_rows(db, rows)
-                per_asset[a["id"]] = per_asset.get(a["id"], 0) + written
-                result["inserted"] += written
+    client = _make_client()
+    if dry_run:
+        source_id = -1
+    elif db is not None:
+        source_id = ensure_source(db)
+    else:
+        source_id = _with_session(ensure_source)
 
-        result["per_asset"] = per_asset
-        logger.info("GloFAS backfill complete: %s", result)
-        return result
-    finally:
-        if close_db:
-            db.close()
+    result = {"inserted": 0, "assets": len(assets), "files": 0,
+              "window": [str(start), str(end)], "dry_run": dry_run}
+    per_asset: Dict[int, int] = {}
+
+    for year in range(start.year, end.year + 1):
+        request = build_request(year, start, end)
+        nc_path = download_year(client, year, request, cache_dir)
+        result["files"] += 1
+        year_rows: List[Dict] = []
+        for a in assets:
+            series = extract_series(nc_path, float(a["latitude"]),
+                                    float(a["longitude"]))
+            series = [(d, v) for d, v in series if start <= d <= end]
+            rows = rows_for_asset(a["id"], series, source_id)
+            per_asset[a["id"]] = per_asset.get(a["id"], 0) + len(rows)
+            year_rows.extend(rows)
+        if dry_run:
+            continue
+        if db is not None:
+            upsert_rows(db, year_rows)
+        else:
+            _with_session(lambda s, rs=year_rows: upsert_rows(s, rs))
+        result["inserted"] += len(year_rows)
+
+    result["per_asset"] = per_asset
+    logger.info("GloFAS backfill complete: %s", result)
+    return result
 
 
 if __name__ == "__main__":
