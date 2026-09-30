@@ -45,6 +45,7 @@ class QuarantineRecord:
     raw_value: Optional[float] = None
     parser_version: Optional[str] = None
     data_status: Optional[str] = None
+    source_record_id: Optional[int] = None
 
 
 def validate_observation(
@@ -206,6 +207,7 @@ def build_quarantine_record(
         raw_value=float(raw_value) if raw_value else None,
         parser_version=parser_version,
         data_status=obs.get("data_status", "OBSERVED_OFFICIAL"),
+        source_record_id=source_record_id,
     )
 
 

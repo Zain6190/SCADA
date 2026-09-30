@@ -13,10 +13,12 @@ from datetime import datetime, timedelta, date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy import select, desc, and_, func
 from sqlalchemy.orm import Session
 
+from infrastructure.audit import write_audit
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import (
     WaterAsset, WaterAssetThreshold, WaterObservation,
@@ -631,6 +633,16 @@ def acknowledge_alert(
     actor = alert_workflow.actor_from_token(user)
     alert_workflow.ack_alert(session, alert, actor, notes=payload.notes)
 
+    write_audit(
+        action="ALERT_ACKNOWLEDGED",
+        module="alerts",
+        user_id=actor.user_id,
+        resource_type="operational_alert",
+        resource_id=str(alert_id),
+        details={"asset_id": alert.asset_id, "notes": payload.notes},
+        result="success",
+    )
+
     asset = session.get(WaterAsset, alert.asset_id)
     return _build_alert_response(alert, asset)
 
@@ -698,20 +710,34 @@ def list_thresholds(
 def update_threshold(
     threshold_id: int,
     payload: ThresholdUpdateInput,
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Update an asset threshold configuration."""
+    """Update an asset threshold configuration (authenticated, audited)."""
     threshold = session.get(WaterAssetThreshold, threshold_id)
     if not threshold:
         raise HTTPException(status_code=404, detail="Threshold not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    before = jsonable_encoder({f: getattr(threshold, f) for f in update_data})
     for field, value in update_data.items():
         setattr(threshold, field, value)
     threshold.updated_at = datetime.utcnow()
 
     session.commit()
     session.refresh(threshold)
+
+    actor = alert_workflow.actor_from_token(user)
+    write_audit(
+        action="THRESHOLD_UPDATED",
+        module="thresholds",
+        user_id=actor.user_id,
+        resource_type="asset_threshold",
+        resource_id=str(threshold_id),
+        before_value=before,
+        after_value=jsonable_encoder(update_data),
+        result="success",
+    )
 
     asset = session.get(WaterAsset, threshold.asset_id)
     return ThresholdResponse(

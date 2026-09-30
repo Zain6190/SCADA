@@ -12,8 +12,12 @@ from typing import List, Dict
 from sqlalchemy import select
 
 from infrastructure.db.engine import SessionLocal
-from infrastructure.db.models import WaterSource, WaterAsset, WaterFFDObservation, RawSourceRecord
+from infrastructure.db.models import (
+    WaterSource, WaterAsset, WaterFFDObservation, RawSourceRecord,
+    WaterObservationQuarantine, DataQualityLog,
+)
 from infrastructure.ingestion.pmd_scraper import PMDScraper, PMDObservation
+from infrastructure.ingestion.validators import build_quarantine_record, validate_observation
 
 logger = logging.getLogger("aquavision.ffd_ingest")
 
@@ -73,13 +77,13 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         fetch_status = "SUCCESS"
     except Exception as e:
         logger.error(f"Failed to scrape FFD: {e}")
-        return {"error": str(e), "parsed": 0, "stored": 0, "skipped": 0, "fetch_status": "FAILED"}
+            return {"error": str(e), "parsed": 0, "stored": 0, "skipped": 0, "invalid": 0, "fetch_status": "FAILED"}
     finally:
         scraper.close()
     
     if not observations:
         logger.warning("No observations parsed from FFD bulletin")
-        return {"date": str(target_date), "parsed": 0, "stored": 0, "skipped": 0, "fetch_status": fetch_status}
+        return {"date": str(target_date), "parsed": 0, "stored": 0, "skipped": 0, "invalid": 0, "fetch_status": fetch_status}
     
     # 2. Archive raw HTML
     content_hash = hashlib.sha256(html.encode()).hexdigest()
@@ -109,6 +113,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
                 "parsed": len(observations),
                 "stored": 0,
                 "skipped": len(observations),
+                "invalid": 0,
                 "fetch_status": fetch_status,
                 "duplicate": True,
             }
@@ -129,15 +134,16 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         
         stored = 0
         skipped = 0
-        
+        invalid = 0
+
         for obs in observations:
             asset_id = _get_asset_id(db, obs.station_name)
-            
+
             if asset_id is None:
                 logger.debug(f"Station '{obs.station_name}' not matched to asset, skipping")
                 skipped += 1
                 continue
-            
+
             # Check for existing observation (idempotent)
             existing = db.execute(
                 select(WaterFFDObservation).where(
@@ -146,16 +152,57 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
                     WaterFFDObservation.source_id == source.id,
                 )
             ).scalar_one_or_none()
-            
+
             if existing:
                 skipped += 1
                 continue
-            
-            # Basic validation
-            if obs.discharge_cusecs is not None and obs.discharge_cusecs < 0:
-                logger.warning(f"FFD {obs.station_name}: negative discharge {obs.discharge_cusecs}, setting to None")
-                obs.discharge_cusecs = None
-            
+
+            # Sanity validation before store: impossible values are quarantined
+            row = {
+                "water_level_ft": obs.gauge_level_ft,
+                "discharge_cusecs": obs.discharge_cusecs,
+            }
+            validation = validate_observation(row, asset_id, source_date=target_date)
+            if validation.quality_status == "INVALID":
+                quarantine = build_quarantine_record(
+                    row, asset_id, validation,
+                    source_record_id=raw_record.id,
+                    parser_version="pmd_scraper_v1.0",
+                )
+                if quarantine:
+                    db.add(WaterObservationQuarantine(
+                        asset_id=quarantine.asset_id,
+                        source_record_id=quarantine.source_record_id,
+                        raw_payload=quarantine.raw_payload,
+                        parsed_values=quarantine.parsed_values,
+                        failure_reason=quarantine.failure_reason,
+                        field_name=quarantine.field_name,
+                        raw_value=quarantine.raw_value,
+                        parser_version=quarantine.parser_version,
+                        data_status=quarantine.data_status,
+                    ))
+                for v in validation.violations:
+                    db.add(DataQualityLog(
+                        asset_id=asset_id,
+                        check_type=v.get("check", "UNKNOWN"),
+                        field_name=v.get("field", "unknown"),
+                        raw_value=float(v["raw_value"]) if v.get("raw_value") not in (None, "") else None,
+                        quality_status="INVALID",
+                        details=v.get("detail", ""),
+                        source_record_id=raw_record.id,
+                    ))
+                invalid += 1
+                logger.warning(
+                    f"FFD {obs.station_name}: INVALID observation quarantined - "
+                    f"{[v['detail'] for v in validation.violations]}"
+                )
+                continue
+            if validation.quality_status not in ("VALID",):
+                logger.warning(
+                    f"FFD {obs.station_name}: quality={validation.quality_status} "
+                    f"warnings={validation.warnings}"
+                )
+
             # Store observation
             ffd_obs = WaterFFDObservation(
                 asset_id=asset_id,
@@ -199,6 +246,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         "parsed": len(observations),
         "stored": stored,
         "skipped": skipped,
+        "invalid": invalid,
         "fetch_status": fetch_status,
         "ot_anchor": _reanchor_soft_ot("ffd-ingest"),
     }
