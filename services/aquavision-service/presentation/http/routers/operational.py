@@ -12,7 +12,7 @@
 from datetime import datetime, timedelta, date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy import select, desc, and_, func
@@ -622,6 +622,7 @@ def escalate_alert(
 @router.post("/operational/alerts/{alert_id}/ack", response_model=AlertResponse)
 def acknowledge_alert(
     alert_id: int,
+    request: Request,
     payload: AlertActionInput = AlertActionInput(),
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -641,6 +642,8 @@ def acknowledge_alert(
         resource_id=str(alert_id),
         details={"asset_id": alert.asset_id, "notes": payload.notes},
         result="success",
+        ip_address=request.client.host if request and request.client else None,
+        user_agent=request.headers.get("user-agent") if request else None,
     )
 
     asset = session.get(WaterAsset, alert.asset_id)
@@ -709,6 +712,7 @@ def list_thresholds(
 @router.put("/operational/thresholds/{threshold_id}", response_model=ThresholdResponse)
 def update_threshold(
     threshold_id: int,
+    request: Request,
     payload: ThresholdUpdateInput,
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -737,6 +741,8 @@ def update_threshold(
         before_value=before,
         after_value=jsonable_encoder(update_data),
         result="success",
+        ip_address=request.client.host if request and request.client else None,
+        user_agent=request.headers.get("user-agent") if request else None,
     )
 
     asset = session.get(WaterAsset, threshold.asset_id)

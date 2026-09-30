@@ -81,6 +81,21 @@ export interface OperatorPatch {
   access_status?: string
 }
 
+export interface AuditEntry {
+  id: number
+  timestamp: string
+  action: string
+  module: string | null
+  actor: string | null
+  user_id: number | null
+  role: string | null
+  resource_type: string | null
+  resource_id: string | null
+  result: string | null
+  ip_address: string | null
+  details: Record<string, unknown> | null
+}
+
 export const adminClient = axios.create({
   baseURL: `${API_BASE_URL}/auth`,
   headers: { 'Content-Type': 'application/json' },
@@ -138,6 +153,10 @@ export const adminApi = {
   },
   listOperatorRoles: async (): Promise<AdminRole[]> => {
     const { data } = await adminClient.get('/operator-roles')
+    return data
+  },
+  listAudit: async (limit = 100): Promise<AuditEntry[]> => {
+    const { data } = await adminClient.get('/audit', { params: { limit } })
     return data
   },
 }

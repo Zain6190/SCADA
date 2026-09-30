@@ -15,6 +15,7 @@ export const adminKeys = {
   roles: () => [...adminKeys.all, 'roles'] as const,
   operatorRoles: () => [...adminKeys.all, 'operator-roles'] as const,
   regions: () => [...adminKeys.all, 'regions'] as const,
+  audit: () => [...adminKeys.all, 'audit'] as const,
 }
 
 export function useAdminUsers() {
@@ -28,6 +29,14 @@ export function useAdminRoles() {
   return useQuery({
     queryKey: adminKeys.roles(),
     queryFn: adminApi.listRoles,
+  })
+}
+
+export function useAuditLog(limit = 100) {
+  return useQuery({
+    queryKey: [...adminKeys.audit(), limit],
+    queryFn: () => adminApi.listAudit(limit),
+    refetchInterval: 30_000,
   })
 }
 
