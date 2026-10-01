@@ -192,6 +192,7 @@ export interface OperationalAsset {
   current_discharge?: number | null
   last_observed_at?: string | null
   data_age_hours?: number | null
+  latest_source?: string | null
   active_alert_count: number
   highest_severity?: string | null
 }
@@ -538,6 +539,7 @@ export interface V2AssetPrediction {
     accuracy_14day: number | null
     features_used: number | null
     prediction_method: string
+    status?: string
     accuracy_status?: string
     // holdout coverage of the q10-q90 interval per horizon (3/7/14);
     // null for physics assets / models without quantile intervals
@@ -547,12 +549,12 @@ export interface V2AssetPrediction {
 
 export interface V2NationalOverview {
   timestamp: string
-  national_wai: number
-  national_status: string
+  national_wai?: number | null
+  national_status?: string | null
   provinces: Array<{
     province: string
-    wai_score: number
-    category: string
+    wai_score?: number | null
+    category?: string | null
     assets: V2AssetPrediction[]
   }>
   critical_alerts: Array<{

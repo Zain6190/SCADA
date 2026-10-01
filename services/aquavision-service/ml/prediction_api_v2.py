@@ -32,6 +32,40 @@ def _require_data(result) -> None:
         )
 
 
+def is_placeholder_forecast(result) -> bool:
+    """True for _empty_prediction rows (WAI 50 / Moderate / discharge 0)."""
+    metadata = getattr(result, "model_metadata", None) or {}
+    return metadata.get("status") == "NO_DATA"
+
+
+def partition_real_forecasts(results):
+    """Drop NO_DATA placeholders. WAI scores omit the unscored 'No Data' sentinel.
+
+    Returns (real_results, wai_scores, alerts). An empty score list means
+    there is no WAI to average — callers must not substitute 50.
+    """
+    real = []
+    wai_scores = []
+    alerts = []
+    for result in results:
+        if is_placeholder_forecast(result):
+            continue
+        real.append(result)
+        forecast = (getattr(result, "predictions", None) or {}).get("7_day")
+        stress = getattr(forecast, "water_stress", None) if forecast is not None else None
+        if stress is not None and getattr(stress, "category", None) != "No Data":
+            wai_scores.append(float(stress.value))
+        alerts.extend(getattr(result, "alerts", None) or [])
+    return real, wai_scores, alerts
+
+
+def mean_wai(scores) -> Optional[float]:
+    """Mean WAI, or None when there is nothing real to average."""
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
 # ─── Pydantic Response Models ────────────────────────────────────────────────
 
 class DischargeResponse(BaseModel):
@@ -97,15 +131,15 @@ class PredictionResponse(BaseModel):
 
 class ProvincePrediction(BaseModel):
     province: str
-    wai_score: int
-    category: str
+    wai_score: Optional[int] = None
+    category: Optional[str] = None
     assets: List[PredictionResponse]
 
 
 class NationalOverviewResponse(BaseModel):
     timestamp: str
-    national_wai: float
-    national_status: str
+    national_wai: Optional[float] = None
+    national_status: Optional[str] = None
     provinces: List[ProvincePrediction]
     critical_alerts: List[AlertResponse]
     assets_monitored: int
@@ -264,58 +298,50 @@ def get_national_overview(
             province_assets[province] = []
         province_assets[province].append(asset)
 
+    from domain.water_classifier import classify_severity
+
     provinces = []
     all_alerts = []
+    assets_monitored = 0
 
     for province, prov_assets in province_assets.items():
-        asset_predictions = []
-        wai_scores = []
-
+        predicted = []
         for asset in prov_assets:
             try:
-                result = model.predict(
+                predicted.append(model.predict(
                     asset_id=asset.id,
                     asset_name=asset.canonical_name,
                     asset_type=asset.asset_type or "barrage",
                     lead_times=[7],
-                )
-                asset_predictions.append(asdict(result))
-
-                # Get WAI from 7-day forecast
-                forecast_7d = result.predictions.get("7_day")
-                if forecast_7d:
-                    wai_scores.append(forecast_7d.water_stress.value)
-
-                all_alerts.extend(result.alerts)
+                ))
             except Exception as e:
                 logger.warning(f"Prediction failed for asset {asset.id}: {e}")
 
-        avg_wai = sum(wai_scores) / len(wai_scores) if wai_scores else 50
-        from domain.water_classifier import classify_severity
+        real, wai_scores, alerts = partition_real_forecasts(predicted)
+        if not real:
+            continue
 
+        avg_wai = mean_wai(wai_scores)
         provinces.append(ProvincePrediction(
             province=province,
-            wai_score=int(avg_wai),
-            category=classify_severity(avg_wai),
-            assets=asset_predictions,
+            wai_score=int(round(avg_wai)) if avg_wai is not None else None,
+            category=classify_severity(avg_wai) if avg_wai is not None else None,
+            assets=[asdict(result) for result in real],
         ))
+        all_alerts.extend(alerts)
+        assets_monitored += len(real)
 
-    # National WAI
-    all_wai = [p.wai_score for p in provinces]
-    national_wai = sum(all_wai) / len(all_wai) if all_wai else 50
+    national_wai = mean_wai([p.wai_score for p in provinces if p.wai_score is not None])
 
-    from domain.water_classifier import classify_severity
-
-    # Filter critical alerts
     critical_alerts = [a for a in all_alerts if a.get("level") in ("CRITICAL", "HIGH")]
 
     return NationalOverviewResponse(
         timestamp=datetime.utcnow().isoformat(),
-        national_wai=round(national_wai, 1),
-        national_status=classify_severity(national_wai),
+        national_wai=round(national_wai, 1) if national_wai is not None else None,
+        national_status=classify_severity(national_wai) if national_wai is not None else None,
         provinces=provinces,
         critical_alerts=critical_alerts,
-        assets_monitored=len(assets),
+        assets_monitored=assets_monitored,
     )
 
 

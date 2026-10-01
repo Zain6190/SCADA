@@ -1,176 +1,226 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import {
-  Waves, AlertTriangle, Map, Radio, LineChart, Bell, TrendingUp,
-  ShieldCheck, Activity,
+  Waves, AlertTriangle, Map as MapIcon, Radio, LineChart, Bell, TrendingUp, ShieldCheck,
 } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Spinner, ErrorState } from '@/components/ui/state'
+import { Spinner, ErrorState, EmptyState } from '@/components/ui/state'
+import { waterApi } from '@/features/water/api'
+import { ReliabilityBadge } from '@/features/water/reliability-badge'
+import type {
+  OperationalAlert, OperationalAsset, V2AssetPrediction, V2LeadTimeForecast, V2NationalOverview,
+} from '@/features/water/types'
 import { fmtNumber } from '@/lib/format'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8100'
-
-interface OperationalAsset {
-  id: number
-  canonical_name: string
-  asset_type: string
-  river?: string | null
-  capacity_maf?: number | null
-  normal_level_ft?: number | null
-  warning_level_ft?: number | null
-  critical_level_ft?: number | null
-  is_active: boolean
-  current_level_ft?: number | null
-  current_inflow?: number | null
-  current_outflow?: number | null
-  current_discharge?: number | null
-  last_observed_at?: string | null
-  data_age_hours?: number | null
-  active_alert_count: number
-  highest_severity?: string | null
-}
-
-interface OperationalAlert {
-  id: number
-  asset_id: number
-  asset_name?: string | null
-  alert_type: string
-  severity: string
-  status: string
-  message: string
-  created_at: string
-  downstream_population_exposed?: number | null
-}
+const QUICK_LINKS = [
+  { label: 'Flood Map', href: '/water/flood-map', icon: MapIcon },
+  { label: 'Alerts', href: '/water/operator/alerts', icon: Bell },
+  { label: 'Predictions', href: '/water/predictions', icon: TrendingUp },
+  { label: 'Sensors', href: '/water/sensors', icon: Radio },
+  { label: 'Operations', href: '/water/operator', icon: ShieldCheck },
+  { label: 'Analyst', href: '/water/analyst', icon: LineChart },
+]
 
 type Tone = 'slate' | 'sky' | 'emerald' | 'amber' | 'red'
 
 function severityTone(sev?: string | null): Tone {
-  if (sev === 'Critical') return 'red'
-  if (sev === 'Danger' || sev === 'Warning') return 'amber'
+  if (sev === 'Critical' || sev === 'CRITICAL') return 'red'
+  if (sev === 'Danger' || sev === 'Warning' || sev === 'HIGH' || sev === 'WARNING') return 'amber'
   if (sev === 'Watch') return 'sky'
   return 'emerald'
 }
 
-function freshnessTone(h?: number | null): { tone: Tone; label: string } {
-  if (h == null) return { tone: 'slate', label: 'No data' }
-  if (h < 6) return { tone: 'emerald', label: `${Math.round(h)}h ago` }
-  if (h < 24) return { tone: 'sky', label: `${Math.round(h)}h ago` }
-  if (h < 72) return { tone: 'amber', label: `${Math.round(h)}h ago` }
-  return { tone: 'red', label: `${Math.round(h)}h ago` }
+function freshness(hours?: number | null): { tone: Tone; label: string } {
+  if (hours == null) return { tone: 'slate', label: 'No official reading' }
+  const rounded = `${Math.round(hours)}h ago`
+  if (hours < 6) return { tone: 'emerald', label: rounded }
+  if (hours < 24) return { tone: 'sky', label: rounded }
+  if (hours < 72) return { tone: 'amber', label: rounded }
+  return { tone: 'red', label: rounded }
 }
 
-function levelInfo(a: OperationalAsset) {
-  const lv = a.current_level_ft
-  if (lv == null || !a.warning_level_ft) return { pct: 0, tone: 'slate' as Tone, label: 'No reading' }
-  const crit = a.critical_level_ft ?? a.warning_level_ft * 1.2
-  if (lv >= crit) return { pct: 100, tone: 'red' as Tone, label: `${fmtNumber(lv)} ft` }
-  if (lv >= a.warning_level_ft) return { pct: 75, tone: 'amber' as Tone, label: `${fmtNumber(lv)} ft` }
-  const norm = a.normal_level_ft ?? a.warning_level_ft * 0.8
-  const pct = norm > 0 ? Math.min(100, Math.max(0, ((lv - norm) / (a.warning_level_ft - norm)) * 75)) : 50
-  return { pct, tone: 'sky' as Tone, label: `${fmtNumber(lv)} ft` }
-}
-
-const QUICK_LINKS = [
-  { label: 'Flood Map', href: '/water/flood-map', icon: Map, accent: 'bg-crit-soft text-crit' },
-  { label: 'Alerts', href: '/water/operator/alerts', icon: Bell, accent: 'bg-warn-soft text-warn' },
-  { label: 'Predictions', href: '/water/predictions', icon: TrendingUp, accent: 'bg-brand-soft text-brand' },
-  { label: 'Sensors', href: '/water/sensors', icon: Radio, accent: 'bg-brand-soft text-brand' },
-  { label: 'Operations', href: '/water/operator', icon: ShieldCheck, accent: 'bg-brand-soft text-brand' },
-  { label: 'Analyst', href: '/water/analyst', icon: LineChart, accent: 'bg-ok-soft text-ok' },
-]
-
-function OtHealthStrip() {
-  const [status, setStatus] = useState<any>(null)
-  useEffect(() => {
-    fetch(`${API_BASE}/water/ot/status`).then((r) => r.ok ? r.json() : null).then(setStatus).catch(() => setStatus(null))
-  }, [])
-  if (!status) return null
-  const scenario = status.coverage?.scenario_assets?.length || 0
+function hasOfficialReading(asset: OperationalAsset): boolean {
   return (
-    <Link href="/water/ot" className="block rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 hover:border-sky-500/40">
-      <p className="text-[10px] uppercase tracking-wider text-slate-500">Soft OT</p>
-      <p className="text-sm text-slate-200">
-        {status.coverage?.days || 0} official days
-        {status.coverage?.last ? ` · latest ${status.coverage.last}` : ''}
-        {scenario ? ` · ${scenario} scenario` : ' · tracking official series'}
-      </p>
-    </Link>
+    asset.current_level_ft != null
+    || asset.current_inflow != null
+    || asset.current_outflow != null
+    || asset.current_discharge != null
+    || asset.last_observed_at != null
   )
 }
 
-function AssetCard({ asset }: { asset: OperationalAsset }) {
-  const fresh = freshnessTone(asset.data_age_hours)
-  const lv = levelInfo(asset)
+function levelBar(asset: OperationalAsset): { pct: number; tone: Tone } | null {
+  const level = asset.current_level_ft
+  const warning = asset.warning_level_ft
+  if (level == null || warning == null) return null
+  const critical = asset.critical_level_ft
+  if (critical != null && level >= critical) return { pct: 100, tone: 'red' }
+  if (level >= warning) return { pct: 75, tone: 'amber' }
+  const normal = asset.normal_level_ft
+  if (normal == null || warning <= normal) return null
+  const pct = Math.min(100, Math.max(0, ((level - normal) / (warning - normal)) * 75))
+  return { pct, tone: 'sky' }
+}
+
+function methodLabel(method?: string): string {
+  if (!method) return 'Model'
+  if (method === 'physics_routing') return 'Physics routing'
+  if (method.startsWith('ml_xgboost_')) return `XGBoost ${method.slice('ml_xgboost_'.length)}`
+  if (method === 'ml_xgboost') return 'XGBoost'
+  return method
+}
+
+function realForecasts(overview?: V2NationalOverview): Map<number, V2AssetPrediction> {
+  const byId = new Map<number, V2AssetPrediction>()
+  for (const province of overview?.provinces ?? []) {
+    for (const asset of province.assets) {
+      if (asset.model_metadata?.status === 'NO_DATA') continue
+      if (!asset.predictions?.['7_day']) continue
+      byId.set(asset.asset_id, asset)
+    }
+  }
+  return byId
+}
+
+function ReadingValue({ label, value, unit }: { label: string; value: number | null | undefined; unit: string }) {
   return (
-    <Link href={`/water/operator/assets?highlight=${asset.id}`}>
-      <Card className="group cursor-pointer transition-all hover:border-brand/25 hover:bg-surface">
+    <div className="flex justify-between gap-2">
+      <span className="text-ink-subtle">{label}</span>
+      <span className="font-medium text-ink">
+        {value != null ? `${fmtNumber(value)} ${unit}` : '—'}
+      </span>
+    </div>
+  )
+}
+
+function ForecastBlock({ forecast, method }: { forecast: V2LeadTimeForecast; method?: string }) {
+  const stressMissing = forecast.water_stress.category === 'No Data'
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">7-day model</p>
+        <span className="text-[10px] text-ink-muted">{methodLabel(method)}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+        <div className="flex justify-between gap-2">
+          <span className="text-ink-subtle">Stress</span>
+          <span className="font-medium text-ink">
+            {stressMissing ? '—' : `${forecast.water_stress.value} ${forecast.water_stress.category}`}
+          </span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-ink-subtle">Flood risk</span>
+          <span className="font-medium text-ink">
+            {forecast.flood_risk.value} {forecast.flood_risk.category}
+          </span>
+        </div>
+        <ReadingValue label="Discharge" value={forecast.discharge.value_cusecs} unit="cusecs" />
+        <ReadingValue label="Rainfall" value={forecast.rainfall.value_mm} unit="mm" />
+      </div>
+      {forecast.confidence != null && (
+        <p className="mt-2 text-[10px] text-ink-subtle">
+          Confidence {Math.round(forecast.confidence * 100)}%
+        </p>
+      )}
+    </div>
+  )
+}
+
+function AssetCard({
+  asset,
+  forecast,
+  reliability,
+}: {
+  asset?: OperationalAsset
+  forecast?: V2AssetPrediction
+  reliability?: Parameters<typeof ReliabilityBadge>[0]['r']
+}) {
+  const name = asset?.canonical_name ?? forecast?.asset_name ?? 'Asset'
+  const assetType = asset?.asset_type ?? forecast?.asset_type
+  const river = asset?.river
+  const fresh = freshness(asset?.data_age_hours)
+  const bar = asset ? levelBar(asset) : null
+  const lead = forecast?.predictions?.['7_day']
+  const id = asset?.id ?? forecast?.asset_id
+
+  return (
+    <Link href={id != null ? `/water/operator/assets?highlight=${id}` : '/water/predictions'}>
+      <Card className="group h-full cursor-pointer transition-all hover:border-brand/25 hover:bg-surface">
         <CardBody className="p-4">
-          <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="mb-3 flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-ink truncate">{asset.canonical_name}</p>
+              <p className="truncate text-sm font-semibold text-ink">{name}</p>
               <p className="text-[11px] text-ink-subtle">
-                {asset.asset_type === 'barrage' ? 'Barrage' : asset.asset_type === 'dam' ? 'Dam' : asset.asset_type}
-                {asset.river ? ` \u00b7 ${asset.river}` : ''}
+                {assetType === 'barrage' ? 'Barrage' : assetType === 'dam' ? 'Dam' : assetType}
+                {river ? ` · ${river}` : ''}
               </p>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {asset.active_alert_count > 0 && (
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <ReliabilityBadge r={reliability} />
+              {asset && asset.active_alert_count > 0 && (
                 <Badge tone={severityTone(asset.highest_severity)}>
                   <AlertTriangle className="h-3 w-3" />{asset.active_alert_count}
                 </Badge>
               )}
-              <Badge tone={fresh.tone}>
-                <span className="h-1.5 w-1.5 rounded-full bg-current" />{fresh.label}
-              </Badge>
-            </div>
-          </div>
-
-          <div className="mb-3">
-            <div className="flex items-center justify-between text-[10px] mb-1">
-              <span className="text-ink-subtle">Level</span>
-              <span className="font-medium text-ink-muted">{lv.label}</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-surface-alt overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  lv.tone === 'red' ? 'bg-crit' : lv.tone === 'amber' ? 'bg-warn' : 'bg-brand'
-                }`}
-                style={{ width: `${Math.max(2, lv.pct)}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
-            <div className="flex justify-between">
-              <span className="text-ink-subtle">Inflow</span>
-              <span className="font-medium text-ink">{asset.current_inflow != null ? `${fmtNumber(asset.current_inflow)} cusecs` : '\u2014'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-ink-subtle">Outflow</span>
-              <span className="font-medium text-ink">{asset.current_outflow != null ? `${fmtNumber(asset.current_outflow)} cusecs` : '\u2014'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-ink-subtle">Discharge</span>
-              <span className="font-medium text-ink">{asset.current_discharge != null ? `${fmtNumber(asset.current_discharge)} cusecs` : '\u2014'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-ink-subtle">Capacity</span>
-              <span className="font-medium text-ink">{asset.capacity_maf != null ? `${fmtNumber(asset.capacity_maf)} MAF` : '\u2014'}</span>
-            </div>
-          </div>
-
-          {asset.warning_level_ft && (
-            <div className="mt-3 pt-2 border-t border-line flex gap-3 text-[10px]">
-              <span className="text-ink-subtle">Warn: <span className="text-warn font-medium">{fmtNumber(asset.warning_level_ft)} ft</span></span>
-              {asset.critical_level_ft && (
-                <span className="text-ink-subtle">Crit: <span className="text-crit font-medium">{fmtNumber(asset.critical_level_ft)} ft</span></span>
+              {asset && hasOfficialReading(asset) && (
+                <Badge tone={fresh.tone}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />{fresh.label}
+                </Badge>
               )}
             </div>
+          </div>
+
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[10px]">
+              <span className="font-semibold uppercase tracking-wider text-ink-subtle">Official</span>
+              <span className="text-ink-muted">
+                {asset && hasOfficialReading(asset)
+                  ? (asset.latest_source || 'IRSA / FFD')
+                  : 'No official reading'}
+              </span>
+            </div>
+            {asset && hasOfficialReading(asset) ? (
+              <>
+                {bar && asset.current_level_ft != null && (
+                  <div className="mb-2">
+                    <div className="mb-1 flex items-center justify-between text-[10px]">
+                      <span className="text-ink-subtle">Level</span>
+                      <span className="font-medium text-ink-muted">{fmtNumber(asset.current_level_ft)} ft</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-surface-alt">
+                      <div
+                        className={`h-full rounded-full ${
+                          bar.tone === 'red' ? 'bg-crit' : bar.tone === 'amber' ? 'bg-warn' : 'bg-brand'
+                        }`}
+                        style={{ width: `${Math.max(2, bar.pct)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {asset.current_level_ft != null && !bar && (
+                  <ReadingValue label="Level" value={asset.current_level_ft} unit="ft" />
+                )}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                  <ReadingValue label="Inflow" value={asset.current_inflow} unit="cusecs" />
+                  <ReadingValue label="Outflow" value={asset.current_outflow} unit="cusecs" />
+                  <ReadingValue label="Discharge" value={asset.current_discharge} unit="cusecs" />
+                  <ReadingValue label="Capacity" value={asset.capacity_maf} unit="MAF" />
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] text-ink-subtle">No official reading</p>
+            )}
+          </div>
+
+          {lead ? (
+            <ForecastBlock forecast={lead} method={forecast?.model_metadata.prediction_method} />
+          ) : (
+            <p className="mt-3 border-t border-line pt-3 text-[11px] text-ink-subtle">Forecast unavailable</p>
           )}
         </CardBody>
       </Card>
@@ -183,21 +233,22 @@ function AlertTicker({ alerts }: { alerts: OperationalAlert[] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-warn/25 bg-warn-soft">
       <div className="flex items-center gap-3 px-4 py-2.5">
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <Bell className="h-4 w-4 text-warn" />
-          <span className="text-xs font-semibold text-warn">{alerts.length} Active</span>
+          <span className="text-xs font-semibold text-warn">{alerts.length} active</span>
         </div>
-        <div className="overflow-hidden flex-1">
-          <div className="flex gap-6 whitespace-nowrap overflow-x-auto">
-            {alerts.map((a) => (
-              <Link key={a.id} href="/water/operator/alerts" className="flex items-center gap-2 text-xs text-ink-muted hover:text-warn shrink-0">
-                <span className={`h-1.5 w-1.5 rounded-full ${a.severity === 'Critical' ? 'bg-crit' : a.severity === 'Danger' ? 'bg-sev-severe' : 'bg-warn'}`} />
-                <span className="font-medium text-ink-muted">{a.asset_name ?? `Asset ${a.asset_id}`}</span>
-                <span>\u00b7</span>
-                <span>{a.alert_type}</span>
-                {a.downstream_population_exposed != null && a.downstream_population_exposed > 0 && (
-                  <span className="text-warn">{(a.downstream_population_exposed / 1000000).toFixed(1)}M exposed</span>
-                )}
+        <div className="flex-1 overflow-hidden">
+          <div className="flex gap-6 overflow-x-auto whitespace-nowrap">
+            {alerts.map((alert) => (
+              <Link
+                key={alert.id}
+                href="/water/operator/alerts"
+                className="flex shrink-0 items-center gap-2 text-xs text-ink-muted hover:text-warn"
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${alert.severity === 'Critical' ? 'bg-crit' : 'bg-warn'}`} />
+                <span className="font-medium text-ink-muted">{alert.asset_name ?? `Asset ${alert.asset_id}`}</span>
+                <span>·</span>
+                <span>{alert.alert_type}</span>
               </Link>
             ))}
           </div>
@@ -208,137 +259,196 @@ function AlertTicker({ alerts }: { alerts: OperationalAlert[] }) {
 }
 
 export default function WaterCommandCenterPage() {
-  const [assets, setAssets] = useState<OperationalAsset[]>([])
-  const [alerts, setAlerts] = useState<OperationalAlert[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const assetsQuery = useQuery({
+    queryKey: ['command-center', 'operational-assets'],
+    queryFn: () => waterApi.getOperationalAssets(),
+    refetchInterval: 30_000,
+  })
+  const alertsQuery = useQuery({
+    queryKey: ['command-center', 'operational-alerts'],
+    queryFn: () => waterApi.getOperationalAlerts({ limit: 50 }),
+    refetchInterval: 30_000,
+  })
+  const overviewQuery = useQuery({
+    queryKey: ['v2-national-overview'],
+    queryFn: () => waterApi.getV2NationalOverview(),
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: 1,
+  })
+  const reliabilityQuery = useQuery({
+    queryKey: ['v2-reliability'],
+    queryFn: () => waterApi.getV2Reliability(),
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: 1,
+  })
 
-  const fetchData = async () => {
-    try {
-      const [assetsRes, alertsRes] = await Promise.allSettled([
-        fetch(`${API_BASE}/water/operational/assets`),
-        fetch(`${API_BASE}/water/operational/alerts?limit=50`),
-      ])
-      if (assetsRes.status === 'fulfilled' && assetsRes.value.ok) {
-        setAssets(await assetsRes.value.json())
-      }
-      if (alertsRes.status === 'fulfilled' && alertsRes.value.ok) {
-        const data = await alertsRes.value.json()
-        setAlerts(Array.isArray(data) ? data.filter((a: OperationalAlert) => a.status !== 'RESOLVED') : [])
-      }
-      setLastUpdated(new Date())
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
+  const assets = assetsQuery.data ?? []
+  const forecasts = realForecasts(overviewQuery.data)
+  const openAlerts = (alertsQuery.data ?? []).filter((alert) => alert.status !== 'RESOLVED')
+  const observed = assets.filter(hasOfficialReading)
+  const ages = observed
+    .map((asset) => asset.data_age_hours)
+    .filter((hours): hours is number => hours != null)
+  const avgAge = ages.length > 0 ? ages.reduce((sum, hours) => sum + hours, 0) / ages.length : null
+  const forecastCount = overviewQuery.data?.assets_monitored ?? forecasts.size
+  const modelAlerts = overviewQuery.data?.critical_alerts ?? []
+
+  const cards = new Map<number, { asset?: OperationalAsset; forecast?: V2AssetPrediction }>()
+  for (const asset of observed) {
+    cards.set(asset.id, { asset, forecast: forecasts.get(asset.id) })
   }
+  forecasts.forEach((forecast, id) => {
+    const existing = cards.get(id)
+    if (existing) existing.forecast = forecast
+    else cards.set(id, { forecast, asset: assets.find((asset) => asset.id === id) })
+  })
+  const cardList = Array.from(cards.entries()).sort((a, b) => {
+    const nameA = a[1].asset?.canonical_name ?? a[1].forecast?.asset_name ?? ''
+    const nameB = b[1].asset?.canonical_name ?? b[1].forecast?.asset_name ?? ''
+    return nameA.localeCompare(nameB)
+  })
 
-  useEffect(() => {
-    fetchData()
-    const iv = setInterval(fetchData, 30_000)
-    return () => clearInterval(iv)
-  }, [])
-
-  const openAlerts = alerts.filter((a) => a.status === 'NEW')
-  const totalAlerts = alerts.length
-  const assetsWithAlerts = assets.filter((a) => a.active_alert_count > 0).length
-  const avgFreshness = assets.length > 0
-    ? assets.reduce((sum, a) => sum + (a.data_age_hours ?? 0), 0) / assets.length
-    : 0
+  const loading = assetsQuery.isPending && overviewQuery.isPending && !assetsQuery.data && !overviewQuery.data
+  const bothFailed = assetsQuery.isError && overviewQuery.isError
+  const description = observed.length + forecastCount > 0
+    ? `${observed.length} official reading${observed.length === 1 ? '' : 's'} and ${forecastCount} model forecast${forecastCount === 1 ? '' : 's'}.`
+    : 'Official IRSA and FFD readings, plus AquaVision model forecasts. Values appear only when that data exists.'
 
   return (
     <AppShell>
       <div className="space-y-6">
         <PageHeader
           title="AquaVision Command Center"
-          description="Live overview of Pakistan's water infrastructure. 11 assets across Indus, Jhelum, Kabul, and Chenab basins."
+          description={description}
           icon={<Waves className="h-6 w-6" />}
+          updatedAt={overviewQuery.data?.timestamp}
           badge={
-            <div className="flex items-center gap-2">
-              {lastUpdated && (
-                <span className="flex items-center gap-1.5 text-[10px] text-ok">
-                  <span className="h-1.5 w-1.5 rounded-full bg-ok animate-pulse" />
-                  Live {lastUpdated.toLocaleTimeString()}
-                </span>
-              )}
-              <Badge tone={totalAlerts > 0 ? 'amber' : 'emerald'}>
-                {totalAlerts > 0 ? `${totalAlerts} active alert(s)` : 'All clear'}
-              </Badge>
-            </div>
+            <Badge tone={modelAlerts.length > 0 || openAlerts.length > 0 ? 'amber' : 'emerald'}>
+              {modelAlerts.length + openAlerts.length > 0
+                ? `${modelAlerts.length + openAlerts.length} active alert${modelAlerts.length + openAlerts.length === 1 ? '' : 's'}`
+                : 'All clear'}
+            </Badge>
           }
         />
 
         {loading ? (
-          <div className="flex h-64 items-center justify-center"><Spinner label="Loading infrastructure" /></div>
-        ) : error ? (
-          <ErrorState title="Failed to load" message={error} onRetry={fetchData} />
+          <div className="flex h-64 items-center justify-center">
+            <Spinner label="Loading official readings and forecasts" />
+          </div>
+        ) : bothFailed ? (
+          <ErrorState
+            title="Failed to load"
+            message="Official readings and model forecasts are both unavailable."
+            onRetry={() => {
+              assetsQuery.refetch()
+              overviewQuery.refetch()
+            }}
+          />
         ) : (
           <>
-            <OtHealthStrip />
-
             <AlertTicker alerts={openAlerts} />
+
+            {modelAlerts.length > 0 && (
+              <div className="space-y-2">
+                <h2 className="text-sm font-semibold text-ink">Forecast alerts</h2>
+                {modelAlerts.map((alert, index) => (
+                  <div
+                    key={`${alert.timestamp}-${alert.type}-${index}`}
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                      alert.level === 'CRITICAL'
+                        ? 'border-crit/25 bg-crit-soft text-crit'
+                        : 'border-warn/25 bg-warn-soft text-warn'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <AlertTriangle className="h-3 w-3" />
+                      <span className="font-semibold">{alert.level}</span>
+                      <span className="text-ink-muted">·</span>
+                      <span>{alert.type}</span>
+                      <span className="text-ink-muted">·</span>
+                      <span>{alert.lead_time}</span>
+                      <Badge tone="sky">Forecast</Badge>
+                    </div>
+                    <p className="mt-1 text-ink-muted">{alert.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Card className="px-4 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Total Assets</p>
-                <p className="text-xl font-bold text-white">{assets.length}</p>
-                <p className="text-[11px] text-ink-subtle">{assets.filter(a => a.asset_type === 'dam').length} dams, {assets.filter(a => a.asset_type === 'barrage').length} barrages</p>
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">National WAI</p>
+                <p className="text-xl font-bold text-white">
+                  {overviewQuery.data?.national_wai != null ? fmtNumber(overviewQuery.data.national_wai) : '—'}
+                </p>
+                <p className="text-[11px] text-ink-subtle">
+                  {overviewQuery.data?.national_status ?? 'No model WAI'}
+                </p>
               </Card>
               <Card className="px-4 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Active Alerts</p>
-                <p className={`text-xl font-bold ${totalAlerts > 0 ? 'text-warn' : 'text-ok'}`}>{totalAlerts}</p>
-                <p className="text-[11px] text-ink-subtle">{assetsWithAlerts} asset(s) flagged</p>
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Model forecasts</p>
+                <p className="text-xl font-bold text-white">{overviewQuery.isSuccess ? forecastCount : '—'}</p>
+                <p className="text-[11px] text-ink-subtle">Assets with a real 7-day forecast</p>
               </Card>
               <Card className="px-4 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Avg Data Freshness</p>
-                <p className="text-xl font-bold text-white">{avgFreshness > 0 ? `${Math.round(avgFreshness)}h` : '\u2014'}</p>
-                <p className="text-[11px] text-ink-subtle">Across all assets</p>
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Forecast alerts</p>
+                <p className={`text-xl font-bold ${modelAlerts.length > 0 ? 'text-warn' : 'text-ok'}`}>
+                  {overviewQuery.isSuccess ? modelAlerts.length : '—'}
+                </p>
+                <p className="text-[11px] text-ink-subtle">Critical and high, from the model</p>
               </Card>
               <Card className="px-4 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Quick Access</p>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {QUICK_LINKS.map((ql) => (
-                    <Link key={ql.href} href={ql.href}
-                      className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[10px] font-medium text-ink-muted hover:border-brand/25 hover:text-brand transition-colors"
-                    >
-                      <ql.icon className="h-3 w-3" />{ql.label}
-                    </Link>
-                  ))}
-                </div>
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle">Avg official age</p>
+                <p className="text-xl font-bold text-white">{avgAge != null ? `${Math.round(avgAge)}h` : '—'}</p>
+                <p className="text-[11px] text-ink-subtle">IRSA and FFD readings only</p>
               </Card>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-ink">Infrastructure Status</h2>
-                <Badge tone="sky">{assets.length} assets</Badge>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {assets.map((a) => (
-                  <AssetCard key={a.id} asset={a} />
-                ))}
-              </div>
-            </div>
+            {overviewQuery.isError && (
+              <ErrorState
+                title="Forecasts unavailable"
+                message="Official readings are still shown. The model overview did not load."
+                onRetry={() => overviewQuery.refetch()}
+              />
+            )}
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {QUICK_LINKS.map((ql) => (
-                <Link key={ql.href} href={ql.href}>
-                  <Card className="group cursor-pointer transition-all hover:border-brand/25">
-                    <CardBody className="flex items-center gap-4 p-4">
-                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${ql.accent}`}>
-                        <ql.icon className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-ink group-hover:text-brand transition-colors">{ql.label}</p>
-                        <p className="text-[11px] text-ink-subtle truncate">Navigate to {ql.label.toLowerCase()}</p>
-                      </div>
-                    </CardBody>
-                  </Card>
+            <div className="flex flex-wrap gap-1">
+              {QUICK_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-[10px] font-medium text-ink-muted transition-colors hover:border-brand/25 hover:text-brand"
+                >
+                  <link.icon className="h-3 w-3" />{link.label}
                 </Link>
               ))}
             </div>
+
+            {cardList.length === 0 ? (
+              <EmptyState
+                title="No official readings or forecasts"
+                message="Assets appear here when an IRSA or FFD reading exists, or when the model can forecast from that data."
+              />
+            ) : (
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-ink">Infrastructure status</h2>
+                  <Badge tone="sky">{cardList.length} assets</Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {cardList.map(([id, card]) => (
+                    <AssetCard
+                      key={id}
+                      asset={card.asset}
+                      forecast={card.forecast}
+                      reliability={reliabilityQuery.data?.assets?.[String(id)]}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

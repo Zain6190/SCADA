@@ -99,6 +99,19 @@ def official_observation_clause():
     )
 
 
+def official_observation_sql() -> str:
+    """SQL predicate matching official_observation_clause() for raw text queries.
+
+    Columns are unqualified, so the query must not join another table that
+    also has source_authority or data_origin.
+    """
+    authorities = ", ".join(f"'{name}'" for name in NON_OFFICIAL_AUTHORITIES)
+    return (
+        f"(source_authority IS NULL OR source_authority NOT IN ({authorities})) "
+        "AND (data_origin IS NULL OR data_origin = 'REAL')"
+    )
+
+
 # Clear condition maps: which alert types auto-clear when condition normalizes.
 # Maps alert_type -> (field_to_check, threshold_field, direction)
 # "below" means clear when value < threshold

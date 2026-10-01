@@ -48,7 +48,7 @@ const CI_METHOD_LABELS: Record<string, { label: string; tone: 'emerald' | 'sky' 
   pct_heuristic: { label: '±15% heuristic', tone: 'neutral' },
 }
 
-function statusTone(status: string): 'emerald' | 'sky' | 'amber' | 'red' | 'neutral' {
+function statusTone(status?: string | null): 'emerald' | 'sky' | 'amber' | 'red' | 'neutral' {
   const s = (status || '').toLowerCase()
   if (s.includes('critical') || s.includes('severe')) return 'red'
   if (s.includes('stressed') || s.includes('moderate') || s.includes('high')) return 'amber'
@@ -122,7 +122,9 @@ function NationalOverviewPanel({ data }: { data: V2NationalOverview }) {
             <div className="text-[10px] font-semibold uppercase text-ink-subtle">National WAI</div>
             <div className="mt-1 flex items-center gap-2">
               <span className="text-2xl font-bold text-ink">{data.national_wai?.toFixed(1) ?? '—'}</span>
-              <Badge tone={statusTone(data.national_status)}>{data.national_status}</Badge>
+              {data.national_status && (
+                <Badge tone={statusTone(data.national_status)}>{data.national_status}</Badge>
+              )}
             </div>
           </div>
           <div className="rounded-xl border border-line-strong bg-surface-alt p-3">
@@ -144,8 +146,8 @@ function NationalOverviewPanel({ data }: { data: V2NationalOverview }) {
             >
               <MapPin className="h-3 w-3 text-ink-subtle" />
               <span className="text-ink-muted">{p.province}</span>
-              <span className="font-semibold text-ink">{p.wai_score}</span>
-              <Badge tone={statusTone(p.category)}>{p.category}</Badge>
+              <span className="font-semibold text-ink">{p.wai_score ?? '—'}</span>
+              {p.category && <Badge tone={statusTone(p.category)}>{p.category}</Badge>}
             </span>
           ))}
         </div>

@@ -483,12 +483,15 @@ class AquaVisionPredictionModel:
 
         from sqlalchemy import text as sql_text
 
+        from infrastructure.thresholds.engine import official_observation_sql
+
         row = self.session.execute(
-            sql_text("""
+            sql_text(f"""
                 SELECT observed_at, water_level_ft, inflow_cusecs,
                        outflow_cusecs, discharge_cusecs
                 FROM aquavision.water_observations
                 WHERE asset_id = :aid
+                  AND {official_observation_sql()}
                 ORDER BY observed_at DESC
                 LIMIT 1
             """),
@@ -612,12 +615,15 @@ class AquaVisionPredictionModel:
             # Get recent observations for classifier
             from sqlalchemy import text as sql_text
 
+            from infrastructure.thresholds.engine import official_observation_sql
+
             rows = self.session.execute(
-                sql_text("""
+                sql_text(f"""
                     SELECT observed_at, inflow_cusecs, outflow_cusecs,
                            water_level_ft, discharge_cusecs
                     FROM aquavision.water_observations
                     WHERE asset_id = :aid
+                      AND {official_observation_sql()}
                     ORDER BY observed_at DESC
                     LIMIT 60
                 """),
@@ -773,11 +779,14 @@ class AquaVisionPredictionModel:
         placeholders = ", ".join([f":a{i}" for i in range(len(upstream_ids))])
         params = {f"a{i}": aid for i, aid in enumerate(upstream_ids)}
 
+        from infrastructure.thresholds.engine import official_observation_sql
+
         rows = self.session.execute(
             sql_text(f"""
                 SELECT asset_id, discharge_cusecs, inflow_cusecs
                 FROM aquavision.water_observations
                 WHERE asset_id IN ({placeholders})
+                  AND {official_observation_sql()}
                 ORDER BY observed_at DESC
             """),
             params,
@@ -820,14 +829,17 @@ class AquaVisionPredictionModel:
 
         from sqlalchemy import text as sql_text
 
+        from infrastructure.thresholds.engine import official_observation_sql
+
         rows = self.session.execute(
-            sql_text("""
+            sql_text(f"""
                 SELECT observed_at,
                        COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs) AS flow_cusecs
                 FROM aquavision.water_observations
                 WHERE asset_id = :aid
                   AND COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs) IS NOT NULL
                   AND COALESCE(discharge_cusecs, outflow_cusecs, inflow_cusecs) > 0
+                  AND {official_observation_sql()}
                 ORDER BY observed_at DESC
                 LIMIT 14
             """),
@@ -1020,8 +1032,9 @@ class AquaVisionPredictionModel:
         """Generate alerts based on forecast."""
         alerts = []
 
-        # Water stress alert
-        if forecast.water_stress.value <= 40:
+        # Water stress alert. "No Data" uses value 0 as an unscored sentinel,
+        # not a severe WAI, so it must not raise an alert.
+        if forecast.water_stress.category != "No Data" and forecast.water_stress.value <= 40:
             alerts.append({
                 "level": "CRITICAL",
                 "type": "WATER_STRESS",
@@ -1031,7 +1044,7 @@ class AquaVisionPredictionModel:
                 "lead_time": f"{lead_time}_day",
                 "timestamp": datetime.utcnow().isoformat(),
             })
-        elif forecast.water_stress.value <= 60:
+        elif forecast.water_stress.category != "No Data" and forecast.water_stress.value <= 60:
             alerts.append({
                 "level": "WARNING",
                 "type": "WATER_STRESS",
