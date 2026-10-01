@@ -2,7 +2,7 @@
 // Pipeline Status Viewer - shows IRSA and FFD pipeline health details.
 'use client'
 
-import { Server, RefreshCw, Clock, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Server, RefreshCw, Clock, CheckCircle2, AlertTriangle, History } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -18,6 +18,7 @@ function statusTone(status: string | null | undefined): 'emerald' | 'amber' | 'r
     case 'SUCCESS':
     case 'ready':
     case 'running':
+    case 'RUNNING':
       return 'emerald'
     case 'PARTIAL_SUCCESS':
     case 'delayed':
@@ -38,6 +39,8 @@ function statusLabel(status: string | null | undefined): string {
     case 'FAILED': return 'Failed'
     case 'RUNNING': return 'Running'
     case 'QUEUED': return 'Queued'
+    case 'SKIPPED': return 'Skipped'
+    case 'CANCELLED': return 'Cancelled'
     case 'ready': return 'Ready'
     case 'not_ready': return 'Not Ready'
     case 'running': return 'Running'
@@ -46,6 +49,15 @@ function statusLabel(status: string | null | undefined): string {
     default: return status ?? 'Unknown'
   }
 }
+
+function fmtDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+  return `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`
+}
+
+const SUMMARY_ORDER = ['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'RUNNING', 'SKIPPED', 'CANCELLED']
 
 export default function PipelinesPage() {
   const healthQuery = usePipelineHealth()
@@ -222,6 +234,70 @@ export default function PipelinesPage() {
                   </div>
                 ) : (
                   <div className="text-center text-sm text-ink-subtle py-8">No FFD pipeline runs recorded yet.</div>
+                )}
+              </CardBody>
+            </Card>
+
+            {/* Run History */}
+            <Card>
+              <CardHeader
+                title="Recent Pipeline Runs"
+                subtitle="Last 20 scheduler runs across all pipelines, with status, duration and errors"
+                icon={<History className="h-5 w-5" />}
+                accent="bg-brand-soft text-brand"
+                action={
+                  <div className="flex flex-wrap items-center gap-2">
+                    {SUMMARY_ORDER.filter((s) => (health?.summary?.[s] ?? 0) > 0).map((s) => (
+                      <Badge key={s} tone={statusTone(s)}>
+                        {statusLabel(s)} · {health?.summary?.[s]}
+                      </Badge>
+                    ))}
+                    {health?.summary?.window_days != null && (
+                      <span className="text-xs text-ink-subtle">
+                        last {health.summary.window_days}d
+                      </span>
+                    )}
+                  </div>
+                }
+              />
+              <CardBody>
+                {(health?.recent_runs?.length ?? 0) === 0 ? (
+                  <div className="text-center text-sm text-ink-subtle py-8">No pipeline runs recorded yet.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-line text-left text-xs text-ink-subtle">
+                          <th className="py-2 pr-4 font-medium">Started</th>
+                          <th className="py-2 pr-4 font-medium">Pipeline</th>
+                          <th className="py-2 pr-4 font-medium">Status</th>
+                          <th className="py-2 pr-4 font-medium">Trigger</th>
+                          <th className="py-2 pr-4 font-medium">Duration</th>
+                          <th className="py-2 pr-4 font-medium">Run ID</th>
+                          <th className="py-2 font-medium">Error</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {health?.recent_runs?.map((run) => (
+                          <tr key={run.id} className="border-b border-line/60 last:border-0 hover:bg-surface-alt">
+                            <td className="py-2.5 pr-4 whitespace-nowrap text-ink-muted" title={run.started_at ?? ''}>
+                              {timeAgo(run.started_at)}
+                            </td>
+                            <td className="py-2.5 pr-4 font-medium text-ink">{run.pipeline_type}</td>
+                            <td className="py-2.5 pr-4">
+                              <Badge tone={statusTone(run.status)}>{statusLabel(run.status)}</Badge>
+                            </td>
+                            <td className="py-2.5 pr-4 text-ink-muted">{run.trigger_type}</td>
+                            <td className="py-2.5 pr-4 text-ink-muted">{fmtDuration(run.duration_seconds)}</td>
+                            <td className="py-2.5 pr-4 font-mono text-xs text-ink-subtle">{run.run_id}</td>
+                            <td className="max-w-[24ch] truncate py-2.5 text-ink-muted" title={run.error_message ?? ''}>
+                              {run.error_message ?? '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </CardBody>
             </Card>

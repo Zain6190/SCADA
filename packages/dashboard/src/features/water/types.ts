@@ -470,6 +470,27 @@ export interface PipelineHealth {
     irsa_hours: number | null
     ffd_hours: number | null
   }
+  recent_runs: PipelineRunRow[]
+  summary: Record<string, number>
+  heartbeat: {
+    instance_id: string
+    last_heartbeat_at: string
+    age_minutes: number
+    status: string
+  } | null
+}
+
+export interface PipelineRunRow {
+  id: number
+  run_id: string
+  pipeline_type: string
+  status: string
+  trigger_type: string
+  started_at: string | null
+  completed_at: string | null
+  duration_seconds: number | null
+  error_message: string | null
+  retry_count: number
 }
 
 // ─── AquaVision v2 Prediction Types ────────────────────────────────────────

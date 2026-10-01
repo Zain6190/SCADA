@@ -1,4 +1,4 @@
-"""Setup DB: create all tables, views, stamp Alembic at 014. Reads DATABASE_URL from env."""
+"""Setup DB: create all tables, views, ensure Alembic is stamped. Reads DATABASE_URL from env."""
 import os
 import pathlib
 import psycopg2
@@ -179,6 +179,9 @@ extras = [
         created_at TIMESTAMPTZ DEFAULT now(),
         updated_at TIMESTAMPTZ DEFAULT now(),
         UNIQUE (service_name, instance_id))""",
+    # Heal tables created by older setups that predate updated_at.
+    "ALTER TABLE aquavision.scheduler_heartbeats "
+    "ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
     """CREATE TABLE IF NOT EXISTS aquavision.data_quality_log (
         id BIGSERIAL PRIMARY KEY, asset_id BIGINT, observation_id BIGINT,
         check_type VARCHAR(50), field_name VARCHAR(50), raw_value DOUBLE PRECISION,
@@ -439,11 +442,12 @@ cur.execute('''CREATE VIEW aquavision.v_best_observations AS
 conn.commit()
 print("Views OK")
 
-# 6. Stamp Alembic
+# 6. Stamp Alembic — only when unstamped, so re-runs never fight `alembic upgrade`
 cur.execute("CREATE TABLE IF NOT EXISTS aquavision.alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
-cur.execute("INSERT INTO aquavision.alembic_version (version_num) VALUES ('014') ON CONFLICT DO NOTHING")
+cur.execute("INSERT INTO aquavision.alembic_version (version_num) SELECT '016' WHERE NOT EXISTS (SELECT 1 FROM aquavision.alembic_version)")
+cur.execute("DELETE FROM aquavision.alembic_version WHERE version_num <> '016' AND EXISTS (SELECT 1 FROM aquavision.alembic_version WHERE version_num = '016')")
 conn.commit()
-print("Alembic stamped at 014")
+print("Alembic version OK")
 
 cur.close()
 conn.close()
