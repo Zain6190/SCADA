@@ -395,7 +395,7 @@ def job_refresh_gee_features():
                 logger.warning("GEE feature refresh skipped - GEE_PROJECT not set")
                 return
             from ml.features.gee_service import GeeFeatureService
-            stats = GeeFeatureService(session).refresh_all_assets(days_back=10)
+            stats = GeeFeatureService(session).refresh_all_assets(days_back=60)
             if stats["errors"]:
                 complete_pipeline_run(session, run_id, "PARTIAL_SUCCESS", str(stats))
                 logger.warning(f"GEE feature refresh partial: {stats}")

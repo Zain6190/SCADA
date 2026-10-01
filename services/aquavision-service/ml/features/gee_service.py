@@ -24,21 +24,40 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 
 logger = logging.getLogger("aquavision.ml.gee")
 
 CHIRPS_ID = "UCSB-CHG/CHIRPS/DAILY"
 CHIRPS_BAND = "precipitation"
 CHIRPS_SCALE = 5566
+CHIRPS_FACTOR = 1.0
 
 MOD16_ID = "MODIS/061/MOD16A2"
 MOD16_BAND = "ET"
-MOD16_SCALE = 0.1
+MOD16_SCALE = 500
+MOD16_FACTOR = 0.1
 
 MOD13_ID = "MODIS/061/MOD13Q1"
 MOD13_BAND = "NDVI"
-MOD13_SCALE = 0.0001
+MOD13_SCALE = 250
+MOD13_FACTOR = 0.0001
 MOD13_VALID_RAW = (-2000, 10000)
+
+
+def _row_time_value(row: list) -> Tuple[object, object]:
+    """getRegion rows are [id, lon, lat, time, value] (header first when
+    serialized); older 4-column [lon, lat, time, value] rows also work."""
+    if len(row) >= 5:
+        return row[3], row[4]
+    if len(row) >= 4:
+        return row[2], row[3]
+    return None, None
 
 
 def region_rows_to_series(
@@ -48,25 +67,42 @@ def region_rows_to_series(
 ) -> Dict[date, float]:
     """Parse ee.ImageCollection.getRegion rows into {date: scaled_value}.
 
-    Rows look like [lon, lat, time_ms, band_value]. Raw values outside
-    valid_raw (e.g. MOD13 fill -3000) and nulls are dropped.
+    Header rows, nulls, and raw values outside valid_raw (e.g. MOD13 fill
+    -3000) are dropped.
     """
     series: Dict[date, float] = {}
     for row in rows or []:
-        if not row or len(row) < 4 or row[2] is None or row[3] is None:
+        if not row:
+            continue
+        time_ms, value = _row_time_value(row)
+        if time_ms is None or value is None:
             continue
         try:
-            raw = float(row[3])
+            raw = float(value)
         except (TypeError, ValueError):
             continue
         if valid_raw is not None and not (valid_raw[0] <= raw <= valid_raw[1]):
             continue
         try:
-            day = datetime.fromtimestamp(int(row[2]) / 1000, tz=timezone.utc).date()
-        except (TypeError, ValueError, OSError):
+            day = datetime.fromtimestamp(int(float(time_ms)) / 1000, tz=timezone.utc).date()
+        except (TypeError, ValueError, OSError, OverflowError):
             continue
         series[day] = round(raw * factor, 4)
     return series
+
+
+@retry(
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+)
+def _fetch_region(collection, point, scale: int) -> List[list]:
+    """getRegion rows for a collection; EE occasionally throws transient
+    'Unable to transform geometry' errors, so retry. Empty collections
+    (beyond catalog lag) return [] instead of failing."""
+    if collection.size().getInfo() == 0:
+        return []
+    return collection.getRegion(point, scale).getInfo()
 
 
 def merge_series(
@@ -118,13 +154,13 @@ class GeeFeatureService:
                 .filter(ee.Filter.date(start_iso, end_iso))
                 .select(band)
             )
-            rows = collection.getRegion(point, scale).getInfo()
+            rows = _fetch_region(collection, point, scale)
             return region_rows_to_series(rows, factor, valid_raw)
 
         return merge_series(
-            pull(CHIRPS_ID, CHIRPS_BAND, CHIRPS_SCALE),
-            pull(MOD16_ID, MOD16_BAND, MOD16_SCALE, factor=MOD16_SCALE),
-            pull(MOD13_ID, MOD13_BAND, MOD13_SCALE, factor=MOD13_SCALE,
+            pull(CHIRPS_ID, CHIRPS_BAND, CHIRPS_SCALE, factor=CHIRPS_FACTOR),
+            pull(MOD16_ID, MOD16_BAND, MOD16_SCALE, factor=MOD16_FACTOR),
+            pull(MOD13_ID, MOD13_BAND, MOD13_SCALE, factor=MOD13_FACTOR,
                  valid_raw=MOD13_VALID_RAW),
         )
 
@@ -153,9 +189,11 @@ class GeeFeatureService:
         )
         self.session.commit()
 
-    def refresh_all_assets(self, days_back: int = 10) -> Dict[str, int]:
+    def refresh_all_assets(self, days_back: int = 60) -> Dict[str, int]:
         """Fetch and store features for all active assets with coordinates.
 
+        Default window covers the EE catalog's publish lag (CHIRPS/MOD13
+        trail by ~30 days); upserts make re-fetching overlap days free.
         Returns {"assets": n, "days": n, "errors": n}.
         """
         self._ee()

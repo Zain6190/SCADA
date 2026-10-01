@@ -56,6 +56,26 @@ def test_empty_input_returns_empty():
     assert region_rows_to_series([]) == {}
 
 
+def test_parses_real_getregion_format_with_header():
+    rows = [
+        ["id", "longitude", "latitude", "time", "precipitation"],
+        ["20260820", 72.97, 33.97, TS_0920, 5.5],
+        ["20260821", 72.97, 33.97, TS_0921, 14.0],
+    ]
+    series = region_rows_to_series(rows)
+    assert series == {date(2026, 9, 20): 5.5, date(2026, 9, 21): 14.0}
+
+
+def test_real_format_applies_scale_and_fill_filter():
+    rows = [
+        ["id", "longitude", "latitude", "time", "NDVI"],
+        ["2026_09_01", 72.68, 34.08, TS_0901, 6500],
+        ["2026_09_17", 72.68, 34.08, TS_0920, -3000],
+    ]
+    series = region_rows_to_series(rows, factor=0.0001, valid_raw=(-2000, 10000))
+    assert series == {date(2026, 9, 1): 0.65}
+
+
 # ── merge_series ──────────────────────────────────────────────────────────
 
 def test_merge_combines_fields_per_day_sorted():
@@ -103,6 +123,9 @@ class _FakeCollection:
 
     def select(self, band):
         return self
+
+    def size(self):
+        return _FakeRegion(len(self._rows))
 
     def getRegion(self, point, scale):
         return _FakeRegion(self._rows)
