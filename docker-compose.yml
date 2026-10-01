@@ -50,6 +50,7 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
+      GEE_PROJECT: ${GEE_PROJECT:-}
     volumes:
       # Host is source of truth for trained models — container recreates
       # must not wipe them (retrain writes land here directly).
@@ -57,6 +58,8 @@ services:
       # Classifiers + model_metadata.json live outside /app/models; without
       # this mount a rebuild wipes them (flood probability + registry metrics).
       - ./services/aquavision-service/data/models:/app/data/models
+      # Earth Engine personal credentials (P5 GEE feature pipeline), read-only.
+      - ${GEE_CREDENTIALS_DIR:-C:/Users/haris/.config/earthengine}:/root/.config/earthengine:ro
     networks:
       - scada-net
     healthcheck:
@@ -78,9 +81,11 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required - copy .env.example to .env and set your Neon connection string}
       ML_PIPELINE_ROOT: /ml-pipeline
+      GEE_PROJECT: ${GEE_PROJECT:-}
     volumes:
       - ./services/aquavision-service/models:/app/models
       - ./services/aquavision-service/data/models:/app/data/models
+      - ${GEE_CREDENTIALS_DIR:-C:/Users/haris/.config/earthengine}:/root/.config/earthengine:ro
     depends_on:
       aquavision:
         condition: service_started

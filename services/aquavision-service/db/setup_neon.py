@@ -212,6 +212,18 @@ extras = [
         humidity_mean_pct NUMERIC, wind_speed_kmh NUMERIC,
         fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (asset_id, forecast_date, horizon_days))""",
+    # GEE feature pipeline (P5): CHIRPS rainfall / MOD16 ET / MOD13Q1 NDVI.
+    """CREATE TABLE IF NOT EXISTS aquavision.gee_features (
+        id BIGSERIAL PRIMARY KEY,
+        asset_id BIGINT NOT NULL REFERENCES aquavision.water_assets(id),
+        observed_on DATE NOT NULL,
+        rainfall_mm DOUBLE PRECISION,
+        et_mm DOUBLE PRECISION,
+        ndvi DOUBLE PRECISION,
+        fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (asset_id, observed_on))""",
+    "CREATE INDEX IF NOT EXISTS ix_gee_features_observed_on "
+    "ON aquavision.gee_features (observed_on DESC)",
     # water_indicators_weekly with SPI columns (was backend migration 19).
     """CREATE TABLE IF NOT EXISTS aquavision.water_indicators_weekly (
         id BIGSERIAL PRIMARY KEY, region_id BIGINT NOT NULL REFERENCES shared.regions(id),
@@ -444,8 +456,8 @@ print("Views OK")
 
 # 6. Stamp Alembic — only when unstamped, so re-runs never fight `alembic upgrade`
 cur.execute("CREATE TABLE IF NOT EXISTS aquavision.alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
-cur.execute("INSERT INTO aquavision.alembic_version (version_num) SELECT '016' WHERE NOT EXISTS (SELECT 1 FROM aquavision.alembic_version)")
-cur.execute("DELETE FROM aquavision.alembic_version WHERE version_num <> '016' AND EXISTS (SELECT 1 FROM aquavision.alembic_version WHERE version_num = '016')")
+cur.execute("INSERT INTO aquavision.alembic_version (version_num) SELECT '017' WHERE NOT EXISTS (SELECT 1 FROM aquavision.alembic_version)")
+cur.execute("DELETE FROM aquavision.alembic_version WHERE version_num <> '017' AND EXISTS (SELECT 1 FROM aquavision.alembic_version WHERE version_num = '017')")
 conn.commit()
 print("Alembic version OK")
 

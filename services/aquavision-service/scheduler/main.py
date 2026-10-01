@@ -378,6 +378,37 @@ def job_register_models():
             release_pipeline_lock(session, pipeline_type)
 
 
+def job_refresh_gee_features():
+    """Fetch GEE rainfall/ET/NDVI features for active assets (daily 04:30 UTC)."""
+    pipeline_type = "GEE_REFRESH"
+
+    with get_db_session() as session:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(session, pipeline_type)
+
+        try:
+            if not os.environ.get("GEE_PROJECT"):
+                complete_pipeline_run(session, run_id, "SKIPPED", "GEE_PROJECT not set")
+                logger.warning("GEE feature refresh skipped - GEE_PROJECT not set")
+                return
+            from ml.features.gee_service import GeeFeatureService
+            stats = GeeFeatureService(session).refresh_all_assets(days_back=10)
+            if stats["errors"]:
+                complete_pipeline_run(session, run_id, "PARTIAL_SUCCESS", str(stats))
+                logger.warning(f"GEE feature refresh partial: {stats}")
+            else:
+                complete_pipeline_run(session, run_id, "SUCCESS", str(stats))
+                logger.info(f"GEE feature refresh completed: {stats}")
+        except Exception as e:
+            complete_pipeline_run(session, run_id, "FAILED", str(e))
+            logger.exception(f"GEE feature refresh error: {e}")
+        finally:
+            release_pipeline_lock(session, pipeline_type)
+
+
 def job_backfill_inflow():
     """Backfill missing inflow using physics after FFD ingestion."""
     pipeline_type = "backfill_inflow"
@@ -478,6 +509,9 @@ if __name__ == "__main__":
 
     # Weather forecasts: every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
     schedule.every(6).hours.do(job_refresh_weather)
+
+    # GEE features: daily 04:30 UTC (CHIRPS rainfall + MOD16 ET + MOD13Q1 NDVI)
+    schedule.every().day.at("04:30").do(job_refresh_gee_features)
 
     # Backfill inflow after FFD ingestion (daily 02:00 UTC)
     schedule.every().day.at("02:00").do(job_backfill_inflow)
