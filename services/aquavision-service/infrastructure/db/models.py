@@ -370,6 +370,7 @@ class WaterAssetForecast(Base):
     predicted_inflow: Mapped[Optional[float]] = mapped_column(Numeric)
     predicted_outflow: Mapped[Optional[float]] = mapped_column(Numeric)
     predicted_discharge: Mapped[Optional[float]] = mapped_column(Numeric)
+    flood_probability: Mapped[Optional[float]] = mapped_column(Numeric)
     confidence: Mapped[Optional[float]] = mapped_column(Numeric)
     model_version: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text)

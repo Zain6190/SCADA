@@ -1167,6 +1167,7 @@ def store_prediction(
     confidence: float = None,
     model_version: str = None,
     horizon_days: int = 7,
+    flood_probability: float = None,
 ):
     """Store an ML prediction in water_asset_forecasts for historical tracking."""
     from infrastructure.db.models import WaterAssetForecast
@@ -1183,6 +1184,7 @@ def store_prediction(
         predicted_inflow=predicted_inflow,
         predicted_outflow=predicted_outflow,
         predicted_discharge=predicted_discharge,
+        flood_probability=flood_probability,
         confidence=confidence,
         model_version=model_version or f"xgb_{asset_id}_{horizon_days}d",
         notes=f"Auto-persisted by threshold engine",
@@ -1239,6 +1241,13 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                     )
                     continue
 
+                try:
+                    from ml.models.flood_classifier import get_flood_probability
+                    flood_probability = get_flood_probability(db, asset.id)
+                except Exception as e:
+                    logger.debug("Classifier probability unavailable for %s: %s", asset.canonical_name, e)
+                    flood_probability = None
+
                 for horizon in [3, 7, 14, 30]:
                     key = f"{asset.id}_{horizon}"
                     model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{key}.joblib"
@@ -1280,6 +1289,7 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                             confidence=100.0 - result.risk_score,
                             model_version=f"xgb_{asset.id}_{horizon}d",
                             horizon_days=horizon,
+                            flood_probability=flood_probability if horizon == 7 else None,
                         )
                     else:
                         from ml.targets import resolve_target_field
@@ -1295,6 +1305,7 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                             confidence=100.0 - result.risk_score,
                             model_version=f"xgb_{asset.id}_{horizon}d",
                             horizon_days=horizon,
+                            flood_probability=flood_probability if horizon == 7 else None,
                         )
                     total_stored += 1
                 

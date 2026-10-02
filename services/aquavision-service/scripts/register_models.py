@@ -33,6 +33,18 @@ FLOOD_HORIZONS = (3, 7, 14, 30)
 HIGHFLOW_HORIZONS = (7, 14, 30)
 METRIC_KEYS = ("mae", "rmse", "r2", "mape", "train_samples", "test_samples", "status")
 WALK_FORWARD_KEYS = ("mae", "rmse", "r2", "mape", "score", "persistence_mae", "mae_improvement_pct")
+CLASSIFIER_WALK_FORWARD_KEYS = ("auc", "brier", "baseline_brier", "accuracy", "precision", "recall", "f1")
+REPORT_MODEL_TYPES = ("flood_predictor", "flood_classifier")
+
+
+def build_latest_reports(reports) -> dict:
+    """Newest report per (model_type, asset_id, horizon); input ordered desc."""
+    latest = {}
+    for report in reports:
+        key = (report.model_type, report.asset_id, report.horizon)
+        if key not in latest:
+            latest[key] = report
+    return latest
 
 
 def load_metadata() -> dict:
@@ -112,15 +124,11 @@ def main():
 
         reports = (
             session.query(ValidationReportDB)
-            .filter(ValidationReportDB.model_type == "flood_predictor")
+            .filter(ValidationReportDB.model_type.in_(REPORT_MODEL_TYPES))
             .order_by(ValidationReportDB.validated_at.desc())
             .all()
         )
-        latest = {}
-        for report in reports:
-            key = (report.asset_id, report.horizon)
-            if key not in latest:
-                latest[key] = report
+        latest = build_latest_reports(reports)
 
         for m in models:
             entry = (
@@ -129,10 +137,15 @@ def main():
                 else {}
             )
             metrics = {k: entry[k] for k in METRIC_KEYS if entry.get(k) is not None}
-            report = latest.get((m["asset_id"], m["horizon"])) if m["model_type"] == "flood_predictor" else None
+            report = latest.get((m["model_type"], m["asset_id"], m["horizon"]))
             if report is not None:
+                wf_keys = (
+                    CLASSIFIER_WALK_FORWARD_KEYS
+                    if m["model_type"] == "flood_classifier"
+                    else WALK_FORWARD_KEYS
+                )
                 metrics["walk_forward"] = {
-                    k: report.metrics.get(k) for k in WALK_FORWARD_KEYS if report.metrics.get(k) is not None
+                    k: report.metrics.get(k) for k in wf_keys if report.metrics.get(k) is not None
                 }
 
             existing = (

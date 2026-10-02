@@ -414,6 +414,7 @@ for col in [
     "ALTER TABLE shared.users ADD COLUMN IF NOT EXISTS access_status TEXT NOT NULL DEFAULT 'ACTIVE'",
     'ALTER TABLE shared.users ADD COLUMN IF NOT EXISTS access_requested_at TIMESTAMPTZ',
     'ALTER TABLE shared.users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ',
+    'ALTER TABLE IF EXISTS aquavision.water_asset_forecasts ADD COLUMN IF NOT EXISTS flood_probability DOUBLE PRECISION',
 ]:
     cur.execute(col)
 cur.execute('CREATE INDEX IF NOT EXISTS ix_water_obs_source_authority ON aquavision.water_observations (source_authority)')
@@ -454,10 +455,11 @@ cur.execute('''CREATE VIEW aquavision.v_best_observations AS
 conn.commit()
 print("Views OK")
 
-# 6. Stamp Alembic — only when unstamped, so re-runs never fight `alembic upgrade`
+# 6. Stamp Alembic — setup_neon is the schema source of truth, so every run
+# stamps the head it just applied (self-heals drifted version rows).
 cur.execute("CREATE TABLE IF NOT EXISTS aquavision.alembic_version (version_num VARCHAR(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))")
-cur.execute("INSERT INTO aquavision.alembic_version (version_num) SELECT '017' WHERE NOT EXISTS (SELECT 1 FROM aquavision.alembic_version)")
-cur.execute("DELETE FROM aquavision.alembic_version WHERE version_num <> '017' AND EXISTS (SELECT 1 FROM aquavision.alembic_version WHERE version_num = '017')")
+cur.execute("UPDATE aquavision.alembic_version SET version_num = '018' WHERE version_num <> '018'")
+cur.execute("INSERT INTO aquavision.alembic_version (version_num) SELECT '018' WHERE NOT EXISTS (SELECT 1 FROM aquavision.alembic_version)")
 conn.commit()
 print("Alembic version OK")
 

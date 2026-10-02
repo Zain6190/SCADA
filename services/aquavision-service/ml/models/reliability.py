@@ -62,6 +62,7 @@ def fetch_reliability(session: Session) -> Dict[str, dict]:
             FROM aquavision.water_assets a
             LEFT JOIN aquavision.prediction_errors e
               ON e.asset_id = a.id AND e.data_origin = 'REAL'
+             AND e.model_version NOT LIKE 'flood_classifier%'
             WHERE a.is_active
             GROUP BY a.id, a.canonical_name
             ORDER BY a.id

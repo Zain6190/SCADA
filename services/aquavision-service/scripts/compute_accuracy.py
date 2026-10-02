@@ -20,36 +20,116 @@ def _horizon_days(generated_at, target_time) -> int:
     return max(1, int(round(delta.total_seconds() / 86400)))
 
 
+FLOOD_CLASSIFIER_VERSION = "flood_classifier_h7"
+FLOOD_LABEL_STATUSES = ("HIGH", "VERY_HIGH", "EXCEPTIONALLY_HIGH")
+
+
+def _flood_outcome(db_session, asset_id: int, target_time):
+    """0/1 flood outcome at target_time.
+
+    FFD bulletin first (authoritative label); otherwise inflow above the
+    trailing 90-day REAL p90 — the same percentile idea the classifier's
+    training labels use when flood_status is absent.
+    """
+    ffd = db_session.execute(
+        text("""
+            SELECT flood_status FROM aquavision.water_ffd_observations
+            WHERE asset_id = :asset_id
+              AND observed_at BETWEEN :start AND :end
+            ORDER BY ABS(extract(epoch FROM (observed_at - :target))) ASC
+            LIMIT 1
+        """),
+        {
+            "asset_id": asset_id,
+            "start": target_time - timedelta(days=1),
+            "end": target_time + timedelta(days=1),
+            "target": target_time,
+        },
+    ).scalar()
+    if ffd:
+        return 1 if str(ffd).upper() in FLOOD_LABEL_STATUSES else 0
+
+    p90 = db_session.execute(
+        text("""
+            SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY inflow_cusecs)
+            FROM aquavision.water_observations
+            WHERE asset_id = :asset_id
+              AND inflow_cusecs IS NOT NULL
+              AND data_origin = 'REAL'
+              AND observed_at BETWEEN :start AND :end
+        """),
+        {
+            "asset_id": asset_id,
+            "start": target_time - timedelta(days=90),
+            "end": target_time,
+        },
+    ).scalar()
+    actual = db_session.execute(
+        text("""
+            SELECT inflow_cusecs FROM aquavision.water_observations
+            WHERE asset_id = :asset_id
+              AND inflow_cusecs IS NOT NULL
+              AND data_origin = 'REAL'
+              AND observed_at BETWEEN :start AND :end
+            ORDER BY ABS(extract(epoch FROM (observed_at - :target))) ASC
+            LIMIT 1
+        """),
+        {
+            "asset_id": asset_id,
+            "start": target_time - timedelta(days=1),
+            "end": target_time + timedelta(days=1),
+            "target": target_time,
+        },
+    ).scalar()
+    if p90 is None or actual is None:
+        return None
+    return 1 if float(actual) > float(p90) else 0
+
+
 def compute_accuracy(db_session, lookback_days: int = 60, dry_run: bool = False) -> dict:
     """Match expired water_asset_forecasts to REAL observations and write errors.
 
+    Rows carrying a classifier flood_probability also get a binary outcome
+    score (model_version 'flood_classifier_h7'); regression matching runs
+    the same as before.
+
     Returns:
-        {"matched": int, "errors": int, "skipped": int}
+        {"matched": int, "errors": int, "skipped": int,
+         "clf_scored": int, "clf_skipped": int}
     """
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=lookback_days)
 
     expired = db_session.execute(
         text("""
-            SELECT p.id, p.asset_id, p.generated_at, p.target_time,
-                   p.predicted_level_ft, p.predicted_inflow, p.predicted_outflow,
-                   p.predicted_discharge,
-                   p.model_version
-            FROM aquavision.water_asset_forecasts p
-            WHERE p.target_time < :now
-              AND p.target_time > :cutoff
-              AND NOT EXISTS (
-                  SELECT 1 FROM aquavision.prediction_errors e
-                  WHERE e.prediction_date = p.generated_at
-                    AND e.asset_id = p.asset_id
-                    AND e.model_version = p.model_version
-              )
-            ORDER BY p.target_time ASC
+            SELECT * FROM (
+                SELECT p.id, p.asset_id, p.generated_at, p.target_time,
+                       p.predicted_level_ft, p.predicted_inflow, p.predicted_outflow,
+                       p.predicted_discharge, p.flood_probability,
+                       p.model_version,
+                       (NOT EXISTS (
+                           SELECT 1 FROM aquavision.prediction_errors e
+                           WHERE e.prediction_date = p.generated_at
+                             AND e.asset_id = p.asset_id
+                             AND e.model_version = p.model_version
+                       )) AS needs_reg,
+                       (p.flood_probability IS NOT NULL AND NOT EXISTS (
+                           SELECT 1 FROM aquavision.prediction_errors ec
+                           WHERE ec.prediction_date = p.generated_at
+                             AND ec.asset_id = p.asset_id
+                             AND ec.model_version = 'flood_classifier_h7'
+                       )) AS needs_clf
+                FROM aquavision.water_asset_forecasts p
+                WHERE p.target_time < :now
+                  AND p.target_time > :cutoff
+            ) t
+            WHERE t.needs_reg OR t.needs_clf
+            ORDER BY t.target_time ASC
         """),
         {"now": now, "cutoff": cutoff},
     ).mappings().all()
 
-    results = {"matched": 0, "errors": 0, "skipped": 0}
+    results = {"matched": 0, "errors": 0, "skipped": 0, "clf_scored": 0, "clf_skipped": 0}
 
     for pred in expired:
         try:
@@ -57,6 +137,40 @@ def compute_accuracy(db_session, lookback_days: int = 60, dry_run: bool = False)
             target_time = pred["target_time"]
             generated_at = pred["generated_at"]
             horizon = _horizon_days(generated_at, target_time)
+
+            if pred.get("needs_clf") and pred.get("flood_probability") is not None:
+                outcome = _flood_outcome(db_session, asset_id, target_time)
+                if outcome is None:
+                    results["clf_skipped"] += 1
+                else:
+                    prob = float(pred["flood_probability"])
+                    error = prob - outcome
+                    if not dry_run:
+                        db_session.execute(
+                            text("""
+                                INSERT INTO aquavision.prediction_errors
+                                    (asset_id, model_version, prediction_date, target_date,
+                                     horizon, predicted_value, actual_value, error, error_pct, data_origin)
+                                VALUES
+                                    (:asset_id, :model_version, :prediction_date, :target_date,
+                                     :horizon, :predicted_value, :actual_value, :error, :error_pct, 'REAL')
+                            """),
+                            {
+                                "asset_id": asset_id,
+                                "model_version": FLOOD_CLASSIFIER_VERSION,
+                                "prediction_date": generated_at,
+                                "target_date": target_time,
+                                "horizon": horizon,
+                                "predicted_value": prob,
+                                "actual_value": float(outcome),
+                                "error": error,
+                                "error_pct": abs(error) * 100,
+                            },
+                        )
+                    results["clf_scored"] += 1
+
+            if pred.get("needs_reg") is False:
+                continue
 
             actual = db_session.execute(
                 text("""
@@ -142,7 +256,7 @@ def compute_accuracy(db_session, lookback_days: int = 60, dry_run: bool = False)
             logger.warning("Error computing accuracy for pred %s: %s", pred.get("id"), e)
             results["errors"] += 1
 
-    if not dry_run and results["matched"] > 0:
+    if not dry_run and (results["matched"] > 0 or results["clf_scored"] > 0):
         db_session.commit()
 
     logger.info("Accuracy computation: %s", results)
@@ -151,7 +265,7 @@ def compute_accuracy(db_session, lookback_days: int = 60, dry_run: bool = False)
 
 def get_accuracy_summary(db_session, asset_id: int = None, horizon: int = None) -> dict:
     """Get accuracy summary statistics from prediction_errors (REAL only)."""
-    conditions = ["data_origin = 'REAL'"]
+    conditions = ["data_origin = 'REAL'", "model_version NOT LIKE 'flood_classifier%'"]
     params = {}
 
     if asset_id:

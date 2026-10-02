@@ -492,17 +492,18 @@ class AquaVisionPredictionModel:
         from sqlalchemy import text as sql_text
 
         try:
-            rows = self.session.execute(
-                sql_text("""
+                rows = self.session.execute(
+                    sql_text("""
                     SELECT horizon, COUNT(*) AS n, AVG(error_pct) AS mape
                     FROM aquavision.prediction_errors
                     WHERE asset_id = :aid
                       AND data_origin = 'REAL'
+                      AND model_version NOT LIKE 'flood_classifier%'
                       AND horizon IN (3, 7, 14)
                     GROUP BY horizon
                 """),
-                {"aid": asset_id},
-            ).mappings().all()
+                    {"aid": asset_id},
+                ).mappings().all()
         except Exception as e:
             logger.debug("prediction_errors unavailable for asset %s: %s", asset_id, e)
             return {}
@@ -639,10 +640,26 @@ class AquaVisionPredictionModel:
         }
 
     def _get_flood_probability(self, asset_id: int) -> Optional[float]:
-        """Get flood classifier probability."""
+        """Get flood classifier probability.
+
+        A REJECTED classifier never drives the flood-risk display — same
+        serving gate the regression lead times use (P4).
+        """
         try:
             from pathlib import Path
             from ml.models.flood_classifier import MODEL_DIR, FloodClassifier
+            from sqlalchemy import text as sql_text
+
+            status = self.session.execute(
+                sql_text("""
+                    SELECT status FROM aquavision.model_versions
+                    WHERE model_type = 'flood_classifier' AND asset_id = :aid
+                    ORDER BY created_at DESC LIMIT 1
+                """),
+                {"aid": asset_id},
+            ).scalar()
+            if status == "REJECTED":
+                return None
 
             model_path = MODEL_DIR / f"flood_classifier_asset_{asset_id}.pkl"
             if not model_path.exists():
@@ -651,7 +668,6 @@ class AquaVisionPredictionModel:
             clf = FloodClassifier.load(asset_id, model_path)
 
             # Get recent observations for classifier
-            from sqlalchemy import text as sql_text
 
             rows = self.session.execute(
                 sql_text("""
