@@ -23,6 +23,25 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "models", "flood
 MODEL_STATUS = "EXPERIMENTAL"
 
 
+def align_features(X: np.ndarray, incoming_names: List[str], model_names: List[str]) -> np.ndarray:
+    """Reorder/select incoming feature columns to match a model's training order.
+
+    The serving feature set evolves (e.g. GEE rainfall columns added to the
+    feature builder) while already-saved models keep their trained columns;
+    a positional `scaler.transform(X)` would silently misread them. Columns
+    the model expects but the request lacks are filled with 0.0.
+    """
+    if list(incoming_names) == list(model_names):
+        return X
+    index = {name: i for i, name in enumerate(incoming_names)}
+    aligned = np.zeros((X.shape[0], len(model_names)), dtype=X.dtype, order="C")
+    for j, name in enumerate(model_names):
+        i = index.get(name)
+        if i is not None:
+            aligned[:, j] = X[:, i]
+    return aligned
+
+
 @dataclass
 class FloodPrediction:
     """Prediction result for a single asset.
@@ -325,6 +344,7 @@ class FloodPredictor:
             residual_p90 = self.residual_p90.get(key, 0)
             target_field = self.training_metrics.get(key, {}).get("target_field", "auto")
 
+        X = align_features(X, feature_names, feature_names_loaded)
         X_scaled = scaler.transform(X)
         prediction_log = model.predict(X_scaled)[0]
 
@@ -791,6 +811,7 @@ class HighFlowPredictor:
             mae_orig = self.training_mae.get(key, 0)
             residual_p90 = self.residual_p90.get(key, 0)
 
+        X = align_features(X, feature_names, feature_names_loaded)
         X_scaled = scaler.transform(X)
         # HighFlowPredictor trains in original space (no log transform)
         prediction = float(model.predict(X_scaled)[0])

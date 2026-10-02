@@ -30,6 +30,7 @@ def pure_builder(monkeypatch):
     monkeypatch.setattr(
         FloodFeatureBuilder, "_get_weather_forecast", lambda self, aid, dt: None
     )
+    monkeypatch.setattr(FloodFeatureBuilder, "_get_gee_row", lambda self, aid, dt: None)
     return FloodFeatureBuilder(session=None)
 
 
