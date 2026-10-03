@@ -70,7 +70,9 @@ extras = [
         type TEXT NOT NULL DEFAULT 'province', parent_region_id BIGINT REFERENCES shared.regions(id),
         geom geometry(MultiPolygon,4326) NOT NULL,
         created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())""",
-    """INSERT INTO shared.regions (name, code, type, geom) VALUES
+    """INSERT INTO shared.regions (name, code, type, geom)
+        SELECT v.name, v.code, v.type, v.geom
+        FROM (VALUES
         ('Khyber Pakhtunkhwa','KPK','province', ST_Multi(ST_MakeEnvelope(69.5,33.5,75.0,37.0,4326))),
         ('Punjab','PUN','province', ST_Multi(ST_MakeEnvelope(71.0,30.0,76.0,34.5,4326))),
         ('Sindh','SIN','province', ST_Multi(ST_MakeEnvelope(67.0,23.5,71.0,28.5,4326))),
@@ -78,6 +80,8 @@ extras = [
         ('Azad Kashmir','AJK','province', ST_Multi(ST_MakeEnvelope(72.0,33.0,75.5,35.5,4326))),
         ('Gilgit-Baltistan','GB','province', ST_Multi(ST_MakeEnvelope(73.5,34.5,76.5,37.0,4326))),
         ('Islamabad','ISB','province', ST_Multi(ST_MakeEnvelope(72.8,33.3,73.5,34.0,4326)))
+        ) AS v(name, code, type, geom)
+        WHERE NOT EXISTS (SELECT 1 FROM shared.regions r WHERE r.name = v.name)
         ON CONFLICT (code) DO NOTHING""",
     # ── RBAC association tables ────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS shared.user_roles (

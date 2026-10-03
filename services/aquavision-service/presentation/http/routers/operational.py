@@ -179,6 +179,7 @@ class AlertActionInput(BaseModel):
 class EvaluateResponse(BaseModel):
     assets_checked: int
     new_alerts: int
+    episodes_closed: int = 0
     alerts: dict
 
 
