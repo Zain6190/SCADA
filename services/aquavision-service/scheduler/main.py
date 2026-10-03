@@ -539,5 +539,8 @@ if __name__ == "__main__":
     job_ingest_irsa()
 
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception as exc:
+            logger.exception(f"Scheduled job raised {exc}; scheduler loop continuing")
         time.sleep(60)

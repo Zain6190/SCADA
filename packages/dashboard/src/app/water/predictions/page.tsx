@@ -456,7 +456,7 @@ function PredictionDetails({ pred, status }: { pred: MLPrediction; status?: stri
 
 function ModelHealthBar({ assetMeta }: { assetMeta: any }) {
   const models = assetMeta.models || {}
-  const entries = Object.entries(models).filter(([, v]: [string, any]) => v.status === 'SUCCESS')
+  const entries = Object.entries(models).filter(([, v]: [string, any]) => v.r2 != null || v.mae != null)
 
   if (entries.length === 0) return null
 

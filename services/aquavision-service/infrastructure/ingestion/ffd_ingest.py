@@ -77,7 +77,7 @@ def ingest_ffd_bulletin(target_date: date = None) -> dict:
         fetch_status = "SUCCESS"
     except Exception as e:
         logger.error(f"Failed to scrape FFD: {e}")
-            return {"error": str(e), "parsed": 0, "stored": 0, "skipped": 0, "invalid": 0, "fetch_status": "FAILED"}
+        return {"error": str(e), "parsed": 0, "stored": 0, "skipped": 0, "invalid": 0, "fetch_status": "FAILED"}
     finally:
         scraper.close()
     

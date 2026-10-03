@@ -199,7 +199,8 @@ def train_flood_classifier(asset_id: int, asset_name: str):
         """), {"asset_id": asset_id}).mappings().all()
 
         if len(rows) < 200:
-            return {"asset": asset_name, "status": "SKIPPED", "reason": "insufficient_data"}
+            return {"asset": asset_name, "asset_id": asset_id, "model_type": "flood_classifier",
+                    "horizon": 7, "status": "SKIPPED", "reason": "insufficient_data"}
 
         df = pd.DataFrame(rows)
         from decimal import Decimal
@@ -217,9 +218,12 @@ def train_flood_classifier(asset_id: int, asset_name: str):
         if "error" not in metrics:
             clf.save()
             logger.info(f"Classifier {asset_name}: accuracy={metrics.get('accuracy', 0):.3f}, f1={metrics.get('f1', 0):.3f}")
-            return {"asset": asset_name, "status": "SUCCESS", **metrics}
+            return {"asset": asset_name, "asset_id": asset_id, "model_type": "flood_classifier",
+                    "horizon": 7, "model_file": f"flood_classifier_asset_{asset_id}.pkl",
+                    "status": "SUCCESS", **metrics}
         else:
-            return {"asset": asset_name, "status": "FAILED", **metrics}
+            return {"asset": asset_name, "asset_id": asset_id, "model_type": "flood_classifier",
+                    "horizon": 7, "status": "FAILED", **metrics}
 
 
 def generate_model_metadata(all_results: list) -> dict:
@@ -257,13 +261,46 @@ def generate_model_metadata(all_results: list) -> dict:
             "rmse": r.get("rmse"),
             "r2": r.get("r2"),
             "mape": r.get("mape"),
+            "accuracy": r.get("accuracy"),
+            "auc": r.get("auc"),
+            "f1": r.get("f1"),
+            "precision": r.get("precision"),
+            "recall": r.get("recall"),
             "train_samples": r.get("train_samples"),
             "test_samples": r.get("test_samples"),
             "top_features": r.get("top_features"),
             "trained_at": r.get("trained_at"),
+            "model_file": r.get("model_file", ""),
+            "model_version": r.get("model_version"),
         }
 
     return metadata
+
+
+def _preserve_untrained_models(metadata: dict) -> None:
+    """Carry forward model types this run does not train (e.g. anomaly detectors)."""
+    metadata_path = CLASSIFIER_DIR / "model_metadata.json"
+    if not metadata_path.exists():
+        return
+    try:
+        with open(metadata_path) as fh:
+            previous = json.load(fh)
+    except Exception as exc:
+        logger.warning(f"Could not read existing model metadata: {exc}")
+        return
+    for prev_aid, prev_asset in (previous.get("assets") or {}).items():
+        try:
+            norm_aid = int(prev_aid)
+        except (TypeError, ValueError):
+            continue
+        target = metadata["assets"].setdefault(norm_aid, {
+            "asset_id": norm_aid,
+            "asset_name": prev_asset.get("asset_name", ""),
+            "models": {},
+        })
+        for prev_key, prev_model in (prev_asset.get("models") or {}).items():
+            if prev_model.get("model_type") == "anomaly_detector" and prev_key not in target["models"]:
+                target["models"][prev_key] = prev_model
 
 
 def main():
@@ -308,6 +345,7 @@ def main():
 
     # Generate metadata
     metadata = generate_model_metadata(all_results)
+    _preserve_untrained_models(metadata)
     metadata_path = CLASSIFIER_DIR / "model_metadata.json"
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2, default=str)

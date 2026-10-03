@@ -28,7 +28,7 @@ const SEVERITY_DOT: Record<string, string> = {
   NORMAL: 'bg-ok',
 }
 
-const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
+const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
 export default function AnomaliesPage() {
   const queryClient = useQueryClient()

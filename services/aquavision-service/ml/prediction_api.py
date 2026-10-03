@@ -401,6 +401,54 @@ class ModelPerformance(BaseModel):
     model_file: str = ""
 
 
+REGISTRY_TYPE_MAP = {"high_flow": "high_flow_predictor"}
+
+
+def _lifecycle_status_map():
+    """Registry lifecycle status from aquavision.model_versions.
+
+    Returns (exact, by_asset): exact maps (model_type, asset_id, horizon) ->
+    status; by_asset maps (model_type, asset_id) -> set of statuses.
+    """
+    exact: dict = {}
+    by_asset: dict = {}
+    try:
+        from sqlalchemy import text as sql_text
+        from infrastructure.db.engine import engine
+
+        with engine.connect() as conn:
+            rows = conn.execute(sql_text(
+                "SELECT model_type, asset_id, version, status FROM aquavision.model_versions"
+            )).mappings().all()
+        for row in rows:
+            version = str(row["version"] or "")
+            horizon = None
+            if "-h" in version:
+                try:
+                    horizon = int(version.rsplit("-h", 1)[1])
+                except ValueError:
+                    horizon = None
+            asset_id = int(row["asset_id"])
+            exact[(row["model_type"], asset_id, horizon)] = row["status"]
+            by_asset.setdefault((row["model_type"], asset_id), set()).add(row["status"])
+    except Exception as exc:
+        logger.warning(f"model_versions registry lookup failed: {exc}")
+    return exact, by_asset
+
+
+def _resolve_model_status(exact, by_asset, model_type, asset_id, horizon, fallback):
+    reg_type = REGISTRY_TYPE_MAP.get(model_type, model_type)
+    if horizon is not None:
+        status = exact.get((reg_type, int(asset_id), int(horizon)))
+        if status:
+            return status
+    elif reg_type:
+        statuses = by_asset.get((reg_type, int(asset_id)))
+        if statuses and len(statuses) == 1:
+            return next(iter(statuses))
+    return fallback
+
+
 @router.get("/ml/model-performance", response_model=List[ModelPerformance])
 def get_model_performance():
     """Read model performance from the single canonical metadata file."""
@@ -414,10 +462,59 @@ def get_model_performance():
     with open(metadata_path) as f:
         raw = json.load(f)
 
-    if isinstance(raw, list):
-        return [ModelPerformance(**item) for item in raw]
+    exact_status, by_asset_status = _lifecycle_status_map()
+
+    def build(item: dict) -> ModelPerformance:
+        try:
+            asset_id = int(item.get("asset_id"))
+        except (TypeError, ValueError):
+            return None
+        model_type = item.get("model_type") or "model"
+        try:
+            raw_h = item.get("horizon") or item.get("horizon_days")
+            horizon = int(raw_h) if raw_h is not None else None
+        except (TypeError, ValueError):
+            horizon = None
+        fallback = item.get("model_status") or item.get("status") or "UNKNOWN"
+        status = _resolve_model_status(
+            exact_status, by_asset_status, model_type, asset_id, horizon, fallback
+        )
+        fi = item.get("feature_importance") or item.get("top_features") or {}
+        if isinstance(fi, dict):
+            fi = {k: v for k, v in fi.items() if isinstance(v, (int, float)) and v == v and v not in (float("inf"), float("-inf"))}
+        return ModelPerformance(
+            asset_id=asset_id,
+            asset_name=item.get("asset_name") or f"Asset {asset_id}",
+            model_type=model_type,
+            model_status=status,
+            trained_at=item.get("trained_at"),
+            saved_at=item.get("saved_at"),
+            samples=item.get("samples"),
+            train_samples=item.get("train_samples"),
+            test_samples=item.get("test_samples"),
+            r2=_opt_float(item.get("r2")),
+            mae=_opt_float(item.get("mae")),
+            rmse=_opt_float(item.get("rmse")),
+            mape=_opt_float(item.get("mape")),
+            accuracy=_opt_float(item.get("accuracy")),
+            auc=_opt_float(item.get("auc")),
+            f1=_opt_float(item.get("f1")),
+            precision=_opt_float(item.get("precision")),
+            recall=_opt_float(item.get("recall")),
+            feature_importance=fi,
+            horizon_days=horizon,
+            model_version=item.get("model_version") or (raw.get("model_version") if isinstance(raw, dict) else None),
+            model_file=item.get("model_file", ""),
+        )
 
     results: List[ModelPerformance] = []
+    if isinstance(raw, list):
+        for item in raw:
+            built = build(item)
+            if built is not None:
+                results.append(built)
+        return results
+
     for aid, asset in (raw.get("assets") or {}).items():
         raw_aid = asset.get("asset_id")
         if raw_aid is None:
@@ -432,32 +529,15 @@ def get_model_performance():
                 continue
         asset_name = asset.get("asset_name") or f"Asset {asset_id}"
         for key, m in (asset.get("models") or {}).items():
-            results.append(
-                ModelPerformance(
-                    asset_id=asset_id,
-                    asset_name=asset_name,
-                    model_type=m.get("model_type") or key,
-                    model_status=m.get("status") or m.get("model_status") or "UNKNOWN",
-                    trained_at=m.get("trained_at"),
-                    saved_at=m.get("saved_at"),
-                    samples=m.get("samples"),
-                    train_samples=m.get("train_samples"),
-                    test_samples=m.get("test_samples"),
-                    r2=_opt_float(m.get("r2")),
-                    mae=_opt_float(m.get("mae")),
-                    rmse=_opt_float(m.get("rmse")),
-                    mape=_opt_float(m.get("mape")),
-                    accuracy=_opt_float(m.get("accuracy")),
-                    auc=_opt_float(m.get("auc")),
-                    f1=_opt_float(m.get("f1")),
-                    precision=_opt_float(m.get("precision")),
-                    recall=_opt_float(m.get("recall")),
-                    feature_importance=m.get("feature_importance") or m.get("top_features") or {},
-                    horizon_days=m.get("horizon") or m.get("horizon_days"),
-                    model_version=raw.get("model_version") or m.get("model_version"),
-                    model_file=m.get("model_file", ""),
-                )
-            )
+            entry = dict(m)
+            if "model_type" not in entry:
+                tail, _, suffix = key.rpartition("_")
+                entry["model_type"] = tail if suffix.isdigit() else key
+            entry["asset_id"] = asset_id
+            entry["asset_name"] = asset_name
+            built = build(entry)
+            if built is not None:
+                results.append(built)
     return results
 
 
@@ -465,6 +545,7 @@ def _opt_float(v):
     if v is None or v == "":
         return None
     try:
-        return float(v)
+        f = float(v)
     except (TypeError, ValueError):
         return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
