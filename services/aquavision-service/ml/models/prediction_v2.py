@@ -551,16 +551,16 @@ class AquaVisionPredictionModel:
     def _get_wai_data(self, asset_id: int) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """WAI + anomalies for the asset.
 
-        Prefer real-time composite from REAL observations (ml/models/wai_computer).
-        Fall back to the latest weekly indicator only when real-time scoring is
-        impossible (empty history). Never invent a default score.
+        Blend of the real-time composite (ml/models/wai_computer) and the
+        latest weekly indicator for the asset's province. Never invents a
+        default score: returns None only when neither source exists.
         """
         if self.session is None:
             return None, None, None
 
         from ml.models.wai_computer import get_wai_for_prediction
 
-        # Stale weekly indicator (GEE sync) — last resort only
+        # Weekly indicator (GEE sync) — blended with the real-time score
         stale_wai = stale_rain = stale_et = None
         from sqlalchemy import text as sql_text
 
@@ -574,7 +574,7 @@ class AquaVisionPredictionModel:
                 "Punjab": "Punjab",
                 "Sindh": "Sindh",
                 "Balochistan": "Balochistan",
-                "AJK": "Azad Jammu and Kashmir",
+                "AJK": "Azad Kashmir",
             }
             region_name = PROVINCE_TO_REGION.get(asset_row["province"], asset_row["province"])
             region_row = self.session.execute(

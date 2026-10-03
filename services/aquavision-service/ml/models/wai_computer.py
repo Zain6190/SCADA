@@ -1,8 +1,10 @@
 """Real-time Water Availability Index (WAI) from live observations.
 
-Replaces reliance on static water_indicators_weekly rows (stale after
-GEE sync stops). Computes a transparent 0-100 composite per asset from
-REAL hydrology only — no dummy defaults, no synthetic rows.
+Computes a transparent 0-100 composite per asset from REAL hydrology only —
+no dummy defaults, no synthetic rows. When the weekly indicator WAI is also
+available the two are blended 50/50: the trailing-90-day percentile alone
+pins every asset near 0 right after monsoon recession, while the weekly
+indicator alone can be days stale.
 
 Components (renormalized when a piece is missing):
   flow     0.50  current discharge/inflow percentile vs trailing history
@@ -132,9 +134,12 @@ def get_wai_for_prediction(
     asset_id: int,
     stale_indicator_wai: Optional[float] = None,
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """Prefer real-time composite; fall back to a weekly indicator only if
-    real-time scoring is impossible. Never invent a default score."""
+    """Blend real-time composite with the weekly indicator 50/50 when both
+    exist; otherwise use whichever one is available. Never invent a score."""
     realtime, rain, et = compute_realtime_wai(session, asset_id)
+    if realtime is not None and stale_indicator_wai is not None:
+        blended = round(0.5 * realtime + 0.5 * float(stale_indicator_wai), 2)
+        return blended, rain, et
     if realtime is not None:
         return realtime, rain, et
     if stale_indicator_wai is not None:
