@@ -92,19 +92,32 @@ def get_validation_summary():
 
     db = SessionLocal()
     try:
-        reports = db.query(ValidationReportDB).all()
+        reports = (
+            db.query(ValidationReportDB)
+            .order_by(ValidationReportDB.created_at.desc())
+            .all()
+        )
+
+        latest: dict = {}
+        for r in reports:
+            key = (r.model_type, r.asset_id, r.horizon)
+            if key not in latest:
+                latest[key] = r
 
         recommendations = {}
-        asset_results = {}
-        for r in reports:
+        asset_results: dict = {}
+        assets_seen: set = set()
+        for r in latest.values():
             rec = r.recommendation
             recommendations[rec] = recommendations.get(rec, 0) + 1
 
             asset = db.get(WaterAsset, r.asset_id)
             name = asset.canonical_name if asset else f"Asset {r.asset_id}"
-            if name not in asset_results:
-                asset_results[name] = []
-            asset_results[name].append(r.metrics.get("mae", 999999))
+            assets_seen.add(name)
+
+            mae = (r.metrics or {}).get("mae")
+            if isinstance(mae, (int, float)) and not isinstance(mae, bool):
+                asset_results.setdefault(name, []).append(float(mae))
 
         # Find best/worst by MAE
         best_asset = None
@@ -125,8 +138,8 @@ def get_validation_summary():
             overall = "EXPERIMENTAL"
 
         return ValidationSummary(
-            total_reports=len(reports),
-            assets_validated=len(asset_results),
+            total_reports=len(latest),
+            assets_validated=len(assets_seen),
             recommendations=recommendations,
             best_asset=best_asset,
             worst_asset=worst_asset,
