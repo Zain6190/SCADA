@@ -8,11 +8,8 @@ from infrastructure.db.repositories.water_report_repo import WaterReportReposito
 
 
 class GenerateWaterReportUseCase:
-    """
-    Stub: records a WaterReport row with a placeholder path.
-    TODO(AquaVision): replace with real PDF generation (report-service)
-    that aggregates indicators/predictions/alerts for the requested scope.
-    """
+    """Records report metadata; PDF bytes are rendered on download from the
+    report's week/scope (application/report_pdf.py)."""
 
     def __init__(
         self,
@@ -22,7 +19,11 @@ class GenerateWaterReportUseCase:
         self._reports = report_repo
         self._indicators = indicator_repo
 
-    def execute(self, payload: ReportGenerateInput) -> WaterReportResponse:
+    def execute(
+        self,
+        payload: ReportGenerateInput,
+        generated_by_user_id: Optional[int] = None,
+    ) -> WaterReportResponse:
         week_start = payload.week_start_date or self._indicators.get_latest_week()
         if week_start is None:
             week_start = date.today() - timedelta(days=7)
@@ -36,7 +37,7 @@ class GenerateWaterReportUseCase:
             scope=payload.scope,
             region_id=payload.region_id,
             file_path=file_path,
-            generated_by_user_id=None,  # TODO: set from JWT subject once auth wired
+            generated_by_user_id=generated_by_user_id,
             status="Success",
         )
         return WaterReportResponse.model_validate(row)

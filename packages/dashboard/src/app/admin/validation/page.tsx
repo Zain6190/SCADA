@@ -95,19 +95,27 @@ function getStatusIcon(status: string) {
 export default function ValidationPage() {
   const [summary, setSummary] = useState<ValidationSummary | null>(null);
   const [reports, setReports] = useState<ValidationReport[]>([]);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [sumRes, repRes] = await Promise.all([
+      const [sumRes, repRes, regRes] = await Promise.all([
         fetch(`${API_BASE}/water/validation/reports/summary`),
         fetch(`${API_BASE}/water/validation/reports?limit=100`),
+        fetch(`${API_BASE}/water/registry/models?limit=500`),
       ]);
       const sumData = await sumRes.json();
       const repData = await repRes.json();
       setSummary(sumData);
+      const regRows = regRes.ok ? await regRes.json() : [];
+      const counts: Record<string, number> = {};
+      for (const row of Array.isArray(regRows) ? regRows : []) {
+        counts[row.status] = (counts[row.status] || 0) + 1;
+      }
+      setStatusCounts(counts);
       const rows: ValidationReport[] = Array.isArray(repData)
         ? repData
         : repData.value || [];
@@ -232,7 +240,7 @@ export default function ValidationPage() {
                 <div className="text-center">
                   <Badge tone={getStatusTone(status)}>{status}</Badge>
                   <div className="mt-1 text-xs text-ink-subtle">
-                    {summary?.recommendations?.[status] || 0} models
+                    {statusCounts[status] || 0} models
                   </div>
                 </div>
                 {i < 3 && <div className="w-8 h-px bg-surface-sunken mx-3" />}

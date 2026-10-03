@@ -3,7 +3,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { Bell, Filter, CheckCircle2, XCircle, AlertTriangle, Activity, Timer, Send, TrendingUp } from 'lucide-react'
+import { Bell, Filter, CheckCircle2, XCircle, AlertTriangle, Activity, Timer, Send, TrendingUp, Layers } from 'lucide-react'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -18,6 +18,7 @@ import { waterApi } from '@/features/water/api'
 import { useAuth } from '@/context/AuthContext'
 import { timeAgo, fmtDateTime } from '@/lib/format'
 import type { OperationalAlert, AlertKpis, EscalationsBoard } from '@/features/water/types'
+import type { EpisodeRollupRow } from '@/features/water/api'
 
 const AMBER = 'bg-warn-soft text-warn'
 
@@ -35,6 +36,7 @@ export default function AdminAlertsPage() {
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('ALL')
   const [kpis, setKpis] = useState<AlertKpis | null>(null)
   const [escalations, setEscalations] = useState<EscalationsBoard | null>(null)
+  const [episodes, setEpisodes] = useState<EpisodeRollupRow[]>([])
   const [boardError, setBoardError] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testBusy, setTestBusy] = useState(false)
@@ -45,8 +47,12 @@ export default function AdminAlertsPage() {
 
   const loadBoard = () => {
     setBoardError(null)
-    Promise.all([waterApi.getAlertKpis(), waterApi.getEscalations()])
-      .then(([k, e]) => { setKpis(k); setEscalations(e) })
+    Promise.all([
+      waterApi.getAlertKpis(),
+      waterApi.getEscalations(),
+      waterApi.getEpisodeRollups({ limit: 20 }).catch(() => [] as EpisodeRollupRow[]),
+    ])
+      .then(([k, e, eps]) => { setKpis(k); setEscalations(e); setEpisodes(eps) })
       .catch((err) => setBoardError(err?.response?.data?.detail || 'Board unavailable'))
   }
   useEffect(() => { loadBoard() }, [])
@@ -174,6 +180,59 @@ export default function AdminAlertsPage() {
             </CardBody>
           </Card>
         )}
+
+        {/* Episode rollups (UC-8) */}
+        <Card>
+          <CardHeader
+            title="Episode Rollups"
+            subtitle={
+              episodes.length
+                ? `${episodes.length} episodes · grouped alerts with duration, peak severity, and worst impact`
+                : "Alerts grouped into flood episodes per asset and day"
+            }
+            icon={<Layers className="h-5 w-5" />}
+            accent="bg-brand-soft text-brand"
+          />
+          <CardBody className="p-0">
+            {episodes.length === 0 ? (
+              <div className="p-6">
+                <EmptyState title="No episodes" message="Flood-related alerts will be grouped into episodes here." />
+              </div>
+            ) : (
+              <div className="divide-y divide-line">
+                {episodes.map((ep) => (
+                  <div key={ep.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SeverityBadge severity={ep.peak_severity} />
+                        <Badge tone={ep.status === 'OPEN' ? 'amber' : 'emerald'}>{ep.status}</Badge>
+                        <span className="font-medium text-ink">{ep.title}</span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-ink-subtle">
+                        {ep.asset_name || `Asset ${ep.asset_id}`} · started {timeAgo(ep.started_at)}
+                        {ep.resolved_at && <> · closed {timeAgo(ep.resolved_at)}</>}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-4 text-xs text-ink-muted">
+                      <span className="inline-flex items-center gap-1">
+                        <Timer className="h-3.5 w-3.5" />
+                        {ep.duration_hours}h
+                      </span>
+                      <span>
+                        {ep.alert_count - ep.open_alert_count}/{ep.alert_count} resolved
+                      </span>
+                      {ep.worst_impact_population != null && (
+                        <span className="text-warn">
+                          {ep.worst_impact_population.toLocaleString()} at risk
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardBody>
+        </Card>
 
         {/* Status tabs */}
         <div className="flex flex-wrap gap-2">

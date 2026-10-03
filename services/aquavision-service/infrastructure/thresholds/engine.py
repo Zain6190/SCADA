@@ -462,6 +462,39 @@ def _link_alert_to_episode(
     db.flush()
 
 
+def close_resolved_episodes(db: Session) -> int:
+    """Resolve OPEN episodes whose member alerts are all terminal.
+
+    Episodes close when every linked alert reached RESOLVED or
+    FALSE_OR_INVALID_DATA (UC-8: the umbrella resolves only after its
+    members do). Episodes with no linked alerts are left untouched.
+    Returns the number of episodes closed.
+    """
+    open_episodes = db.execute(
+        select(WaterAlertEpisode).where(WaterAlertEpisode.status == "OPEN")
+    ).scalars().all()
+
+    closed = 0
+    for episode in open_episodes:
+        members = db.execute(
+            select(WaterOperationalAlert).where(
+                WaterOperationalAlert.episode_id == episode.id
+            )
+        ).scalars().all()
+        if not members:
+            continue
+        if any(m.status not in (STATUS_RESOLVED, STATUS_FALSE_INVALID) for m in members):
+            continue
+        episode.status = "RESOLVED"
+        episode.resolved_at = datetime.now(timezone.utc)
+        closed += 1
+        logger.info(f"Episode closed: {episode.episode_key} (all member alerts resolved)")
+
+    if closed:
+        db.commit()
+    return closed
+
+
 # ─── Phase 2C: Auto-Clear ──────────────────────────────────────────────────
 
 def _auto_clear_resolved_alerts(db: Session, asset_id: int, obs: WaterObservation, threshold: WaterAssetThreshold) -> List[str]:
@@ -1355,14 +1388,18 @@ def evaluate_all_assets(db: Session = None) -> dict:
         # Phase 2C: Check escalations across all assets
         escalated = _check_escalation(db)
 
+        episodes_closed = close_resolved_episodes(db)
+
         logger.info(
             f"Threshold evaluation complete: {len(assets)} assets checked, "
-            f"{total_alerts} new alerts, {len(escalated)} escalations"
+            f"{total_alerts} new alerts, {len(escalated)} escalations, "
+            f"{episodes_closed} episodes closed"
         )
         return {
             "assets_checked": len(assets),
             "new_alerts": total_alerts,
             "escalations": len(escalated),
+            "episodes_closed": episodes_closed,
             "alerts": results,
         }
     finally:

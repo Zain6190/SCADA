@@ -19,6 +19,9 @@ class WaterReportRepository:
         q = q.order_by(orm.WaterReport.week_start_date.desc())
         return list(self._db.execute(q).scalars())
 
+    def get(self, report_id: int) -> Optional[orm.WaterReport]:
+        return self._db.get(orm.WaterReport, report_id)
+
     def create(
         self,
         week_start_date: date,

@@ -26,7 +26,8 @@ from infrastructure.alerts.workflow import (
 from infrastructure.auth.jwt import get_current_user
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import (
-    AlertInstruction, WaterAsset, WaterAlertAuditLog, WaterOperationalAlert,
+    AlertInstruction, WaterAlertEpisode, WaterAsset, WaterAlertAuditLog,
+    WaterOperationalAlert,
 )
 
 router = APIRouter()
@@ -417,6 +418,87 @@ def get_escalations(
             "instructions_overdue": len(overdue),
         },
     }
+
+
+# ─── Episode rollups (UC-8) ─────────────────────────────────────────────────
+
+class EpisodeRollup(BaseModel):
+    id: int
+    episode_key: str
+    title: str
+    severity: str
+    status: str
+    asset_id: Optional[int] = None
+    asset_name: Optional[str] = None
+    started_at: datetime
+    resolved_at: Optional[datetime] = None
+    duration_hours: float
+    alert_count: int
+    open_alert_count: int
+    peak_severity: str
+    worst_impact_population: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@router.get("/alerts/episodes", response_model=List[EpisodeRollup])
+def get_episode_rollups(
+    status: Optional[str] = Query(None, pattern="^(OPEN|RESOLVED|ALL)$"),
+    limit: int = Query(50, le=200),
+    user: dict = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Episode rollups (UC-8): alerts grouped into episodes with duration,
+    peak severity, member counts, and worst downstream impact."""
+    from infrastructure.thresholds.engine import SEVERITY_ORDER, close_resolved_episodes
+
+    close_resolved_episodes(session)
+
+    q = select(WaterAlertEpisode)
+    if status and status != "ALL":
+        q = q.where(WaterAlertEpisode.status == status)
+    episodes = session.execute(
+        q.order_by(WaterAlertEpisode.started_at.desc()).limit(limit)
+    ).scalars().all()
+
+    names = _asset_names(
+        session,
+        [e.triggered_by_asset_id for e in episodes if e.triggered_by_asset_id],
+    )
+    now = datetime.now(timezone.utc)
+    rollups: List[EpisodeRollup] = []
+    for ep in episodes:
+        members = session.execute(
+            select(WaterOperationalAlert).where(WaterOperationalAlert.episode_id == ep.id)
+        ).scalars().all()
+        open_count = sum(1 for m in members if m.status in OPEN_STATUSES)
+        peak = ep.severity
+        for m in members:
+            if SEVERITY_ORDER.get(m.severity, -1) > SEVERITY_ORDER.get(peak, -1):
+                peak = m.severity
+        worst = max((m.downstream_population_exposed or 0 for m in members), default=0)
+        started = ep.started_at if ep.started_at.tzinfo else ep.started_at.replace(tzinfo=timezone.utc)
+        end = now
+        if ep.resolved_at:
+            end = ep.resolved_at if ep.resolved_at.tzinfo else ep.resolved_at.replace(tzinfo=timezone.utc)
+        duration = max(0.0, (end - started).total_seconds() / 3600.0)
+        rollups.append(EpisodeRollup(
+            id=ep.id,
+            episode_key=ep.episode_key,
+            title=ep.title,
+            severity=ep.severity,
+            status=ep.status,
+            asset_id=ep.triggered_by_asset_id,
+            asset_name=names.get(ep.triggered_by_asset_id),
+            started_at=ep.started_at,
+            resolved_at=ep.resolved_at,
+            duration_hours=round(duration, 1),
+            alert_count=len(members),
+            open_alert_count=open_count,
+            peak_severity=peak,
+            worst_impact_population=worst or None,
+            notes=ep.notes,
+        ))
+    return rollups
 
 
 # ─── KPIs ────────────────────────────────────────────────────────────────────
