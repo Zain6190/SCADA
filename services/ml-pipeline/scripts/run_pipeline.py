@@ -85,7 +85,7 @@ _engine = None
 def engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(DB_URL)
+        _engine = create_engine(DB_URL, pool_pre_ping=True)
     return _engine
 
 
@@ -137,7 +137,19 @@ def acquire_lock(conn) -> bool:
 
 
 def release_lock(conn) -> None:
-    conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_KEY})
+    try:
+        conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_KEY})
+    except Exception as exc:
+        print(f"[pipeline] advisory unlock failed ({exc}); dropping pool - "
+              "Postgres frees the advisory lock when its session ends")
+        global _engine
+        if _engine is not None:
+            _engine.dispose()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def sweep_stale_runs(stale_after: str = STALE_AFTER) -> int:
@@ -430,6 +442,13 @@ def main() -> None:
                     summary["error_count"] = 0
                 else:
                     stage_results.append(summary)
+                    smap = run_stage(run_pk, run_id, "fetch_smap",
+                                     module="gee.fetch_smap")
+                    if smap["status"] != "SUCCESS":
+                        smap["error_count"] = 0
+                        warnings.append(
+                            "fetch_smap failed; soil-moisture columns missing from CSV")
+                    stage_results.append(smap)
                 continue
 
             summary = run_stage(

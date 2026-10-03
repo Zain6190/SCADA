@@ -23,7 +23,7 @@ import requests
 DB_URL = os.getenv("DATABASE_URL", "")
 _PSYCOPG2_DSN = DB_URL.replace("postgresql+psycopg2://", "postgresql://")
 START_DATE = os.getenv("GEE_START_DATE", "2021-01-01")
-END_DATE = os.getenv("GEE_END_DATE", "2026-07-31")
+END_DATE = os.getenv("GEE_END_DATE") or date.today().isoformat()
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "Data" / "raw"
 RAW_CSV = RAW_DIR / "region_features.csv"
@@ -117,10 +117,12 @@ def main() -> None:
     rows = []
     with open(RAW_CSV, "r", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
-        fieldnames = list(reader.fieldnames) + ["sm_rootzone", "sm_surface"]
+        base = list(reader.fieldnames)
+        extra = [c for c in ("sm_rootzone", "sm_surface") if c not in base]
+        fieldnames = base + extra
         for row in reader:
             key = (int(row["region_id"]), row["month"][:7])
-            sm = all_sm.get(key, {"sm_rootzone": 0.0, "sm_surface": 0.0})
+            sm = all_sm.get(key, {"sm_rootzone": None, "sm_surface": None})
             row["sm_rootzone"] = sm["sm_rootzone"]
             row["sm_surface"] = sm["sm_surface"]
             rows.append(row)

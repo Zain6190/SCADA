@@ -239,7 +239,8 @@ def job_run_wai_pipeline():
         try:
             logger.info("Starting WAI pipeline (sync_indicators, predict_weekly, run_risk_alerts)...")
             result = subprocess.run(
-                [sys.executable, "-m", "scripts.run_pipeline", "--trigger", "SCHEDULED"],
+                [sys.executable, "-m", "scripts.run_pipeline", "--with-fetch",
+                 "--trigger", "SCHEDULED"],
                 cwd=ml_root,
                 capture_output=True,
                 text=True,

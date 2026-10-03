@@ -14,6 +14,7 @@ Writes long-format CSV -> Data/raw/region_features.csv
 """
 from __future__ import annotations
 
+import csv
 import os
 from datetime import date, timedelta
 from pathlib import Path
@@ -26,7 +27,7 @@ SERVICE_ACCOUNT_KEY = Path(__file__).resolve().parent / "service-account.json"
 # psycopg2 needs the plain postgresql:// DSN, not the SQLAlchemy dialect form.
 _PSYCOPG2_DSN = DB_URL.replace("postgresql+psycopg2://", "postgresql://")
 START_DATE = os.getenv("GEE_START_DATE", "2021-01-01")
-END_DATE = os.getenv("GEE_END_DATE", "2026-07-31")
+END_DATE = os.getenv("GEE_END_DATE") or date.today().isoformat()
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "Data" / "raw"
 
@@ -184,6 +185,29 @@ def _first_or_fill(
     )
 
 
+def _load_existing() -> tuple[list[dict] | None, list[str] | None]:
+    """Current region_features.csv rows + fieldnames, or (None, None)."""
+    path = RAW_DIR / "region_features.csv"
+    if not path.exists():
+        return None, None
+    with open(path, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        return list(reader), list(reader.fieldnames or [])
+
+
+def _fetch_start(existing: list[dict] | None) -> str:
+    """Start of the fetch window: newest CSV month minus a 2-month repair
+    overlap, so trailing incomplete months get re-pulled once finalized.
+    Full history is only fetched when no CSV exists yet."""
+    if not existing:
+        return START_DATE
+    latest = max(r["month"] for r in existing)
+    d = date.fromisoformat(latest[:10]).replace(day=1)
+    for _ in range(2):
+        d = (d - timedelta(days=1)).replace(day=1)
+    return max(d.isoformat(), START_DATE)
+
+
 def main() -> None:
     import json as _json
 
@@ -200,8 +224,10 @@ def main() -> None:
             "features": regions,
         }
     )
-    months = month_ranges(START_DATE, END_DATE)
-    print(f"[gee_fetch] {len(months)} months ({START_DATE} -> {END_DATE})")
+    existing, existing_fields = _load_existing()
+    fetch_start = _fetch_start(existing)
+    months = month_ranges(fetch_start, END_DATE)
+    print(f"[gee_fetch] {len(months)} months ({fetch_start} -> {END_DATE})")
 
     datasets = {
         "rainfall_mm": _precip_ic(months),
@@ -235,17 +261,20 @@ def main() -> None:
             print(f"[gee_fetch]   chunk {chunk_start//CHUNK+1}/{(len(month_ids)+CHUNK-1)//CHUNK} done ({len(chunk)} months)")
     print(f"[gee_fetch] {len(results)} region-months accumulated")
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    import csv
 
     path = RAW_DIR / "region_features.csv"
+    if existing is not None:
+        kept = [r for r in existing if r["month"][:10] < fetch_start]
+        fieldnames = existing_fields
+    else:
+        kept = []
+        fieldnames = ["region_id", "month"] + list(datasets.keys())
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh, fieldnames=["region_id", "month"] + list(datasets.keys())
-        )
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, restval="")
         writer.writeheader()
-        for row in results:
+        for row in kept + results:
             writer.writerow(row)
-    print(f"[gee_fetch] Wrote {len(results)} rows -> {path}")
+    print(f"[gee_fetch] Wrote {len(kept) + len(results)} rows -> {path}")
 
 
 def _set_nested(rows: list, rid: int, feat: str, month: str, value) -> None:
