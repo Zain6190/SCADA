@@ -38,7 +38,23 @@ const SEVERITY_TONE: Record<string, 'red' | 'amber' | 'sky' | 'emerald' | 'slate
   Normal: 'emerald',
 }
 
-const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
+const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+function statusTone(status?: string | null): 'red' | 'amber' | 'sky' | 'emerald' | 'slate' {
+  switch (status) {
+    case 'REJECTED':
+      return 'red'
+    case 'EXPERIMENTAL':
+      return 'amber'
+    case 'SHADOW':
+      return 'sky'
+    case 'APPROVED':
+    case 'PRODUCTION':
+      return 'emerald'
+    default:
+      return 'slate'
+  }
+}
 
 interface WAIPrediction {
   id: number
@@ -138,6 +154,30 @@ function FloodPredictionsTab() {
     retry: 1,
   })
 
+  const { data: validation } = useQuery({
+    queryKey: ['ml-validation-reports', 'flood_predictor'],
+    queryFn: () => waterApi.getValidationReports({ model_type: 'flood_predictor', limit: 100 }),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
+
+  const statusByAsset = new Map<number, string>()
+  for (const r of validation?.reports ?? []) {
+    if (r.horizon === 7 && !statusByAsset.has(r.asset_id)) {
+      statusByAsset.set(r.asset_id, r.recommendation)
+    }
+  }
+
+  const statusCounts: Record<string, number> = {}
+  for (const s of Array.from(statusByAsset.values())) {
+    statusCounts[s] = (statusCounts[s] ?? 0) + 1
+  }
+  const precedence = ['REJECTED', 'EXPERIMENTAL', 'SHADOW', 'APPROVED', 'PRODUCTION']
+  const worstStatus = precedence.find((s) => statusCounts[s])
+  const headerLabel = worstStatus
+    ? precedence.filter((s) => statusCounts[s]).map((s) => `${s} ${statusCounts[s]}`).join(' · ')
+    : 'UNVALIDATED'
+
   return (
     <>
       {trainMutation.isSuccess && (
@@ -177,9 +217,9 @@ function FloodPredictionsTab() {
       )}
 
       <div className="flex items-center gap-3">
-        <Badge tone="amber">
+        <Badge tone={statusTone(worstStatus)}>
           <FlaskConical className="mr-1 inline h-3 w-3" />
-          EXPERIMENTAL
+          {headerLabel}
         </Badge>
         <button
           onClick={() => trainMutation.mutate()}
@@ -200,6 +240,7 @@ function FloodPredictionsTab() {
             onToggle={() => setExpanded(expanded === id ? null : id)}
             metadata={metadata}
             reliability={reliability?.assets?.[String(id)]}
+            status={statusByAsset.get(id)}
           />
         ))}
       </div>
@@ -213,12 +254,14 @@ function PredictionCard({
   onToggle,
   metadata,
   reliability,
+  status,
 }: {
   assetId: number
   isExpanded: boolean
   onToggle: () => void
   metadata?: any
   reliability?: V2AssetReliability
+  status?: string
 }) {
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['ml-predictions', assetId],
@@ -263,7 +306,7 @@ function PredictionCard({
             <EmptyState title="No model" message="Train models first." />
           ) : (
             <>
-              <PredictionDetails pred={pred} />
+              <PredictionDetails pred={pred} status={status} />
               {assetMeta && <ModelHealthBar assetMeta={assetMeta} />}
             </>
           )}
@@ -273,7 +316,8 @@ function PredictionCard({
   )
 }
 
-function PredictionDetails({ pred }: { pred: MLPrediction }) {
+function PredictionDetails({ pred, status }: { pred: MLPrediction; status?: string }) {
+  const effectiveStatus = status ?? pred.model_status
   const topFeatures = Object.entries(pred.feature_importance)
     .map(([k, v]) => [k, Number(v)] as const)
     .sort(([, a], [, b]) => b - a)
@@ -322,9 +366,9 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
             </div>
             <div>
               <div className="text-ink-subtle">Status</div>
-              <Badge tone="amber">
+              <Badge tone={statusTone(effectiveStatus)}>
                 <FlaskConical className="mr-1 inline h-3 w-3" />
-                {pred.model_status}
+                {effectiveStatus}
               </Badge>
             </div>
           </>
@@ -336,9 +380,9 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
             </div>
             <div>
               <div className="text-ink-subtle">Status</div>
-              <Badge tone="amber">
+              <Badge tone={statusTone(effectiveStatus)}>
                 <FlaskConical className="mr-1 inline h-3 w-3" />
-                {pred.model_status}
+                {effectiveStatus}
               </Badge>
             </div>
           </>
@@ -404,7 +448,7 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
       )}
 
       <div className="text-ink-subtle">
-        Model: {pred.model_version} | {pred.model_status} | {pred.prediction_date}
+        Model: {pred.model_version} | {effectiveStatus} | {pred.prediction_date}
       </div>
     </div>
   )
