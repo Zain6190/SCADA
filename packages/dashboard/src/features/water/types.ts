@@ -43,6 +43,10 @@ export interface WaterPrediction {
   predicted_severity?: string | null
   predicted_wai_score?: number | null
   confidence?: number | null
+  region_name?: string | null
+  actual_wai_score?: number | null
+  actual_severity?: string | null
+  absolute_error?: number | null
 }
 
 export interface WaterReport {
@@ -420,6 +424,7 @@ export interface AssetWeeklySummary {
   province?: string | null
   total_observations: number
   date_range: string
+  last_observed_at?: string | null
   weeks: WeeklyObservationRow[]
 }
 

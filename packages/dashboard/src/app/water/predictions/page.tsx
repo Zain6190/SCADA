@@ -485,7 +485,7 @@ function WAIPredictionsTab() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    waterApi.getPredictions({ limit: 50 }).then(setPredictions).finally(() => setLoading(false))
+    waterApi.getPredictions({ limit: 50 }).then(data => setPredictions(data as WAIPrediction[])).finally(() => setLoading(false))
   }, [])
 
   if (loading) return <Spinner label="Loading WAI predictions" />

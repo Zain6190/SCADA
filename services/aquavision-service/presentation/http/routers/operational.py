@@ -1164,6 +1164,7 @@ class AssetWeeklySummary(BaseModel):
     province: Optional[str]
     total_observations: int
     date_range: str
+    last_observed_at: Optional[str] = None
     weeks: List[WeeklyObservationSummary]
 
 
@@ -1208,11 +1209,16 @@ def get_weekly_summary(
                 "asset_name": asset.canonical_name,
                 "river": asset.river,
                 "province": asset.province,
+                "last_obs": None,
                 "weeks": defaultdict(lambda: {
                     "level": [], "inflow": [], "outflow": [], "discharge": [],
                     "sources": set(), "origins": set(), "count": 0,
                 }),
             }
+
+        ts = obs.observed_at
+        if asset_data[aid]["last_obs"] is None or ts > asset_data[aid]["last_obs"]:
+            asset_data[aid]["last_obs"] = ts
 
         # Calculate ISO week start (Monday)
         obs_date = obs.observed_at.date() if hasattr(obs.observed_at, 'date') else obs.observed_at
@@ -1261,6 +1267,7 @@ def get_weekly_summary(
 
         total_obs = sum(w["count"] for w in data["weeks"].values())
         date_range = f"{start_date} → {end_date}" if weeks_list else "No data"
+        last = data["last_obs"]
         result.append(AssetWeeklySummary(
             asset_id=aid,
             asset_name=data["asset_name"],
@@ -1268,6 +1275,7 @@ def get_weekly_summary(
             province=data["province"],
             total_observations=total_obs,
             date_range=date_range,
+            last_observed_at=last.isoformat() if last else None,
             weeks=weeks_list,
         ))
 
