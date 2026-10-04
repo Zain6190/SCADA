@@ -43,6 +43,8 @@ export interface WaterPrediction {
   predicted_severity?: string | null
   predicted_wai_score?: number | null
   confidence?: number | null
+  lower_bound?: number | null
+  upper_bound?: number | null
   region_name?: string | null
   actual_wai_score?: number | null
   actual_severity?: string | null

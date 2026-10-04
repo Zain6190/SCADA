@@ -65,6 +65,8 @@ interface WAIPrediction {
   predicted_severity: string
   predicted_wai_score: number
   confidence: number | null
+  lower_bound: number | null
+  upper_bound: number | null
 }
 
 export default function PredictionsPage() {
@@ -485,7 +487,7 @@ function WAIPredictionsTab() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    waterApi.getPredictions({ limit: 50 }).then(data => setPredictions(data as WAIPrediction[])).finally(() => setLoading(false))
+    waterApi.getPredictions().then(data => setPredictions(data as WAIPrediction[])).finally(() => setLoading(false))
   }, [])
 
   if (loading) return <Spinner label="Loading WAI predictions" />
@@ -541,6 +543,14 @@ function WAIPredictionCard({ pred }: { pred: WAIPrediction }) {
             <span className="text-ink-subtle">Confidence</span>
             <span className="font-mono text-ink-muted">
               {pred.confidence != null ? `${(pred.confidence * 100).toFixed(0)}%` : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ink-subtle">80% Range</span>
+            <span className="font-mono text-ink-muted">
+              {pred.lower_bound != null && pred.upper_bound != null
+                ? `${pred.lower_bound.toFixed(1)} — ${pred.upper_bound.toFixed(1)}`
+                : '—'}
             </span>
           </div>
           <div className="flex justify-between">

@@ -197,6 +197,8 @@ class WaterPrediction(Base):
     predicted_severity: Mapped[Optional[str]] = mapped_column(Text)
     predicted_wai_score: Mapped[Optional[float]] = mapped_column(Numeric)
     confidence: Mapped[Optional[float]] = mapped_column(Numeric)
+    lower_bound: Mapped[Optional[float]] = mapped_column(Numeric)
+    upper_bound: Mapped[Optional[float]] = mapped_column(Numeric)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     region: Mapped[Region] = relationship("Region")

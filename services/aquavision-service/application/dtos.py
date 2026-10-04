@@ -55,6 +55,8 @@ class WaterPredictionResponse(BaseModel):
     predicted_severity: Optional[str] = None
     predicted_wai_score: Optional[float] = None
     confidence: Optional[float] = None
+    lower_bound: Optional[float] = None
+    upper_bound: Optional[float] = None
     region_name: Optional[str] = None
     actual_wai_score: Optional[float] = None
     actual_severity: Optional[str] = None

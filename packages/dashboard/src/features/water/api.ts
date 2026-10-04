@@ -122,7 +122,7 @@ export const waterApi = {
   },
 
   getPredictions: async (
-    params: { region_id?: number; limit?: number; include_actual?: boolean } = {},
+    params: { region_id?: number; include_actual?: boolean } = {},
   ): Promise<WaterPrediction[]> => {
     const { data } = await waterClient.get('/predictions', { params })
     return data

@@ -80,16 +80,6 @@ def anomaly_ratio(feats: pd.DataFrame, detector) -> pd.Series:
     return (1.0 - scores) / 2.0
 
 
-def _confidence(wai: float, anom_ratio: float) -> float:
-    """MODEL confidence 0..1: distance from the nearest severity boundary +
-    anomaly strength. Far below a boundary (very dry) is high confidence."""
-    boundaries = sorted(
-        {th[k] for k in ("wai_critical_min", "wai_severe_min", "wai_stressed_min")}
-    )
-    margin = min(abs(wai - b) for b in boundaries)
-    return round(min(0.99, max(0.5, 0.5 + margin / 40.0 * 0.35 + float(anom_ratio) * 0.3)), 3)
-
-
 def build_alert_rows(region_rows: list[dict]) -> list[dict]:
     """Decide which alerts to create for each region based on model outputs."""
     alerts = []
@@ -98,7 +88,7 @@ def build_alert_rows(region_rows: list[dict]) -> list[dict]:
         rain_anom = r["rainfall_anomaly"]  # % anomaly (negative = deficit)
         et_anom = r["et_anomaly"]          # % anomaly (positive = high ET)
         anom_ratio = r["anomaly_ratio"]
-        conf = _confidence(wai, anom_ratio)
+        conf = r["band_confidence"]
 
         if wai < th["wai_critical_min"]:
             alerts.append(
@@ -152,29 +142,26 @@ def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
     now_ts = f"{datetime.now(timezone.utc).isoformat()}"
     with eng.begin() as conn:
         for a in alerts:
-            exists = conn.execute(
+            note = f"auto (anomaly_ratio={a['anom_ratio']:.2f})"
+            updated = conn.execute(
                 text(
-                    "SELECT id FROM aquavision.water_alerts "
-                    "WHERE region_id=:r AND week_start_date=:w AND alert_type=:t AND rule_version=:v"
+                    """
+                    UPDATE aquavision.water_alerts
+                    SET severity=:severity, wai_score=:wai, rainfall_anomaly=:rain,
+                        et_anomaly=:et, confidence=:conf, source='MODEL', notes=:notes
+                    WHERE region_id=:r AND week_start_date=:w
+                      AND alert_type=:t AND rule_version=:v
+                    """
                 ),
-                {"r": a["region_id"], "w": week, "t": a["alert_type"], "v": RULE_VERSION},
-            ).fetchone()
-            if exists:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE aquavision.water_alerts
-                        SET severity=:severity, wai_score=:wai, rainfall_anomaly=:rain,
-                            et_anomaly=:et, confidence=:conf, source='MODEL', notes=:notes
-                        WHERE id=:id
-                        """
-                    ),
-                    {
-                        "id": exists[0], "severity": a["severity"], "wai": a["wai_score"],
-                        "rain": a["rainfall_anomaly"], "et": a["et_anomaly"],
-                        "conf": a["confidence"], "notes": f"auto (anomaly_ratio={a['anom_ratio']:.2f})",
-                    },
-                )
+                {
+                    "severity": a["severity"], "wai": a["wai_score"],
+                    "rain": a["rainfall_anomaly"], "et": a["et_anomaly"],
+                    "conf": a["confidence"], "notes": note,
+                    "r": a["region_id"], "w": week,
+                    "t": a["alert_type"], "v": RULE_VERSION,
+                },
+            ).rowcount
+            if updated:
                 written += 1
                 continue
             conn.execute(
@@ -198,7 +185,7 @@ def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
                     "wai": a["wai_score"],
                     "rain": a["rainfall_anomaly"],
                     "et": a["et_anomaly"],
-                    "notes": f"auto (anomaly_ratio={a['anom_ratio']:.2f})",
+                    "notes": note,
                     "conf": a["confidence"],
                     "rule_version": RULE_VERSION,
                     "now_ts": now_ts,
@@ -246,8 +233,13 @@ def main() -> dict:
 
     Thresholds load here, not at module level, so importing this module
     (unit tests, feature-contract checks) never needs a live database.
+    The predict_weekly import lives here too: in the shared test process the
+    service's own scripts package may already sit in sys.modules['scripts'],
+    and a module-level ml-pipeline import would fail to resolve.
     """
     global th
+    from scripts.predict_weekly import band_and_confidence, load_interval
+
     th = load_thresholds()
     reg = joblib.load(latest_artifact("wai_reg_*.joblib"))
     detector = joblib.load(latest_artifact("anomaly_if.joblib"))
@@ -303,14 +295,17 @@ def main() -> dict:
     if X["current_wai"].isna().any():
         raise RuntimeError("current_wai unavailable for every region; cannot run")
 
-    pred_wai = np.clip(
-        X["current_wai"].to_numpy() + reg.predict(X[FEATURE_COLS]), 0.0, 100.0
-    )
+    current = X["current_wai"].to_numpy()
+    pred_delta = reg.predict(X[FEATURE_COLS])
+    pred_wai = np.clip(current + pred_delta, 0.0, 100.0)
     anom_ratio = anomaly_ratio(X, detector)
+    _, _, band_conf = band_and_confidence(
+        X, current, pred_delta, pred_wai, load_interval()
+    )
 
     # Build region_rows with rainfall/ET anomaly from the current month's data
     region_rows = []
-    for row, wai, ar in zip(X.itertuples(), pred_wai, anom_ratio):
+    for row, wai, ar, bc in zip(X.itertuples(), pred_wai, anom_ratio, band_conf):
         # anomaly % vs that region's own historical mean (simple z-ish proxy)
         hist = feats[feats["region_id"] == row.region_id]
         hist = hist[hist["et_mm"] > 0]
@@ -329,6 +324,7 @@ def main() -> dict:
                 rainfall_anomaly=round(float(rain_anom), 2),
                 et_anomaly=round(float(et_anom), 2),
                 anomaly_ratio=round(float(ar), 4),
+                band_confidence=round(float(bc), 3),
             )
         )
 
