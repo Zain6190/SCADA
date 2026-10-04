@@ -3,13 +3,13 @@
 // packages/dashboard/src/components/shell/topbar.tsx
 import { useAuth } from '@/context/AuthContext'
 import { SystemStatusIndicator } from '@/components/shell/system-status'
-import { LogOut, Bell, Menu, User } from 'lucide-react'
+import { LogOut, Bell, Menu, User, BookOpen } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { API_BASE_URL } from '@/lib/config'
 import Link from 'next/link'
 
 export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
-  const { user, logout } = useAuth()
+  const { user, logout, loading } = useAuth()
 
   const { data: queue } = useQuery({
     queryKey: ['alerts', 'queue-badge'],
@@ -44,6 +44,15 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
 
       <div className="flex items-center gap-3">
         <SystemStatusIndicator />
+        {/* Reachable from every page: the console is full of domain jargon. */}
+        <Link
+          href="/key-terms"
+          className="rounded-lg border border-line bg-surface p-2 text-ink-muted hover:bg-surface-alt"
+          aria-label="Key Terms"
+          title="Key Terms — what the words on screen mean"
+        >
+          <BookOpen className="h-4 w-4" />
+        </Link>
         <Link
           href="/water/operator/alerts"
           className="relative rounded-lg border border-line bg-surface p-2 text-ink-muted hover:bg-surface-alt"
@@ -58,7 +67,13 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
         </Link>
         <div className="hidden items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 md:flex">
           <User className="h-4 w-4 text-ink-muted" />
-          <span className="text-xs text-ink-muted">{user?.full_name || user?.username || 'Operator'}</span>
+          {/* Never guess the identity: showing a default role before the
+              session resolves flashed the wrong user on every page load. */}
+          {loading || !user ? (
+            <span className="h-3 w-20 animate-pulse rounded bg-surface-alt" aria-hidden />
+          ) : (
+            <span className="text-xs text-ink-muted">{user.full_name || user.username}</span>
+          )}
         </div>
         <button
           onClick={logout}
