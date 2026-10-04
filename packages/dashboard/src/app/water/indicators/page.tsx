@@ -49,6 +49,12 @@ function severityFromWai(wai: number | null): string | null {
   return 'Normal'
 }
 
+const weekEnd = (start: string): string => {
+  const d = new Date(start + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + 6)
+  return d.toISOString().slice(0, 10)
+}
+
 function SeverityChip({ severity }: { severity?: string | null }) {
   if (!severity) return <span className="text-ink-subtle">—</span>
   return (
@@ -74,6 +80,7 @@ interface RegionAggregate {
   totalObs: number
   assetCount: number
   assets: string[]
+  lastObs: string
 }
 
 function aggregateByRegion(summaries: AssetWeeklySummary[]): RegionAggregate[] {
@@ -82,12 +89,13 @@ function aggregateByRegion(summaries: AssetWeeklySummary[]): RegionAggregate[] {
   for (const asset of summaries) {
     const prov = asset.province || 'Unknown'
     if (!byProvince.has(prov)) {
-      byProvince.set(prov, { province: prov, weeks: {}, totalObs: 0, assetCount: 0, assets: [] })
+      byProvince.set(prov, { province: prov, weeks: {}, totalObs: 0, assetCount: 0, assets: [], lastObs: '' })
     }
     const reg = byProvince.get(prov)!
     reg.totalObs += asset.total_observations
     reg.assetCount += 1
     reg.assets.push(asset.asset_name)
+    if (asset.last_observed_at && asset.last_observed_at > reg.lastObs) reg.lastObs = asset.last_observed_at
 
     for (const w of asset.weeks) {
       if (!reg.weeks[w.week_start]) {
@@ -142,6 +150,7 @@ function RegionChart({ region }: { region: RegionAggregate }) {
           <RTooltip
             contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
             labelStyle={{ color: '#94a3b8' }}
+            labelFormatter={(label: string) => `week ${label} → ${weekEnd(label)}`}
             formatter={(v: any) => fmtNumber(v)}
           />
           <Legend wrapperStyle={{ fontSize: 10 }} />
@@ -755,6 +764,9 @@ export default function IndicatorsPage() {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-ink">Observed flows by province</h2>
           <span className="text-[11px] text-ink-subtle">IRSA · Kaggle · FFD/PMD weekly aggregates</span>
+          {lastObs && (
+            <span className="ml-auto text-[11px] font-mono font-semibold text-ok">latest observation {lastObs}</span>
+          )}
         </div>
 
         {/* Province filter */}
@@ -799,19 +811,28 @@ export default function IndicatorsPage() {
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROVINCE_COLORS[region.province] || '#64748b' }} />
                     <h3 className="text-sm font-semibold text-ink">{region.province}</h3>
                     <span className="text-[10px] text-ink-subtle">{region.assetCount} assets · {region.totalObs.toLocaleString()} obs</span>
+                    {region.lastObs && (
+                      <span className="text-[10px] font-mono font-semibold text-ok">last obs {region.lastObs.slice(0, 10)}</span>
+                    )}
                   </div>
                   <p className="text-[11px] text-ink-subtle mt-0.5">{region.assets.join(' · ')}</p>
                 </div>
                 {latest && (
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="text-[10px] text-ink-subtle uppercase tracking-wider">Avg Inflow</div>
-                      <div className="text-sm font-semibold text-ink">{fmtNumber(latest.inflow)}</div>
-                      <TrendArrow current={latest.inflow} previous={prevInflow} />
+                  <div className="text-right">
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <div className="text-[10px] text-ink-subtle uppercase tracking-wider">Avg Inflow</div>
+                        <div className="text-sm font-semibold text-ink">{fmtNumber(latest.inflow)}</div>
+                        <TrendArrow current={latest.inflow} previous={prevInflow} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-ink-subtle uppercase tracking-wider">Avg Outflow</div>
+                        <div className="text-sm font-semibold text-ink">{fmtNumber(latest.outflow)}</div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-[10px] text-ink-subtle uppercase tracking-wider">Avg Outflow</div>
-                      <div className="text-sm font-semibold text-ink">{fmtNumber(latest.outflow)}</div>
+                    <div className="mt-0.5 text-[10px] font-mono text-ink-subtle">
+                      week {latest.week} → {weekEnd(latest.week).slice(5)}
+                      {region.lastObs ? ` · obs to ${region.lastObs.slice(0, 10)}` : ''}
                     </div>
                   </div>
                 )}
@@ -827,7 +848,7 @@ export default function IndicatorsPage() {
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-surface">
                     <tr className="border-b border-line">
-                      <th className="px-4 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Week</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Week (mon–sun)</th>
                       <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Obs</th>
                       <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Avg Inflow</th>
                       <th className="px-4 py-2 text-right text-[10px] font-medium uppercase tracking-wider text-ink-subtle">Avg Outflow</th>
@@ -846,6 +867,7 @@ export default function IndicatorsPage() {
                         <tr key={wk} className={`border-b border-line ${i === 0 ? 'bg-brand-soft' : 'hover:bg-surface-alt'} transition-colors`}>
                           <td className="px-4 py-2 font-medium text-ink-muted">
                             {wk}
+                            <span className="text-ink-subtle font-normal"> → {weekEnd(wk).slice(5)}</span>
                             {i === 0 && <span className="ml-1.5 text-[9px] text-brand font-semibold">LATEST</span>}
                           </td>
                           <td className="px-4 py-2 text-right text-ink-muted">{w.observations}</td>
