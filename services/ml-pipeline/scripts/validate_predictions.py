@@ -82,8 +82,7 @@ def validate() -> dict:
         if r["actual"] is None:
             continue
         err = float(r["predicted_wai_score"]) - float(r["actual"])
-        conn = eng.begin()
-        with conn:
+        with eng.begin() as conn:
             conn.execute(
                 text(
                     """
