@@ -86,8 +86,13 @@ function PortalSwitcher({ pathname, user }: { pathname: string; user: PortalUser
 }
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const pathname = usePathname()
+
+  // The session is restored inside an effect, so `user` is null on the first
+  // paint. Until it resolves we know nothing about permissions — showing the
+  // "no modules" copy then reads as a broken account rather than a pending one.
+  const resolving = loading || !user
 
   const currentHref = activeNavHref(pathname)
   const allowed = modulesForUser(user)
@@ -110,7 +115,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <PortalSwitcher pathname={pathname} user={user} />
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {portalSections.map((section) => {
+        {resolving && <NavSkeleton />}
+        {!resolving && portalSections.map((section) => {
           const groups = new Map<string, typeof section.items>()
           for (const item of section.items) {
             const g = item.group || ''
@@ -163,12 +169,24 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </div>
           )
         })}
-        {portalSections.length === 0 && (
+        {!resolving && portalSections.length === 0 && (
           <p className="px-3 py-6 text-center text-xs text-ink-subtle">
             No modules available for your role.
           </p>
         )}
       </nav>
+    </div>
+  )
+}
+
+/** Placeholder rows that hold the nav's shape while the session resolves. */
+function NavSkeleton() {
+  return (
+    <div className="space-y-1.5 px-1" aria-hidden>
+      <div className="mb-2 h-2 w-24 animate-pulse rounded bg-surface-alt" />
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="h-8 animate-pulse rounded-lg bg-surface-alt" />
+      ))}
     </div>
   )
 }
