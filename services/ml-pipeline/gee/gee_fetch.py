@@ -83,12 +83,28 @@ def month_ranges(start: str, end: str) -> list[tuple[str, str]]:
 
 
 def _precip_ic(month_ranges: list[tuple[str, str]]) -> ee.ImageCollection:
-    """CHIRPS monthly precipitation: one image per month = daily sum."""
+    """CHIRPS monthly precipitation: one image per month = daily sum.
+
+    Months without CHIRPS images yet get a fully-masked placeholder band so
+    the stack always keeps one band per month: a 0-band image collapses the
+    stack to a single band, and reduceRegions then names its output 'mean'
+    instead of the month id, so every rainfall lookup silently returned None
+    (the bug that downgraded a complete August to PARTIAL).
+    """
     chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY").select("precipitation")
-    imgs = [
-        chirps.filterDate(s, e).sum().set("month", s)
-        for s, e in month_ranges
-    ]
+    imgs = []
+    for s, e in month_ranges:
+        coll = chirps.filterDate(s, e)
+        img = ee.Image(
+            ee.Algorithms.If(
+                coll.size().gt(0),
+                coll.sum(),
+                ee.Image.constant(0.0)
+                .rename("precipitation")
+                .mask(ee.Image(0)),
+            )
+        )
+        imgs.append(img.set("month", s))
     return ee.ImageCollection(imgs)
 
 
@@ -257,6 +273,8 @@ def main() -> None:
                 props = f.get("properties", {})
                 for m in chunk:
                     val = props.get(m)
+                    if val is None and len(chunk) == 1:
+                        val = props.get("mean")
                     _set_nested(results, rid, name, m, val)
             print(f"[gee_fetch]   chunk {chunk_start//CHUNK+1}/{(len(month_ids)+CHUNK-1)//CHUNK} done ({len(chunk)} months)")
     print(f"[gee_fetch] {len(results)} region-months accumulated")

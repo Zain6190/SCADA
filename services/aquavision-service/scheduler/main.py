@@ -222,7 +222,7 @@ def job_train_models():
             release_pipeline_lock(conn, pipeline_type)
 
 
-def job_run_wai_pipeline():
+def job_run_wai_pipeline(trigger: str = "SCHEDULED"):
     """Run the weekly WAI prediction + alert pipeline."""
     import subprocess
 
@@ -234,7 +234,7 @@ def job_run_wai_pipeline():
             logger.warning(f"Skipping {pipeline_type} - another run in progress")
             return
 
-        run_id = create_pipeline_run(conn, pipeline_type)
+        run_id = create_pipeline_run(conn, pipeline_type, trigger)
 
         try:
             logger.info("Starting WAI pipeline (sync_indicators, predict_weekly, run_risk_alerts)...")
@@ -260,6 +260,49 @@ def job_run_wai_pipeline():
             logger.exception(f"WAI pipeline error: {e}")
         finally:
             release_pipeline_lock(conn, pipeline_type)
+
+
+def job_wai_catchup():
+    """Restart-proof catch-up for the weekly WAI pipeline.
+
+    The schedule library has no missed-run catch-up: a container restart
+    around the Sunday 04:00 UTC window silently loses a whole week (observed
+    in production - no SCHEDULED WAI run was ever recorded). This job runs
+    daily at 04:15 UTC and once at startup. If no SUCCESS or
+    PARTIAL_SUCCESS exists for the WAI pipeline in the last 7 days (or none
+    at all), it fires job_run_wai_pipeline(trigger="CATCHUP"), so a missed
+    Sunday slot is repaired no later than Monday morning. A run in progress
+    is excluded because job_run_wai_pipeline reuses the advisory lock.
+    """
+    with get_db_session() as conn:
+        last_success = conn.execute(
+            text(
+                """
+                SELECT MAX(completed_at)
+                FROM aquavision.pipeline_runs
+                WHERE pipeline_type IN ('wai_weekly_pipeline', 'WAI_PIPELINE')
+                  AND status IN ('SUCCESS', 'PARTIAL_SUCCESS')
+                """
+            )
+        ).scalar()
+
+    if last_success is None:
+        logger.warning("WAI catch-up: no successful run on record - triggering")
+        job_run_wai_pipeline(trigger="CATCHUP")
+        return
+
+    if last_success.tzinfo is None:
+        last_success = last_success.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - last_success
+    if age >= timedelta(days=7):
+        logger.warning(
+            f"WAI catch-up: last success {age.days}d ago (>= 7d) - triggering"
+        )
+        job_run_wai_pipeline(trigger="CATCHUP")
+    else:
+        logger.info(
+            f"WAI catch-up: last success {age.days}d {age.seconds // 3600}h ago - up to date"
+        )
 
 
 def job_refresh_weather():
@@ -508,6 +551,8 @@ if __name__ == "__main__":
     # WAI pipeline: weekly on Sunday at 04:00 UTC (09:00 PKT) — after ML retrain
     schedule.every().sunday.at("04:00").do(job_run_wai_pipeline)
 
+    schedule.every().day.at("04:15").do(job_wai_catchup)
+
     # Weather forecasts: every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
     schedule.every(6).hours.do(job_refresh_weather)
 
@@ -538,6 +583,9 @@ if __name__ == "__main__":
     # Run once on startup
     logger.info("Running initial ingestion...")
     job_ingest_irsa()
+
+    logger.info("Checking WAI pipeline freshness...")
+    job_wai_catchup()
 
     while True:
         try:
