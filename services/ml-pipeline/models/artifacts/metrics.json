@@ -78,5 +78,18 @@
   "test_month_range": [
     "2026-03-01",
     "2026-09-01"
-  ]
+  ],
+  "interval": {
+    "ci_method": "quantile_q10_q90_conformal",
+    "ci_inflation": 1.0923,
+    "ci_coverage_80": 0.8033,
+    "ci_coverage_80_raw": 0.7049,
+    "ci_coverage_80_test": 0.5588,
+    "residual_p80": 4.0314,
+    "calib_rows": 61,
+    "calib_months": [
+      "2025-06-01",
+      "2026-03-01"
+    ]
+  }
 }

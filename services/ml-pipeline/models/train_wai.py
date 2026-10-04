@@ -52,6 +52,109 @@ MODEL_VERSION = "xgb-v1.0"
 TEST_FRACTION = 0.2
 
 
+def train_interval_models(tr, va, te, reg, out_path=None) -> dict:
+    """q10/q90 delta quantile models + split-conformal calibration.
+
+    Mirrors the flood-side CI chain (flood_predictor._train_interval_models):
+    quantile regressors fit ONLY on `tr` (fixed rounds, no early stopping so
+    `va` stays unseen), an additive inflation in delta units calibrated on
+    `va` to an 80% coverage target, and coverage on the untouched test
+    window recorded for an honest report — it can fall below target under
+    regime shift (standard conformal caveat, documented not hidden).
+
+    A residual-P80 fallback (80th percentile of |point-model residuals| on
+    `va`; slightly optimistic because early stopping saw `va`) keeps serving
+    possible if quantile training fails. The payload is dumped to
+    wai_interval_<version>.joblib (or `out_path`) for predict_weekly.
+    """
+    from datetime import datetime, timezone
+
+    d_va = (va[TARGET_COL] - va["current_wai"]).to_numpy()
+    delta_hat_va = reg.predict(va[FEATURE_COLS])
+    residual_p80 = float(np.percentile(np.abs(d_va - delta_hat_va), 80))
+
+    fitted: dict = {}
+    try:
+        for alpha, name in ((0.10, "q10"), (0.90, "q90")):
+            qm = xgb.XGBRegressor(
+                objective="reg:quantileerror",
+                quantile_alpha=alpha,
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=0.5,
+                reg_lambda=2.0,
+                min_child_weight=5,
+                random_state=42,
+            )
+            qm.fit(tr[FEATURE_COLS], tr[TARGET_COL] - tr["current_wai"])
+            fitted[name] = qm
+    except Exception as exc:
+        print(
+            f"[train_wai] quantile interval training failed ({exc}); "
+            f"falling back to residual band"
+        )
+        fitted = {}
+
+    d_te = (te[TARGET_COL] - te["current_wai"]).to_numpy()
+    delta_hat_te = reg.predict(te[FEATURE_COLS])
+    if fitted:
+        q10_va = fitted["q10"].predict(va[FEATURE_COLS])
+        q90_va = fitted["q90"].predict(va[FEATURE_COLS])
+        scores = np.maximum(q10_va - d_va, d_va - q90_va)
+        inflation = max(0.0, float(np.percentile(scores, 80)))
+        coverage_raw = float(np.mean((d_va >= q10_va) & (d_va <= q90_va)))
+        coverage_cal = float(
+            np.mean((d_va >= q10_va - inflation) & (d_va <= q90_va + inflation))
+        )
+        q10_te = fitted["q10"].predict(te[FEATURE_COLS])
+        q90_te = fitted["q90"].predict(te[FEATURE_COLS])
+        coverage_test = float(
+            np.mean((d_te >= q10_te - inflation) & (d_te <= q90_te + inflation))
+        )
+        method = "quantile_q10_q90_conformal"
+    else:
+        fitted = {"q10": None, "q90": None}
+        inflation = 0.0
+        coverage_raw = None
+        coverage_cal = float(np.mean(np.abs(d_va - delta_hat_va) <= residual_p80))
+        coverage_test = float(np.mean(np.abs(d_te - delta_hat_te) <= residual_p80))
+        method = "residual_p80"
+
+    payload = {
+        "method": method,
+        "q10": fitted.get("q10"),
+        "q90": fitted.get("q90"),
+        "inflation": inflation,
+        "residual_p80": residual_p80,
+        "coverage_raw": coverage_raw,
+        "coverage_calibrated": coverage_cal,
+        "coverage_test": coverage_test,
+        "calib_rows": int(len(va)),
+        "calib_months": (
+            [str(va["month"].min()), str(va["month"].max())]
+            if "month" in va.columns else None
+        ),
+        "feature_names": list(FEATURE_COLS),
+        "model_version": MODEL_VERSION,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = Path(out_path) if out_path else (
+        ARTIFACT_DIR / f"wai_interval_{MODEL_VERSION}.joblib"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(payload, path)
+    print(
+        f"[train_wai] interval [{method}] coverage 80%: "
+        f"raw={coverage_raw if coverage_raw is None else round(coverage_raw, 3)} "
+        f"calibrated(va)={round(coverage_cal, 3)} test={round(coverage_test, 3)} "
+        f"inflation={inflation:.2f} residual_p80={residual_p80:.2f} -> {path.name}"
+    )
+    return payload
+
+
 def main() -> None:
     df = pd.read_csv(DATASET_CSV)
     # Impute missing features (JRC ends ~2021 -> water_extent mostly NaN; the
@@ -162,6 +265,21 @@ def main() -> None:
         },
         "confusion_matrix": cm.tolist(),
         "test_month_range": [test["month"].min(), test["month"].max()],
+    }
+
+    interval = train_interval_models(tr, va, test, reg)
+    metrics["interval"] = {
+        "ci_method": interval["method"],
+        "ci_inflation": round(float(interval["inflation"]), 4),
+        "ci_coverage_80": round(float(interval["coverage_calibrated"]), 4),
+        "ci_coverage_80_raw": (
+            None if interval["coverage_raw"] is None
+            else round(float(interval["coverage_raw"]), 4)
+        ),
+        "ci_coverage_80_test": round(float(interval["coverage_test"]), 4),
+        "residual_p80": round(float(interval["residual_p80"]), 4),
+        "calib_rows": interval["calib_rows"],
+        "calib_months": interval["calib_months"],
     }
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
