@@ -13,6 +13,7 @@ import { modulesForUser, type PortalUserLike } from '@/lib/rbac'
 import { useAuth } from '@/context/AuthContext'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { BrandMark } from '@/components/shared/brand-mark'
 
 function NavItemLink({
   href,
@@ -97,8 +98,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand shadow-card">
-          <span className="text-sm font-bold text-white">Σ</span>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-on shadow-card">
+          <BrandMark width={32} height={32} />
         </div>
         <div>
           <p className="text-sm font-semibold tracking-wide text-ink">IBCP-SCADA</p>

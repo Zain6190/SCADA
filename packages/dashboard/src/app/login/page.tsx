@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { BrandMark } from '@/components/shared/brand-mark'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, Eye, EyeOff, ShieldCheck, Waves } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
@@ -42,7 +43,7 @@ export default function LoginPage() {
     <main className={styles.page}>
       <section className={styles.contextPanel} aria-labelledby="context-heading">
         <Link href="/" className={styles.wordmark} aria-label="IBCP-SCADA home">
-          <span className={styles.wordmarkMark} aria-hidden="true">Σ</span>
+          <span className={styles.wordmarkMark} aria-hidden="true"><BrandMark /></span>
           <span>
             <strong>IBCP-SCADA</strong>
             <small>Indus Basin Operations</small>

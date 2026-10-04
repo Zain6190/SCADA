@@ -3,6 +3,7 @@
 'use client'
 
 import Link from 'next/link'
+import { BrandMark } from '@/components/shared/brand-mark'
 import {
   Activity,
   ArrowRight,
@@ -77,7 +78,7 @@ function SiteHeader({ signedIn }: { signedIn: boolean }) {
     <header className={styles.header}>
       <div className={styles.headerInner}>
         <Link href="/" className={styles.wordmark} aria-label="IBCP-SCADA home">
-          <span className={styles.wordmarkMark} aria-hidden="true">Σ</span>
+          <span className={styles.wordmarkMark} aria-hidden="true"><BrandMark /></span>
           <span>
             <strong>IBCP-SCADA</strong>
             <small>Indus Basin Operations</small>
@@ -223,7 +224,7 @@ function ConsoleEvidence() {
       <figure className={styles.consolePreview}>
         <div className={styles.consoleTopline}>
           <div>
-            <span className={styles.consoleMark}>Σ</span>
+            <span className={styles.consoleMark}><BrandMark width={28} height={28} /></span>
             <strong>AquaVision · National overview</strong>
           </div>
           <span className={styles.sampleFlag}>Illustrative sample</span>

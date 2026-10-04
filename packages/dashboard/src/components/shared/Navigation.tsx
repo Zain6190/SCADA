@@ -3,8 +3,9 @@
 
 import { useAuth } from '@/context/AuthContext'
 import Link from 'next/link'
+import { BrandMark } from '@/components/shared/brand-mark'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Satellite, Droplets, Sprout, LogOut, User } from 'lucide-react'
+import { Satellite, Droplets, Sprout, LogOut, User } from 'lucide-react'
 
 export default function Navigation() {
   const { user, logout } = useAuth()
@@ -22,8 +23,8 @@ export default function Navigation() {
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow-card">
-              <LayoutDashboard className="w-4 h-4 text-white" />
+            <div className="w-8 h-8 bg-brand text-brand-on rounded-lg flex items-center justify-center shadow-card">
+              <BrandMark width={28} height={28} />
             </div>
             <span className="font-semibold text-ink text-sm">IBCP-SCADA</span>
           </div>
