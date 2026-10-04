@@ -184,6 +184,7 @@ export interface OperationalAsset {
   capacity_maf?: number | null
   normal_level_ft?: number | null
   warning_level_ft?: number | null
+  danger_level_ft?: number | null
   critical_level_ft?: number | null
   is_active: boolean
   current_level_ft?: number | null

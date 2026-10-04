@@ -167,6 +167,12 @@ class WaterIndicator(Base):
     wai_score: Mapped[Optional[float]] = mapped_column(Numeric)
     severity: Mapped[Optional[str]] = mapped_column(Text)
     data_source_version: Mapped[Optional[str]] = mapped_column(Text)
+    data_status: Mapped[Optional[str]] = mapped_column(Text)
+    data_quality: Mapped[Optional[str]] = mapped_column(Text)
+    data_provider: Mapped[Optional[str]] = mapped_column(Text)
+    wai_model_version: Mapped[Optional[str]] = mapped_column(Text)
+    quality_status: Mapped[Optional[str]] = mapped_column(Text)
+    is_complete_period: Mapped[Optional[bool]] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

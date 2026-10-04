@@ -23,6 +23,9 @@ export const waterKeys = {
   regions: () => [...waterKeys.all, 'regions'] as const,
   reports: () => [...waterKeys.all, 'reports'] as const,
   assets: () => [...waterKeys.all, 'assets'] as const,
+  operationalAssets: () => [...waterKeys.all, 'operational-assets'] as const,
+  observations: (assetId: number | null | undefined, days: number) =>
+    [...waterKeys.all, 'assets', assetId, 'observations', days] as const,
   assetReadings: (assetId: number | null | undefined) =>
     [...waterKeys.all, 'assets', assetId, 'readings'] as const,
   assetNotes: (assetId: number | null | undefined) =>
@@ -113,6 +116,25 @@ export function useEscalateOperationalAlert() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: waterKeys.all })
     },
+  })
+}
+
+// ─── Assets & Observations (overview charts) ─────────────────────────────────
+
+export function useOperationalAssets() {
+  return useQuery({
+    queryKey: waterKeys.operationalAssets(),
+    queryFn: () => waterApi.getOperationalAssets(),
+    refetchInterval: REFRESH_INTERVAL,
+  })
+}
+
+export function useAssetObservations(assetId: number | null | undefined, days = 30) {
+  return useQuery({
+    queryKey: waterKeys.observations(assetId, days),
+    queryFn: () => waterApi.getOperationalObservations(assetId as number, days),
+    enabled: !!assetId,
+    refetchInterval: REFRESH_INTERVAL,
   })
 }
 

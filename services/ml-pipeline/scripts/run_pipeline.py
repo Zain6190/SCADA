@@ -31,7 +31,9 @@ Stages (each is idempotent - upserts, so re-runs never duplicate rows):
 
     [optional] gee_fetch            refresh Data/raw/region_features.csv from GEE
     sync_indicators                 real WAI indicators -> water_indicators_weekly
+    fetch_surface_water             Sentinel-2 NDWI fetch -> surface_water.csv
     sync_surface_water              NDWI/MNDWI water area -> surface_water_weekly
+    propagate_surface_water         water area + change -> water_indicators_weekly
     compute_spi                     SPI (Standardized Precipitation Index) from rainfall
     predict_weekly                  XGBoost forecast   -> water_predictions_weekly
     run_risk_alerts                 MODEL alerts       -> water_alerts
@@ -73,7 +75,8 @@ MAX_CACHE_DAYS = int(os.getenv("PIPELINE_MAX_CACHE_DAYS", "7"))  # max cached-CS
 RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
 SURFACE_WATER_CSV = ML_ROOT / "Data" / "raw" / "surface_water.csv"
 
-STAGES = ["sync_indicators", "sync_surface_water", "compute_spi",
+STAGES = ["sync_indicators", "fetch_surface_water", "sync_surface_water",
+          "propagate_surface_water", "compute_spi",
           "build_dataset", "train_wai", "train_anomaly", "predict_weekly", "run_risk_alerts"]
 MODULE_OVERRIDES = {"build_dataset": "gee.build_dataset",
                     "train_wai": "models.train_wai",
@@ -307,6 +310,8 @@ def _parse_stage(stage: str, output: str, code: int) -> dict:
         "records_written": {
             "sync_indicators": r"Upserted (\d+) indicator rows",
             "sync_surface_water": r"(\d+) inserted",
+            "fetch_surface_water": r"Wrote (\d+) rows ->",
+            "propagate_surface_water": r"Propagated (\d+) rows",
             "compute_spi": r"Updated (\d+) rows",
             "predict_weekly": r"Wrote (\d+) predictions",
             "run_risk_alerts": r"Wrote (\d+) alerts",
@@ -449,6 +454,25 @@ def main() -> None:
                         warnings.append(
                             "fetch_smap failed; soil-moisture columns missing from CSV")
                     stage_results.append(smap)
+                continue
+
+            if stage == "fetch_surface_water":
+                if not gee_configured():
+                    log = LOG_DIR / run_id / "fetch_surface_water.log"
+                    log.parent.mkdir(parents=True, exist_ok=True)
+                    reason = "no GEE credentials; keeping cached surface_water.csv"
+                    log.write_text(f"[fetch_surface_water] SKIPPED - {reason}\n")
+                    warnings.append(f"fetch_surface_water: {reason}")
+                    record_skipped_stage(run_pk, run_id, "fetch_surface_water",
+                                          str(log), reason)
+                    continue
+                sw = run_stage(run_pk, run_id, "fetch_surface_water",
+                               module="gee.surface_water")
+                if sw["status"] == "FAILED":
+                    sw["error_count"] = 0
+                    warnings.append(
+                        "fetch_surface_water failed; using cached surface_water.csv")
+                stage_results.append(sw)
                 continue
 
             summary = run_stage(

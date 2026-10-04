@@ -17,6 +17,11 @@ import {
   useWaterRegions,
   useWaterIndicators,
 } from '@/features/water/hooks'
+import {
+  WaiTrendCard,
+  DailyObservationsCard,
+  ForecastSeverityBars,
+} from '@/features/water/overview-charts'
 import { sortBySeverity, regionNameById } from '@/features/water/mappers'
 import { fmtNumber, fmtDate, fmtPct } from '@/lib/format'
 import { WaterMapDynamic } from '@/features/water/water-map-dynamic'
@@ -36,7 +41,7 @@ export default function WaterOverviewPage() {
   const indicators = useWaterIndicators({ limit: 20 })
 
   const alerts = alertsQuery.data ?? []
-  const openAlerts = alerts.filter((a) => a.status !== 'RESOLVED')
+  const openAlerts = alerts.filter((a) => !['RESOLVED', 'AUTO_RESOLVED'].includes(a.status))
   const latest = overview.data?.week_start_date
   const latestRows = (indicators.data ?? []).filter((i) => i.weekStart === latest)
   const latestRow = latestRows[0]
@@ -62,7 +67,7 @@ export default function WaterOverviewPage() {
       <div className="space-y-6">
         <PageHeader
           title="AquaVision Overview"
-          description="Live weekly water availability (WAI) aggregated from GEE MODIS surface-water, CHIRPS rainfall, and MODIS ET."
+          description="Live weekly water availability (WAI) from satellite surface water, CHIRPS rainfall, and MODIS ET."
           badge={
             overview.data?.national_status ? (
               <SeverityBadge severity={overview.data.national_status} />
@@ -111,7 +116,7 @@ export default function WaterOverviewPage() {
           <KpiCard
             label="Open Alert Queue"
             value={openAlerts.length}
-            detail={`${openAlerts.filter((a) => a.status === 'New').length} New ready to ack`}
+            detail={`${openAlerts.filter((a) => a.status === 'NEW').length} New ready to ack`}
             icon={Bell}
             accent="bg-warn-soft text-warn"
             onClick={() => (window.location.href = '/water/alerts')}
@@ -140,7 +145,7 @@ export default function WaterOverviewPage() {
                   Δ {fmtPct(latestRow.surfaceWaterChangePct)} vs prior week
                 </span>
               ) : (
-                'Surface-water extent delta'
+                'Awaiting satellite surface-water sync'
               )
             }
             icon={Warehouse}
@@ -151,7 +156,7 @@ export default function WaterOverviewPage() {
             value={analyst && latestRow?.rainfallMm30day != null ? `${fmtNumber(latestRow.rainfallMm30day)} mm` : '—'}
             detail={
               analyst
-                ? latestRow?.rainfallAnomaly != null ? `${fmtPct(latestRow.rainfallAnomaly)} anomaly` : 'Rainfall anomaly'
+                ? latestRow?.rainfallAnomaly != null ? `${fmtPct(latestRow.rainfallAnomaly)} anomaly` : 'Awaiting finalized CHIRPS/ERA5 (source lag)'
                 : (
                   <span className="inline-flex items-center gap-1 text-warn">
                     <ShieldCheck className="h-3 w-3" /> Analyst access required
@@ -166,7 +171,7 @@ export default function WaterOverviewPage() {
             value={analyst && latestRow?.etMm8day != null ? `${fmtNumber(latestRow.etMm8day)} mm` : '—'}
             detail={
               analyst
-                ? latestRow?.etAnomaly != null ? `Δ ${fmtPct(latestRow.etAnomaly)} anomaly` : 'Evapotranspiration'
+                ? latestRow?.etAnomaly != null ? `Δ ${fmtPct(latestRow.etAnomaly)} anomaly` : 'Awaiting finalized ERA5-Land (source lag)'
                 : (
                   <span className="inline-flex items-center gap-1 text-warn">
                     <ShieldCheck className="h-3 w-3" /> Analyst access required
@@ -177,6 +182,12 @@ export default function WaterOverviewPage() {
             accent="bg-brand-soft text-brand"
           />
           </div>
+        </section>
+
+        {/* Analysis charts: national WAI trend + raw station observations */}
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <WaiTrendCard />
+          <DailyObservationsCard />
         </section>
 
         {/* Provenance of the latest indicator row. Freshness itself lives in
@@ -208,31 +219,8 @@ export default function WaterOverviewPage() {
         </Card>
         )}
 
-        {/* Map */}
-        <Card className="overflow-hidden">
-          <CardHeader
-            title="Water Stress Map"
-            subtitle="Latest-week WAI severity by district"
-            icon={<MapPin className="h-5 w-5" />}
-            accent={AQUA}
-            action={
-              mapData.data?.length ? <Badge tone="sky">{mapData.data.length} regions</Badge> : undefined
-            }
-          />
-          <CardBody className="p-3">
-            {mapData.isPending ? (
-              <div className="flex h-[400px] items-center justify-center"><Spinner label="Loading map" /></div>
-            ) : mapData.isError ? (
-              <ErrorState onRetry={() => mapData.refetch()} message="Could not reach AquaVision service." />
-            ) : mapData.data?.length ? (
-              <WaterMapDynamic features={mapData.data} height={400} />
-            ) : (
-              <EmptyState title="No map regions" message="No geometry data for the latest week." />
-            )}
-          </CardBody>
-        </Card>
-
-        {/* Forecast + alerts */}
+        {/* Forecast + alerts sit above the map so the forward-looking view is
+            not below the fold. */}
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader
@@ -249,6 +237,10 @@ export default function WaterOverviewPage() {
                 <ErrorState onRetry={() => predictions.refetch()} />
               ) : predictions.data?.length ? (
                 <div className="space-y-3">
+                  <div>
+                    <p className="mb-1 text-micro font-semibold uppercase text-ink-subtle">Severity distribution</p>
+                    <ForecastSeverityBars predictions={predictions.data} />
+                  </div>
                   {sortBySeverity(predictions.data.slice(), (p) => p.predictedSeverity)
                     .slice(0, 5)
                     .map((p) => (
@@ -312,6 +304,30 @@ export default function WaterOverviewPage() {
             </CardBody>
           </Card>
         </div>
+
+        {/* Map (last: charts and alerts above the fold) */}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Water Stress Map"
+            subtitle="Latest-week WAI severity by district"
+            icon={<MapPin className="h-5 w-5" />}
+            accent={AQUA}
+            action={
+              mapData.data?.length ? <Badge tone="sky">{mapData.data.length} regions</Badge> : undefined
+            }
+          />
+          <CardBody className="p-3">
+            {mapData.isPending ? (
+              <div className="flex h-[400px] items-center justify-center"><Spinner label="Loading map" /></div>
+            ) : mapData.isError ? (
+              <ErrorState onRetry={() => mapData.refetch()} message="Could not reach AquaVision service." />
+            ) : mapData.data?.length ? (
+              <WaterMapDynamic features={mapData.data} height={400} />
+            ) : (
+              <EmptyState title="No map regions" message="No geometry data for the latest week." />
+            )}
+          </CardBody>
+        </Card>
       </div>
     </AppShell>
   )

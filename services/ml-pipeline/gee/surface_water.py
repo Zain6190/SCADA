@@ -72,7 +72,7 @@ def load_regions() -> list[dict]:
         )
     cur.close()
     conn.close()
-    print(f"[surface_water] Loaded {len(rows)} regions from PostGIS")
+    print(f"[surface_water] Loaded {len(rows)} regions from PostGIS", flush=True)
     return rows
 
 
@@ -111,31 +111,29 @@ def compute_surface_water_for_week(
 
     Returns: {region_id: {ndwi_mean, mndwi_mean, water_area_km2, cloud_pct}}
     """
-    s2 = _get_s2_collection(week_start, week_end)
+    s2 = _get_s2_collection(week_start, week_end).filterBounds(regions_fc)
 
-    # --- NDWI: (Green - NIR) / (Green + NIR) ---
-    ndwi_collection = s2.map(
-        lambda img: img.normalizedDifference(["B3", "B8"]).rename("ndwi")
-    )
-    ndwi_img = ee.Image(
+    # Single map pass carrying both indices as bands: two separate
+    # median() composites double the sort cost and were the dominant
+    # source of "Computation timed out" on heavy weeks.
+    def _add_indices(img: ee.Image) -> ee.Image:
+        return img.addBands(
+            [
+                img.normalizedDifference(["B3", "B8"]).rename("ndwi"),
+                img.normalizedDifference(["B3", "B11"]).rename("mndwi"),
+            ]
+        )
+
+    indexed = s2.map(_add_indices).select(["ndwi", "mndwi"])
+    composite = ee.Image(
         ee.Algorithms.If(
-            ndwi_collection.size().gt(0),
-            ndwi_collection.median(),
-            ee.Image.constant(0.0).rename("ndwi"),
+            indexed.size().gt(0),
+            indexed.median(),
+            ee.Image.constant([0.0, 0.0]).rename(["ndwi", "mndwi"]),
         )
     )
-
-    # --- MNDWI: (Green - SWIR) / (Green + SWIR) ---
-    mndwi_collection = s2.map(
-        lambda img: img.normalizedDifference(["B3", "B11"]).rename("mndwi")
-    )
-    mndwi_img = ee.Image(
-        ee.Algorithms.If(
-            mndwi_collection.size().gt(0),
-            mndwi_collection.median(),
-            ee.Image.constant(0.0).rename("mndwi"),
-        )
-    )
+    ndwi_img = composite.select("ndwi")
+    mndwi_img = composite.select("mndwi")
 
     # --- Water mask: NDWI > threshold ---
     water_mask = ndwi_img.gt(NDWI_THRESHOLD).rename("water")
@@ -160,29 +158,66 @@ def compute_surface_water_for_week(
             cloud_collection.select("cloud").mean().multiply(100),
             ee.Image.constant(0.0),
         )
-    )
+    ).rename("cloud_pct")
 
     # --- Reduce regions ---
-    # Use 30m scale to avoid GEE timeout (10m is too heavy for 18 regions)
-    stats = (
-        ee.Image.cat([ndwi_img, mndwi_img, water_area, cloud_pct_img])
-        .reduceRegions(
-            collection=regions_fc,
-            reducer=ee.Reducer.mean(),
-            scale=30,
-        )
+    # Water area must be a SUM over pixels (mean of mask*pixelArea is a
+    # per-pixel quantity, not a total - the old mean reducer silently
+    # produced ~0 km2 everywhere). tileScale stays small: 16 shards so
+    # finely that scheduling overhead alone timed out (169s OK at
+    # tileScale=4 vs 300s at 16). Scale 30 on all 21 regions also busts
+    # the budget, so start at 60m and escalate to 100m on retry.
+    image = ee.Image.cat([ndwi_img, mndwi_img, water_area, cloud_pct_img])
+    image = image.clipToCollection(regions_fc)
+    reducer = ee.Reducer.mean().combine(
+        reducer2=ee.Reducer.sum(), sharedInputs=True
     )
 
-    features = stats.getInfo()["features"]
+    last_error: Exception | None = None
+    stats = None
+    for attempt_scale, attempt_tiles in ((60, 4), (100, 4)):
+        try:
+            stats = (
+                image.reduceRegions(
+                    collection=regions_fc,
+                    reducer=reducer,
+                    scale=attempt_scale,
+                    tileScale=attempt_tiles,
+                ).getInfo()
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            print(
+                f"[surface_water] scale {attempt_scale} failed for "
+                f"{week_start}: {exc}",
+                flush=True,
+            )
+    if stats is None:
+        raise last_error if last_error else RuntimeError("reduceRegions failed")
+
+    features = stats["features"]
+
+    def _pick_mean(props: dict, band: str):
+        for key in (f"{band}_mean", band):
+            if props.get(key) is not None:
+                return props.get(key)
+        return None
+
+    def _pick_sum(props: dict, band: str):
+        return props.get(f"{band}_sum")
+
     results = {}
-    for f in features:
+    for i, f in enumerate(features):
         rid = int(f["id"])
         props = f.get("properties", {})
+        if i == 0:
+            print(f"[surface_water] reduce props: {sorted(props)}", flush=True)
         results[rid] = {
-            "ndwi_mean": props.get("ndwi"),
-            "mndwi_mean": props.get("mndwi"),
-            "water_area_km2": (props.get("water_area_m2") or 0) / 1e6,
-            "cloud_pct": props.get("cloud_pct"),
+            "ndwi_mean": _pick_mean(props, "ndwi"),
+            "mndwi_mean": _pick_mean(props, "mndwi"),
+            "water_area_km2": (_pick_sum(props, "water_area_m2") or 0) / 1e6,
+            "cloud_pct": _pick_mean(props, "cloud_pct"),
         }
 
     return results
@@ -196,7 +231,12 @@ def main(
     end_date: str | None = None,
 ) -> None:
     """Run surface water detection and export to CSV."""
-    ee.Initialize(project=PROJECT)
+    key_path = Path(__file__).resolve().parent / "service-account.json"
+    ee.Initialize(
+        ee.ServiceAccountCredentials(None, key_data=key_path.read_text()),
+        project=PROJECT,
+    )
+    print(f"[surface_water] Authenticated with service account for project {PROJECT}", flush=True)
 
     # Default: last 4 weeks
     if not end_date:
@@ -211,11 +251,11 @@ def main(
     )
 
     weeks = week_ranges(start_date, end_date)
-    print(f"[surface_water] {len(weeks)} weeks ({start_date} -> {end_date})")
+    print(f"[surface_water] {len(weeks)} weeks ({start_date} -> {end_date})", flush=True)
 
     all_rows = []
     for i, (ws, we) in enumerate(weeks):
-        print(f"[surface_water] week {i+1}/{len(weeks)}: {ws} -> {we}")
+        print(f"[surface_water] week {i+1}/{len(weeks)}: {ws} -> {we}", flush=True)
         try:
             week_results = compute_surface_water_for_week(regions_fc, ws, we)
             for rid, data in week_results.items():
@@ -227,10 +267,11 @@ def main(
                     }
                 )
         except Exception as e:
-            print(f"[surface_water] WARNING: week {ws} failed: {e}")
+            print(f"[surface_water] WARNING: week {ws} failed: {e}", flush=True)
             continue
 
-    # Write CSV
+    # Write CSV, merging with existing rows so a partial-window run cannot
+    # wipe earlier weeks (fetched window replaces, older weeks survive).
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     path = RAW_DIR / "surface_water.csv"
     fieldnames = [
@@ -241,13 +282,31 @@ def main(
         "water_area_km2",
         "cloud_pct",
     ]
+    existing: list[dict] = []
+    if path.exists():
+        with open(path, newline="", encoding="utf-8") as fh:
+            existing = list(csv.DictReader(fh))
+    fetched_keys = {
+        (str(r["region_id"]), str(r["week_start_date"])) for r in all_rows
+    }
+    kept = [
+        r
+        for r in existing
+        if (str(r.get("region_id")), str(r.get("week_start_date"))) not in fetched_keys
+    ]
+    merged = kept + all_rows
+    merged.sort(key=lambda r: (str(r["region_id"]), str(r["week_start_date"])))
     with open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(all_rows)
+        writer.writerows(merged)
 
-    print(f"[surface_water] Wrote {len(all_rows)} rows -> {path}")
-    return all_rows
+    print(
+        f"[surface_water] Wrote {len(merged)} rows -> {path} "
+        f"({len(all_rows)} fetched, {len(kept)} kept)",
+        flush=True,
+    )
+    return merged
 
 
 if __name__ == "__main__":

@@ -235,7 +235,6 @@ def upsert_rows(rows: list[dict]) -> None:
                         observation_count = EXCLUDED.observation_count,
                         expected_observation_count = EXCLUDED.expected_observation_count,
                         quality_status = EXCLUDED.quality_status,
-                        surface_water_change_pct = EXCLUDED.surface_water_change_pct,
                         rainfall_mm_30day = EXCLUDED.rainfall_mm_30day,
                         rainfall_anomaly = EXCLUDED.rainfall_anomaly,
                         et_mm_8day = EXCLUDED.et_mm_8day,

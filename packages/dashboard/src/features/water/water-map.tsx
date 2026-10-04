@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Polygon, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { SEVERITY_STYLES, normalizeSeverity, type SeverityLevel } from '@/lib/severity'
+import { DARK_GRAY_TILES, DARK_GRAY_ATTRIBUTION, GRAY_TILES_MAX_ZOOM } from '@/lib/map-tiles'
 
 type Geo = { type?: string; coordinates?: any }
 
@@ -119,8 +120,9 @@ export function WaterMap({ features, height = 520, onSelect }: WaterMapProps) {
         style={{ height: '100%', width: '100%', background: '#0b1220' }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution={DARK_GRAY_ATTRIBUTION}
+          url={DARK_GRAY_TILES}
+          maxZoom={GRAY_TILES_MAX_ZOOM}
         />
         {features.map((f, idx) => (
           <FeaturePolygons key={`${f.regionId}-${idx}`} feature={f} onSelect={onSelect} />
