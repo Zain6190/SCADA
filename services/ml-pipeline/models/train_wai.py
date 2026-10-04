@@ -47,7 +47,7 @@ sys.path.insert(0, str(ML_ROOT))
 from wai_features import FEATURE_COLS, SEVERITY_COL, TARGET_COL  # noqa: E402
 
 SEVERITY_ORDER = ["Normal", "Moderate", "Stressed", "Severe", "Critical"]
-MODEL_VERSION = "xgb-v1.0"
+MODEL_VERSION = "xgb-v1.1"
 
 TEST_FRACTION = 0.2
 

@@ -6,8 +6,8 @@ SEVERITY_ORDER: Final[list[str]] = [
     "Normal",
     "Moderate",
     "Stressed",
-    "Critical",
     "Severe",
+    "Critical",
 ]
 
 # Ascending order of risk (used to pick the worst severity).
@@ -15,8 +15,8 @@ RISK_RANK: Final[dict[str, int]] = {
     "Normal": 0,
     "Moderate": 1,
     "Stressed": 2,
-    "Critical": 3,
-    "Severe": 4,
+    "Severe": 3,
+    "Critical": 4,
 }
 
 # Default thresholds - mirror DB seed values (aquavision.water_thresholds).

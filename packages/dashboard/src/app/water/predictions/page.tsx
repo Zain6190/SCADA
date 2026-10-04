@@ -491,27 +491,29 @@ function WAIPredictionsTab() {
   if (loading) return <Spinner label="Loading WAI predictions" />
   if (predictions.length === 0) return <EmptyState title="No WAI predictions" message="Run the prediction pipeline to generate forecasts." />
 
-  const xgbPreds = predictions.filter(p => p.model_version === 'xgb-v1.0')
-  const otherPreds = predictions.filter(p => p.model_version !== 'xgb-v1.0')
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const openPreds = predictions.filter(p => new Date(p.target_week_start_date) >= startOfToday)
+  const historicalPreds = predictions.filter(p => new Date(p.target_week_start_date) < startOfToday)
 
   return (
     <div className="space-y-4">
-      {xgbPreds.length > 0 && (
+      {openPreds.length > 0 && (
         <div>
           <h3 className="mb-3 text-sm font-semibold text-ink-muted">XGBoost Next-Month Forecasts</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {xgbPreds.map(pred => (
+            {openPreds.map(pred => (
               <WAIPredictionCard key={pred.id} pred={pred} />
             ))}
           </div>
         </div>
       )}
 
-      {otherPreds.length > 0 && (
+      {historicalPreds.length > 0 && (
         <div>
           <h3 className="mb-3 text-sm font-semibold text-ink-muted">Historical Predictions</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {otherPreds.slice(0, 14).map(pred => (
+            {historicalPreds.slice(0, 14).map(pred => (
               <WAIPredictionCard key={pred.id} pred={pred} />
             ))}
           </div>

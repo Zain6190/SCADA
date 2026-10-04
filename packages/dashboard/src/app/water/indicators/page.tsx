@@ -24,6 +24,12 @@ const PROVINCE_COLORS: Record<string, string> = {
   AJK: '#a78bfa',
   Punjab: '#34d399',
   Sindh: '#fbbf24',
+  Balochistan: '#fb7185',
+  GB: '#f472b6',
+  'Gilgit-Baltistan': '#f472b6',
+  ISB: '#60a5fa',
+  ICT: '#60a5fa',
+  Islamabad: '#60a5fa',
 }
 
 const SEVERITY_COLOR: Record<string, string> = {

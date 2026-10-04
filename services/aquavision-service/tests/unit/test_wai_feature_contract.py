@@ -39,3 +39,18 @@ def test_feature_contract_matches_across_scripts():
         "month_idx",
         "current_wai",
     ]
+
+
+def test_served_model_version_matches_training_stamp():
+    """predict must stamp rows with the version train wrote to metrics.json -
+    a hardcoded string silently mislabels rows after a version bump."""
+    import json
+
+    predict = _load("wai_predict_weekly", "scripts/predict_weekly.py")
+    metrics = json.loads(
+        (ML_ROOT / "models" / "artifacts" / "metrics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert predict.served_model_version() == metrics["model_version"]
+    assert metrics["model_version"].startswith("xgb-")

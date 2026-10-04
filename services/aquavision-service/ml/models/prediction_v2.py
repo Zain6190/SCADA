@@ -575,6 +575,11 @@ class AquaVisionPredictionModel:
                 "Sindh": "Sindh",
                 "Balochistan": "Balochistan",
                 "AJK": "Azad Kashmir",
+                "GB": "Gilgit-Baltistan",
+                "Gilgit-Baltistan": "Gilgit-Baltistan",
+                "ISB": "Islamabad",
+                "ICT": "Islamabad",
+                "Islamabad": "Islamabad",
             }
             region_name = PROVINCE_TO_REGION.get(asset_row["province"], asset_row["province"])
             region_row = self.session.execute(

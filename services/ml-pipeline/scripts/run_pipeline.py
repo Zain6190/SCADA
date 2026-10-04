@@ -66,7 +66,6 @@ DB_URL = os.getenv(
 PIPELINE_NAME = "wai_weekly_pipeline"  # pipeline_runs.pipeline_type is varchar(20)
 CODE_VERSION = os.getenv("GEE_CODE_VERSION", "1.0.0")
 SOURCE_VERSION = os.getenv("GEE_SOURCE_VERSION", "GEE-CHIRPS/ERA5-JRC-2026.8")
-MODEL_VERSION = os.getenv("GEE_MODEL_VERSION", "xgb-v1.0")
 LOG_DIR = ML_ROOT / "logs"
 LOCK_KEY = int(os.getenv("PIPELINE_LOCK_KEY", "1463592275"))  # stable bigint advisory-lock key
 STAGE_TIMEOUT = int(os.getenv("PIPELINE_STAGE_TIMEOUT", "1800"))  # seconds per stage

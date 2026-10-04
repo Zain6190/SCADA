@@ -9,8 +9,10 @@ a COMPLETE observed indicator (water_indicators_weekly), fill in:
 
 and report MAE / RMSE plus a confidence-calibration check: the |error|<=10
 hit-rate vs the mean stored confidence, and lower/upper band coverage vs the
-80% target. No-op (0 validated) until a forecast period closes - e.g. a
-2026-08-01 prediction becomes scoreable in Sep 2026.
+80% target. Scores every model version present (historical rows and current
+rows share the table); set GEE_MODEL_VERSION to restrict to one version.
+No-op (0 validated) until a forecast period closes - e.g. a 2026-08-01
+prediction becomes scoreable in Sep 2026.
 
 Usage:
     python -m scripts.validate_predictions   (run from services/ml-pipeline)
@@ -27,7 +29,7 @@ ML_ROOT = Path(__file__).resolve().parent.parent
 DB_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg2://postgres:1234@localhost:5433/ibcp_scada"
 )
-MODEL_VERSION = os.getenv("GEE_MODEL_VERSION", "xgb-v1.0")
+MODEL_VERSION = os.getenv("GEE_MODEL_VERSION") or None
 
 DB_ENGINE = None
 
@@ -48,6 +50,7 @@ def validate() -> dict:
             text(
                 """
                 SELECT p.id, p.region_id, p.target_week_start_date,
+                       p.model_version,
                        p.predicted_wai_score, p.confidence,
                        p.lower_bound, p.upper_bound,
                        i.wai_score AS actual
@@ -56,7 +59,7 @@ def validate() -> dict:
                        ON i.region_id = p.region_id
                       AND i.week_start_date = p.target_week_start_date
                       AND i.quality_status = 'VALID'
-                WHERE p.model_version = :model_version
+                WHERE (:model_version IS NULL OR p.model_version = :model_version)
                   AND p.actual_value IS NULL
                 """
             ),
@@ -67,6 +70,14 @@ def validate() -> dict:
     preds: list[dict] = []
     confs: list[float] = []
     band_hits: list[bool] = []
+    if rows:
+        counts: dict[str, int] = {}
+        for r in rows:
+            counts[r["model_version"]] = counts.get(r["model_version"], 0) + 1
+        print(
+            "[validate_predictions] candidates by model_version: "
+            + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+        )
     for r in rows:
         if r["actual"] is None:
             continue

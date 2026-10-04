@@ -3,7 +3,8 @@ scripts/predict_weekly.py
 AquaVision - Serve the trained model: predict next-week WAI for all regions
 and upsert into aquavision.water_predictions_weekly.
 
-- Loads latest artifact (wai_reg_xgb-v1.0.joblib + severity encoder)
+- Loads the latest regressor + interval artifacts (model version stamped in
+  models/artifacts/metrics.json by the training run)
 - Uses the latest month's GEE features + observed WAI as input; the
   regressor predicts the month-over-month delta, level = current_wai + delta
   (features at t -> WAI at t+1)
@@ -14,7 +15,7 @@ Usage:
 """
 from __future__ import annotations
 
-import glob
+import json
 import os
 import sys
 from math import erf, sqrt
@@ -107,10 +108,21 @@ def band_and_confidence(X, current, pred_delta, level, interval):
     return lo, hi, np.asarray(conf)
 
 
+def served_model_version() -> str:
+    """Version stamped by the latest training run - metrics.json is the single
+    source of truth (stale stamp would mislabel rows the same way twice)."""
+    try:
+        data = json.loads((ARTIFACT_DIR / "metrics.json").read_text(encoding="utf-8"))
+        version = data.get("model_version")
+        if version:
+            return str(version)
+    except (OSError, ValueError):
+        pass
+    return os.getenv("GEE_MODEL_VERSION", "xgb-v1.1")
+
+
 def predict_one_month_ahead() -> None:
     reg = joblib.load(latest_artifact("wai_reg_*.joblib"))
-    # classifier used only for confidence proxy; severity derived from WAI thresholds
-    le = joblib.load(latest_artifact("severity_encoder_*.joblib"))
 
     feats = pd.read_csv(RAW_CSV)
     feats["month"] = pd.to_datetime(feats["month"])
@@ -180,7 +192,11 @@ def predict_one_month_ahead() -> None:
         )
     ]
 
-    upsert_preds(rows, model_version="xgb-v1.0", target_month=latest_month + pd.DateOffset(months=1))
+    upsert_preds(
+        rows,
+        model_version=served_model_version(),
+        target_month=latest_month + pd.DateOffset(months=1),
+    )
     print(f"[predict_weekly] Read {len(feats)} rows")
     print(f"[predict_weekly] Wrote {len(rows)} predictions for {target_str(latest_month)}")
 

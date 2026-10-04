@@ -1,5 +1,5 @@
 {
-  "model_version": "xgb-v1.0",
+  "model_version": "xgb-v1.1",
   "target": "wai_delta_vs_current_wai (level = current_wai + delta)",
   "n_train": 406,
   "n_test": 102,
