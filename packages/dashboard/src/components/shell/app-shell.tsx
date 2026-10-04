@@ -11,6 +11,7 @@ import { moduleForPath } from '@/lib/navigation'
 import { modulesForUser } from '@/lib/rbac'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
+import sidebarStyles from './sidebar.module.css'
 
 export function AppShell({ children, className, navigationClassName }: {
   children: React.ReactNode
@@ -35,15 +36,13 @@ export function AppShell({ children, className, navigationClassName }: {
   const allowed = !!user && modulesForUser(user).includes(module)
 
   return (
-    <div className={cn('min-h-screen bg-canvas text-ink', className)}>
-      <div className="lg:grid lg:grid-cols-[240px_1fr]">
-        {/* nav-surface re-declares the theme tokens in their inverted form,
-            so the rail is deep green on every portal without per-page CSS. */}
-        <aside className={cn('nav-surface sticky top-0 hidden h-screen border-r border-line lg:block', navigationClassName)}>
+    <div className={cn(sidebarStyles.dashboard, 'min-h-screen bg-canvas text-ink', className)}>
+      <div className="lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className={cn(sidebarStyles.surface, 'sticky top-0 hidden h-screen border-r border-line lg:block', navigationClassName)}>
           <Sidebar />
         </aside>
 
-        <div className="flex min-h-screen flex-col">
+        <div className="flex min-h-screen min-w-0 flex-col">
           <TopBar onOpenNav={() => setNavOpen(true)} />
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
             {resolving ? (
