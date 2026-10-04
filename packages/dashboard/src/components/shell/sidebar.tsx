@@ -14,6 +14,7 @@ import { useAuth } from '@/context/AuthContext'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { BrandMark } from '@/components/shared/brand-mark'
+import { BookOpen } from 'lucide-react'
 
 function NavItemLink({
   href,
@@ -175,6 +176,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </p>
         )}
       </nav>
+
+      {/* Outside the portal sections on purpose: the vocabulary is shared by
+          every portal, so this stays put wherever the user is. */}
+      {!resolving && (
+        <div className="border-t border-line px-3 py-3">
+          <NavItemLink
+            href="/key-terms"
+            label="Key Terms"
+            icon={BookOpen}
+            active={currentHref === '/key-terms' || pathname.startsWith('/key-terms')}
+            onNavigate={onNavigate}
+          />
+        </div>
+      )}
     </div>
   )
 }

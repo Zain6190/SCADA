@@ -3,7 +3,7 @@
 // packages/dashboard/src/components/shell/topbar.tsx
 import { useAuth } from '@/context/AuthContext'
 import { SystemStatusIndicator } from '@/components/shell/system-status'
-import { LogOut, Bell, Menu, User } from 'lucide-react'
+import { LogOut, Bell, Menu, User, BookOpen } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { API_BASE_URL } from '@/lib/config'
 import Link from 'next/link'
@@ -44,6 +44,15 @@ export function TopBar({ onOpenNav }: { onOpenNav: () => void }) {
 
       <div className="flex items-center gap-3">
         <SystemStatusIndicator />
+        {/* Reachable from every page: the console is full of domain jargon. */}
+        <Link
+          href="/key-terms"
+          className="rounded-lg border border-line bg-surface p-2 text-ink-muted hover:bg-surface-alt"
+          aria-label="Key Terms"
+          title="Key Terms — what the words on screen mean"
+        >
+          <BookOpen className="h-4 w-4" />
+        </Link>
         <Link
           href="/water/operator/alerts"
           className="relative rounded-lg border border-line bg-surface p-2 text-ink-muted hover:bg-surface-alt"
