@@ -77,10 +77,12 @@ SURFACE_WATER_CSV = ML_ROOT / "Data" / "raw" / "surface_water.csv"
 
 STAGES = ["sync_indicators", "fetch_surface_water", "sync_surface_water",
           "propagate_surface_water", "compute_spi",
-          "build_dataset", "train_wai", "train_anomaly", "predict_weekly", "run_risk_alerts"]
+          "build_dataset", "train_wai", "train_anomaly", "predict_weekly",
+          "run_risk_alerts", "validate_preds"]
 MODULE_OVERRIDES = {"build_dataset": "gee.build_dataset",
                     "train_wai": "models.train_wai",
-                    "train_anomaly": "models.train_anomaly"}
+                    "train_anomaly": "models.train_anomaly",
+                    "validate_preds": "scripts.validate_predictions"}
 
 _engine = None
 
@@ -315,6 +317,7 @@ def _parse_stage(stage: str, output: str, code: int) -> dict:
             "compute_spi": r"Updated (\d+) rows",
             "predict_weekly": r"Wrote (\d+) predictions",
             "run_risk_alerts": r"Wrote (\d+) alerts",
+            "validate_preds": r"Validated (\d+) predictions",
             "gee_fetch": r"Wrote (\d+) rows ->",
         },
         "records_skipped": {"sync_indicators": r"Skipped (\d+) invalid rows"},
@@ -481,6 +484,12 @@ def main() -> None:
                 env_extra={"SYNC_DATA_STATUS": "STALE"} if (stage == "sync_indicators" and stale_data) else None,
             )
             stage_results.append(summary)
+            if stage == "validate_preds" and summary["status"] == "FAILED":
+                # optional stage: a scoring failure must not fail a run whose
+                # core outputs (indicators, predictions) are already written
+                summary["error_count"] = 0
+                warnings.append("validate_preds failed; closed-week scoring "
+                                "skipped for this run")
             if stage == "sync_indicators":
                 m = re.search(r"across (\d{4}-\d{2}-\d{2}) \.\. (\d{4}-\d{2}-\d{2})",
                               summary["output"])

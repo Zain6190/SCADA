@@ -4,7 +4,14 @@ AquaVision - Join GEE region features with historical WAI labels from the DB.
 
 - Reads Data/raw/region_features.csv (from gee_fetch.py)
 - Reads labels from aquavision.water_indicators_weekly (wai_score, severity)
-- Buckets weekly labels to their calendar month and inner-joins on (region_id, month)
+- Buckets weekly labels to their calendar month, re-keys every label one month
+  earlier, then inner-joins on (region_id, month) so each row is
+  (features at month t) -> (label at month t+1): the same one-month-ahead
+  task predict_weekly serves (features at t -> WAI at t+1). The previous
+  same-month join trained a same-month reconstruction, not a forecast.
+- Keeps the observed WAI at month t as the current_wai INPUT feature (see
+  wai_features.FEATURE_COLS): serving always has it, and it is the strongest
+  predictor of next-month WAI.
 - Writes Data/features/dataset.csv  (features + target)
 
 Usage:
@@ -57,9 +64,21 @@ def build() -> None:
 
     labels = load_labels()
     labels["month"] = labels["month"].astype(str).str.slice(0, 7) + "-01"
+    # observed WAI at month t, kept as an INPUT feature (before re-keying)
+    current = labels[["region_id", "month", "wai_score"]].rename(
+        columns={"wai_score": "current_wai"}
+    )
+    # Forecasting horizon: re-key each label to the month BEFORE it, so a
+    # features row for month t joins the label computed for month t+1.
+    # (Label M -> key M-1: features at t pick up wai(t+1).)
+    labels["month"] = (
+        pd.to_datetime(labels["month"]) - pd.DateOffset(months=1)
+    ).dt.strftime("%Y-%m-%d")
 
     df = feats.merge(labels, on=["region_id", "month"], how="inner")
-    print(f"[build_dataset] inner join -> {len(df)} labeled rows")
+    df = df.merge(current, on=["region_id", "month"], how="inner")
+    print(f"[build_dataset] inner join -> {len(df)} rows "
+          f"(features at t -> label at t+1, current_wai = observed wai at t)")
 
     if df.empty:
         print("[build_dataset] WARNING: no overlap between GEE features and labels!")

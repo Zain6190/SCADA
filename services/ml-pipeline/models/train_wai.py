@@ -2,9 +2,18 @@
 models/train_wai.py
 AquaVision - Train WAI regressor + severity classifier (XGBoost).
 
-- Reads Data/features/dataset.csv (from build_dataset.py)
-- CHRONOLOGICAL split (first 80% of time = train, last 20% = test) to avoid leakage
-- Trains XGBoost regressor for wai_score and XGBoost classifier for severity
+- Reads Data/features/dataset.csv (from build_dataset.py), whose rows are
+  (features at t) -> (WAI at t+1) with current_wai = observed WAI at t.
+- CHRONOLOGICAL split (first 80% of time = train, last 20% = test).
+- Early stopping runs on a validation tail carved from TRAIN so the test
+  window stays untouched for the final report.
+- The regressor learns the month-over-month DELTA (wai(t+1) - current_wai);
+  reported metrics are on the reconstructed LEVEL (current_wai + delta).
+  Predicting the bounded delta instead of the level keeps tree models from
+  collapsing to the training mean when the test period leaves the training
+  range (record-wet months previously capped all predictions below 54).
+- metrics.json also records the persistence baseline (level = current_wai)
+  on the same test rows for an honest comparison.
 - Writes metrics.json + artifacts/*.joblib
 
 Usage:
@@ -61,11 +70,18 @@ def main() -> None:
         f"(train months {train['month'].min()}..{train['month'].max()}; "
         f"test months {test['month'].min()}..{test['month'].max()})"
     )
+    # Validation tail from TRAIN for early stopping: the test window is only
+    # ever read for the final metrics.
+    vcut = int(len(train) * 0.85)
+    tr, va = train.iloc[:vcut].copy(), train.iloc[vcut:].copy()
+    print(
+        f"[train_wai] early-stop validation = last 15% of train "
+        f"({len(va)} rows, months {va['month'].min()}..{va['month'].max()})"
+    )
 
-    X_tr, y_tr = train[FEATURE_COLS], train[TARGET_COL]
-    X_te, y_te = test[FEATURE_COLS], test[TARGET_COL]
+    y_tr, y_te = train[TARGET_COL], test[TARGET_COL]
 
-    # ---- Regressor: wai_score ----
+    # ---- Regressor: month-over-month WAI DELTA; metrics reported on LEVEL ----
     reg = xgb.XGBRegressor(
         n_estimators=400,
         max_depth=5,
@@ -75,12 +91,23 @@ def main() -> None:
         early_stopping_rounds=20,
         random_state=42,
     )
-    reg.fit(X_tr, y_tr, eval_set=[(X_te, y_te)], verbose=False)
-    pred_reg = reg.predict(X_te)
+    reg.fit(
+        tr[FEATURE_COLS],
+        tr[TARGET_COL] - tr["current_wai"],
+        eval_set=[(va[FEATURE_COLS], va[TARGET_COL] - va["current_wai"])],
+        verbose=False,
+    )
+    pred_reg = test["current_wai"].to_numpy() + reg.predict(test[FEATURE_COLS])
 
     rmse = float(np.sqrt(mean_squared_error(y_te, pred_reg)))
     mae = float(mean_absolute_error(y_te, pred_reg))
     r2 = float(r2_score(y_te, pred_reg))
+
+    # Persistence baseline on the identical test rows (level = current_wai).
+    pers = test["current_wai"].to_numpy()
+    pers_rmse = float(np.sqrt(mean_squared_error(y_te, pers)))
+    pers_mae = float(mean_absolute_error(y_te, pers))
+    pers_r2 = float(r2_score(y_te, pers))
 
     # ---- Classifier: severity ----
     # Encoder fit on TRAIN only so classes are contiguous for XGBoost.
@@ -104,7 +131,7 @@ def main() -> None:
         num_class=len(le.classes_),
         random_state=42,
     )
-    clf.fit(X_tr, y_sev_tr)
+    clf.fit(train[FEATURE_COLS], y_sev_tr)
     pred_clf = clf.predict(X_te_clf)
     pred_clf_names = le.inverse_transform(pred_clf.astype(int))
     acc = float(accuracy_score(test_clf[SEVERITY_COL], pred_clf_names))
@@ -120,9 +147,15 @@ def main() -> None:
 
     metrics = {
         "model_version": MODEL_VERSION,
+        "target": "wai_delta_vs_current_wai (level = current_wai + delta)",
         "n_train": len(train),
         "n_test": len(test),
         "regressor": {"rmse": round(rmse, 4), "mae": round(mae, 4), "r2": round(r2, 4)},
+        "persistence_baseline": {
+            "rmse": round(pers_rmse, 4),
+            "mae": round(pers_mae, 4),
+            "r2": round(pers_r2, 4),
+        },
         "classifier": {
             "accuracy": round(acc, 4),
             "classification_report": report,
@@ -140,6 +173,14 @@ def main() -> None:
 
     print("\n================== RESULTS ==================")
     print(f"RMSE: {rmse:.3f}   MAE: {mae:.3f}   R2: {r2:.3f}")
+    print(
+        f"Persistence baseline: RMSE {pers_rmse:.3f}  MAE {pers_mae:.3f}  "
+        f"R2 {pers_r2:.3f}"
+    )
+    print(
+        f"vs persistence: model {'BEATS' if mae < pers_mae else 'trails'} "
+        f"baseline (MAE delta {mae - pers_mae:+.3f})"
+    )
     print(f"Severity accuracy: {acc:.3f}")
     print(f"Confusion matrix:\n{cm}")
     print(f"Artifacts -> {ARTIFACT_DIR}")

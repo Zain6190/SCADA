@@ -37,7 +37,11 @@ DB_URL = os.getenv(
 )
 
 sys.path.insert(0, str(ML_ROOT))
-from wai_features import FEATURE_COLS  # noqa: E402
+from wai_features import (  # noqa: E402
+    FEATURE_COLS,
+    fetch_current_wai,
+    fetch_known_regions,
+)
 
 RULE_VERSION = os.getenv("GEE_RULE_VERSION", "risk-v1.0")
 _ONE_MONTH = timedelta(days=31)
@@ -261,14 +265,47 @@ def main() -> dict:
     print(f"[risk_alerts] using latest complete month: {latest_month.date()}")
     if X.empty:
         raise RuntimeError(f"No GEE features for latest complete month {latest_month}")
+    # only regions the app registered (FK on water_alerts)
+    known = fetch_known_regions(engine())
+    skipped = int((~X["region_id"].isin(known)).sum())
+    X = X[X["region_id"].isin(known)].copy()
+    if skipped:
+        print(
+            f"[risk_alerts] skipped {skipped} feature rows for unregistered "
+            f"regions (not in shared.regions)"
+        )
+    if X.empty:
+        raise RuntimeError("No feature rows for registered regions")
 
-    # seasonality feature = NEXT month (we forecast one month ahead)
-    X["month_idx"] = (latest_month + pd.DateOffset(months=1)).month
+    # seasonality feature = season of the INPUT month (matches training:
+    # features at t -> WAI at t+1, month_idx from month t)
+    X["month_idx"] = latest_month.month
     X.loc[X["water_extent"] == -1, "water_extent"] = float("nan")
-    for col in ["rainfall_mm", "et_mm", "water_extent", "ndvi"]:
+    for col in [
+        "rainfall_mm",
+        "et_mm",
+        "water_extent",
+        "ndvi",
+        "sm_rootzone",
+        "sm_surface",
+    ]:
         X[col] = X[col].fillna(feats[col].median())
+    # feature contract: observed WAI at/before the input month (regressor
+    # predicts the delta against it)
+    X["current_wai"] = X["region_id"].map(fetch_current_wai(engine(), latest_month))
+    missing = int(X["current_wai"].isna().sum())
+    if missing:
+        X["current_wai"] = X["current_wai"].fillna(X["current_wai"].median())
+        print(
+            f"[risk_alerts] note: {missing} regions lack observed WAI history "
+            f"-> current_wai filled with cross-region median"
+        )
+    if X["current_wai"].isna().any():
+        raise RuntimeError("current_wai unavailable for every region; cannot run")
 
-    pred_wai = reg.predict(X[FEATURE_COLS])
+    pred_wai = np.clip(
+        X["current_wai"].to_numpy() + reg.predict(X[FEATURE_COLS]), 0.0, 100.0
+    )
     anom_ratio = anomaly_ratio(X, detector)
 
     # Build region_rows with rainfall/ET anomaly from the current month's data

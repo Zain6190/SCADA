@@ -29,4 +29,13 @@ def test_feature_contract_matches_across_scripts():
         assert mod.FEATURE_COLS == FEATURE_COLS, (
             f"{mod.__name__} FEATURE_COLS diverged from the shared contract"
         )
-    assert FEATURE_COLS == ["rainfall_mm", "et_mm", "water_extent", "ndvi", "month_idx"]
+    assert FEATURE_COLS == [
+        "rainfall_mm",
+        "et_mm",
+        "water_extent",
+        "ndvi",
+        "sm_rootzone",
+        "sm_surface",
+        "month_idx",
+        "current_wai",
+    ]

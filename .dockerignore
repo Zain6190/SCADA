@@ -25,6 +25,9 @@ docs
 session-log.md
 data
 **/*.joblib
+# trained model artifacts must ship in the image (no volume mounts; serving
+# reads /ml-pipeline/models/artifacts at runtime)
+!services/ml-pipeline/models/**/*.joblib
 **/*.pkl
 **/*.png
 **/*.jpg
