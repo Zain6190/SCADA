@@ -1192,8 +1192,9 @@ def get_weekly_summary(
         )
         .order_by(WaterObservation.asset_id, WaterObservation.observed_at)
     )
+    q = q.where(official_observation_clause())
     if asset_id:
-        q = q.where(WaterObservation.asset_id == asset_id, official_observation_clause())
+        q = q.where(WaterObservation.asset_id == asset_id)
 
     rows = session.execute(q).all()
 

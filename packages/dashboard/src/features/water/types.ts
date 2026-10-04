@@ -32,6 +32,7 @@ export interface WaterIndicator {
   wai_model_version?: string | null
   source_observed_at?: string | null
   last_validated_at?: string | null
+  quality_status?: string | null
 }
 
 export interface WaterPrediction {
@@ -123,6 +124,7 @@ export interface IndicatorVM {
   waiModelVersion?: string | null
   sourceObservedAt?: string | null
   lastValidatedAt?: string | null
+  qualityStatus?: string | null
 }
 
 export interface PredictionVM {
@@ -134,6 +136,28 @@ export interface PredictionVM {
   predictedSeverity?: SeverityLevel | null
   predictedWaiScore?: number | null
   confidence?: number | null
+  lowerBound?: number | null
+  upperBound?: number | null
+}
+
+export interface StressAlertRow {
+  id: number
+  region_id: number
+  region_name: string | null
+  week_start_date: string
+  alert_type: string
+  severity: string
+  wai_score: number | null
+  rainfall_anomaly: number | null
+  et_anomaly: number | null
+  surface_water_change_pct: number | null
+  status: string
+  confidence: number | null
+  source: string | null
+  notes: string | null
+  created_at: string
+  acknowledged_at: string | null
+  resolved_at: string | null
 }
 
 export interface MapFeatureVM {

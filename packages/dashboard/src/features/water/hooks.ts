@@ -18,6 +18,7 @@ export const waterKeys = {
   indicators: (params: IndicatorParams) => [...waterKeys.all, 'indicators', params] as const,
   predictions: () => [...waterKeys.all, 'predictions'] as const,
   alerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'alerts', params] as const,
+  stressAlerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'stress-alerts', params] as const,
   operationalAlerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'operational-alerts', params] as const,
   map: () => [...waterKeys.all, 'map'] as const,
   regions: () => [...waterKeys.all, 'regions'] as const,
@@ -71,6 +72,14 @@ export function useWaterAlerts(params: { status?: string; severity?: string; lim
   return useQuery({
     queryKey: waterKeys.alerts(params),
     queryFn: () => waterApi.getOperationalAlerts(params),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useStressAlerts(params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}) {
+  return useQuery({
+    queryKey: waterKeys.stressAlerts(params),
+    queryFn: () => waterApi.getStressAlerts(params),
     refetchInterval: 30_000,
   })
 }

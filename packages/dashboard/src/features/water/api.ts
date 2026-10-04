@@ -37,6 +37,7 @@ import type {
   AssignableUser,
   InstructionTemplate,
   WorkflowInstruction,
+  StressAlertRow,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -345,7 +346,7 @@ export const waterApi = {
 
   // ─── WAI Stress Alerts ───────────────────────────────────────────────────
 
-  getStressAlerts: async (params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}): Promise<any[]> => {
+  getStressAlerts: async (params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}): Promise<StressAlertRow[]> => {
     const { data } = await waterClient.get('/stress-alerts', { params })
     return data
   },
