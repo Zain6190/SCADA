@@ -121,6 +121,29 @@ def served_model_version() -> str:
     return os.getenv("GEE_MODEL_VERSION", "xgb-v1.1")
 
 
+def load_blend_alpha() -> float:
+    """Convex model/persistence weight stamped by the training run.
+
+    1.0 = legacy pure-model serving (also the default when metrics.json has
+    no blend block, so an older artifact set keeps working unchanged).
+    """
+    try:
+        data = json.loads((ARTIFACT_DIR / "metrics.json").read_text(encoding="utf-8"))
+        alpha = (data.get("blend") or {}).get("alpha")
+        if alpha is not None:
+            return float(alpha)
+    except (OSError, ValueError, TypeError):
+        pass
+    return 1.0
+
+
+def apply_blend(current, delta, alpha: float):
+    """Blended level: current_wai at alpha=0 (persistence), model at alpha=1."""
+    current = np.asarray(current, dtype=float)
+    delta = np.asarray(delta, dtype=float)
+    return np.clip(current + float(alpha) * delta, 0.0, 100.0)
+
+
 def predict_one_month_ahead() -> None:
     reg = joblib.load(latest_artifact("wai_reg_*.joblib"))
 
@@ -171,12 +194,21 @@ def predict_one_month_ahead() -> None:
 
     current = X["current_wai"].to_numpy()
     pred_delta = reg.predict(X[FEATURE_COLS])
-    pred_wai = np.clip(current + pred_delta, 0.0, 100.0)
+    raw_level = np.clip(current + pred_delta, 0.0, 100.0)
+    alpha = load_blend_alpha()
+    pred_wai = apply_blend(current, pred_delta, alpha)
     # severity via the same threshold buckets used for labels
     pred_sev = np.array([_classify(float(v)) for v in pred_wai])
     lo, hi, conf = band_and_confidence(
-        X, current, pred_delta, pred_wai, load_interval()
+        X, current, pred_delta, raw_level, load_interval()
     )
+    # keep the calibrated band width, move its centre to the blended level
+    # (alpha=1 -> shift 0 -> byte-identical legacy behaviour)
+    shift = pred_wai - raw_level
+    lo = np.clip(lo + shift, 0.0, 100.0)
+    hi = np.clip(hi + shift, 0.0, 100.0)
+    lo = np.minimum(lo, pred_wai)
+    hi = np.maximum(hi, pred_wai)
 
     rows = [
         {
@@ -198,6 +230,7 @@ def predict_one_month_ahead() -> None:
         target_month=latest_month + pd.DateOffset(months=1),
     )
     print(f"[predict_weekly] Read {len(feats)} rows")
+    print(f"[predict_weekly] blend alpha={alpha:.4f} (0=persistence, 1=raw model)")
     print(f"[predict_weekly] Wrote {len(rows)} predictions for {target_str(latest_month)}")
 
 
