@@ -2,6 +2,7 @@
 predict() exactly (features built on the FULL series, then filtered to the
 window), (b) band severity from the score thresholds, (c) return None when
 no trained artifact exists, and (d) keep the 19-column feature contract."""
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -127,6 +128,61 @@ def test_severity_bands_from_score(trained):
 def test_score_history_missing_artifact_returns_none(trained):
     session, _ = trained
     assert AnomalyDetector().score_history(999, session, days=30) is None
+
+
+def test_score_many_matches_score_history(trained):
+    session, _ = trained
+    detector = AnomalyDetector()
+    many = detector.score_many(session, [1, 2], days=365)
+    assert set(many) == {1, 2}
+    assert many[2] is None
+    single = detector.score_history(1, session, days=365)
+    assert many[1] is not None
+    assert many[1] == single
+    assert many[1]["anomaly_count"] == sum(
+        1 for p in many[1]["points"] if p["is_anomaly"]
+    )
+
+
+def test_artifact_cache_reloads_on_file_change(trained):
+    session, tmp_path = trained
+    detector = AnomalyDetector()
+    first = detector._load_artifact(1)
+    assert first is not None
+    assert detector._load_artifact(1) is first
+
+    path = tmp_path / "anomaly_1.joblib"
+    stat = path.stat()
+    os.utime(path, (stat.st_atime, stat.st_mtime + 5))
+    reloaded = detector._load_artifact(1)
+    assert reloaded is not first
+    assert reloaded["model"] is not None
+
+
+def test_series_cache_invalidates_on_new_observation(trained):
+    session, _ = trained
+    detector = AnomalyDetector()
+    first = detector.score_many(session, [1], days=365)
+    assert first[1] is not None
+    n_first = len(first[1]["points"])
+    assert n_first == 60
+
+    now = datetime.utcnow().replace(microsecond=0)
+    for k in range(3):
+        session.add(WaterObservation(
+            id=900 + k,
+            asset_id=1,
+            source_id=1,
+            observed_at=now + timedelta(days=k + 1),
+            water_level_ft=1501.0 + k,
+            inflow_cusecs=51000.0,
+            outflow_cusecs=49000.0,
+        ))
+    session.commit()
+
+    second = detector.score_many(session, [1], days=365)
+    assert second[1] is not None
+    assert len(second[1]["points"]) == n_first + 3
 
 
 def test_build_features_contract():

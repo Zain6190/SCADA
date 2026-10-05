@@ -277,6 +277,14 @@ def get_anomaly_summary(
     detector = AnomalyDetector()
     assets = session.query(WaterAsset).order_by(WaterAsset.id).all()
 
+    try:
+        histories = detector.score_many(
+            session, [a.id for a in assets], days=days
+        )
+    except Exception as exc:
+        logger.warning(f"Anomaly summary scoring failed: {exc}")
+        histories = {}
+
     entries: List[AnomalyAssetSummary] = []
     assets_with_models = 0
     total_anomalies = 0
@@ -288,12 +296,7 @@ def get_anomaly_summary(
             asset_type=asset.asset_type or "",
             has_model=False,
         )
-        try:
-            history = detector.score_history(asset.id, session, days=days)
-        except Exception as exc:
-            logger.warning(f"Anomaly summary failed for asset {asset.id}: {exc}")
-            history = None
-
+        history = histories.get(asset.id)
         if history is None:
             entries.append(entry)
             continue
