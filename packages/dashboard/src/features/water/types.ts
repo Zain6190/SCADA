@@ -32,6 +32,7 @@ export interface WaterIndicator {
   wai_model_version?: string | null
   source_observed_at?: string | null
   last_validated_at?: string | null
+  quality_status?: string | null
 }
 
 export interface WaterPrediction {
@@ -43,6 +44,12 @@ export interface WaterPrediction {
   predicted_severity?: string | null
   predicted_wai_score?: number | null
   confidence?: number | null
+  lower_bound?: number | null
+  upper_bound?: number | null
+  region_name?: string | null
+  actual_wai_score?: number | null
+  actual_severity?: string | null
+  absolute_error?: number | null
 }
 
 export interface WaterReport {
@@ -117,6 +124,7 @@ export interface IndicatorVM {
   waiModelVersion?: string | null
   sourceObservedAt?: string | null
   lastValidatedAt?: string | null
+  qualityStatus?: string | null
 }
 
 export interface PredictionVM {
@@ -128,6 +136,28 @@ export interface PredictionVM {
   predictedSeverity?: SeverityLevel | null
   predictedWaiScore?: number | null
   confidence?: number | null
+  lowerBound?: number | null
+  upperBound?: number | null
+}
+
+export interface StressAlertRow {
+  id: number
+  region_id: number
+  region_name: string | null
+  week_start_date: string
+  alert_type: string
+  severity: string
+  wai_score: number | null
+  rainfall_anomaly: number | null
+  et_anomaly: number | null
+  surface_water_change_pct: number | null
+  status: string
+  confidence: number | null
+  source: string | null
+  notes: string | null
+  created_at: string
+  acknowledged_at: string | null
+  resolved_at: string | null
 }
 
 export interface MapFeatureVM {
@@ -184,6 +214,7 @@ export interface OperationalAsset {
   capacity_maf?: number | null
   normal_level_ft?: number | null
   warning_level_ft?: number | null
+  danger_level_ft?: number | null
   critical_level_ft?: number | null
   is_active: boolean
   current_level_ft?: number | null
@@ -394,6 +425,56 @@ export interface MLAnomalyTrainResult {
   }>
 }
 
+export interface MLAnomalyPoint {
+  observed_at: string
+  anomaly_score: number
+  is_anomaly: boolean
+  severity: string
+  anomaly_features: string[]
+  level_ft: number
+  inflow_cusecs: number
+  outflow_cusecs: number
+}
+
+export interface MLAnomalyHistory {
+  asset_id: number
+  asset_name: string
+  model_version: string
+  model_status: string
+  trained_at?: string | null
+  training_samples?: number | null
+  contamination?: number | null
+  window_days: number
+  scored_count: number
+  anomaly_count: number
+  points: MLAnomalyPoint[]
+}
+
+export interface MLAnomalyAssetSummary {
+  asset_id: number
+  asset_name: string
+  asset_type: string
+  has_model: boolean
+  model_version?: string | null
+  model_status?: string | null
+  trained_at?: string | null
+  training_samples?: number | null
+  contamination?: number | null
+  observations_scored: number
+  anomaly_count: number
+  worst_severity?: string | null
+  latest_anomaly?: MLAnomalyPoint | null
+}
+
+export interface MLAnomalySummary {
+  generated_at: string
+  window_days: number
+  assets_total: number
+  assets_with_models: number
+  total_anomalies: number
+  assets: MLAnomalyAssetSummary[]
+}
+
 // ─── Weekly Observation Summary (Analyst Workspace) ──────────────────────
 
 export interface WeeklyObservationRow {
@@ -420,6 +501,7 @@ export interface AssetWeeklySummary {
   province?: string | null
   total_observations: number
   date_range: string
+  last_observed_at?: string | null
   weeks: WeeklyObservationRow[]
 }
 
@@ -471,6 +553,27 @@ export interface PipelineHealth {
     irsa_hours: number | null
     ffd_hours: number | null
   }
+  recent_runs: PipelineRunRow[]
+  summary: Record<string, number>
+  heartbeat: {
+    instance_id: string
+    last_heartbeat_at: string
+    age_minutes: number
+    status: string
+  } | null
+}
+
+export interface PipelineRunRow {
+  id: number
+  run_id: string
+  pipeline_type: string
+  status: string
+  trigger_type: string
+  started_at: string | null
+  completed_at: string | null
+  duration_seconds: number | null
+  error_message: string | null
+  retry_count: number
 }
 
 // ─── AquaVision v2 Prediction Types ────────────────────────────────────────
@@ -515,6 +618,7 @@ export interface V2LeadTimeForecast {
   discharge: V2DischargePrediction
   rainfall: V2RainfallPrediction
   confidence: number | null
+  model_status?: string | null
 }
 
 export interface V2AssetPrediction {
@@ -541,6 +645,7 @@ export interface V2AssetPrediction {
     prediction_method: string
     status?: string
     accuracy_status?: string
+    model_validation?: Record<string, string>
     // holdout coverage of the q10-q90 interval per horizon (3/7/14);
     // null for physics assets / models without quantile intervals
     ci_coverage_80?: Record<string, number> | null

@@ -23,6 +23,8 @@ import type {
   MLTrainResult,
   MLAnomaly,
   MLAnomalyTrainResult,
+  MLAnomalyHistory,
+  MLAnomalySummary,
   PipelineHealth,
   AssetWeeklySummary,
   ModelPerformance,
@@ -37,6 +39,7 @@ import type {
   AssignableUser,
   InstructionTemplate,
   WorkflowInstruction,
+  StressAlertRow,
 } from '@/features/water/types'
 
 export const waterClient = axios.create({
@@ -76,6 +79,40 @@ export interface IndicatorIngestPayload {
   wai_model_version?: string | null
 }
 
+export interface EpisodeRollupRow {
+  id: number
+  episode_key: string
+  title: string
+  severity: string
+  status: string
+  asset_id: number | null
+  asset_name: string | null
+  started_at: string
+  resolved_at: string | null
+  duration_hours: number
+  alert_count: number
+  open_alert_count: number
+  peak_severity: string
+  worst_impact_population: number | null
+  notes: string | null
+}
+
+export interface ModelVersionRow {
+  id: number
+  model_type: string
+  asset_id: number | null
+  version: string
+  status: 'EXPERIMENTAL' | 'SHADOW' | 'APPROVED' | 'REJECTED' | 'PRODUCTION'
+  metrics: Record<string, number | boolean | null>
+  validation_report_id: number | null
+  validation_recommendation: string | null
+  trained_at: string | null
+  approved_at: string | null
+  approved_by: string | null
+  notes: string | null
+  allowed_transitions: string[]
+}
+
 export const waterApi = {
   getOverview: async (): Promise<WaterOverview> => {
     const { data } = await waterClient.get('/overview')
@@ -87,7 +124,9 @@ export const waterApi = {
     return data
   },
 
-  getPredictions: async (params: { region_id?: number; limit?: number } = {}): Promise<any[]> => {
+  getPredictions: async (
+    params: { region_id?: number; include_actual?: boolean } = {},
+  ): Promise<WaterPrediction[]> => {
     const { data } = await waterClient.get('/predictions', { params })
     return data
   },
@@ -284,6 +323,16 @@ export const waterApi = {
     return data
   },
 
+  getMLAnomalySummary: async (days = 30): Promise<MLAnomalySummary> => {
+    const { data } = await waterClient.get('/ml/anomalies/summary', { params: { days } })
+    return data
+  },
+
+  getMLAnomalyHistory: async (assetId: number, days = 90): Promise<MLAnomalyHistory> => {
+    const { data } = await waterClient.get(`/ml/anomalies/${assetId}/history`, { params: { days } })
+    return data
+  },
+
   // ─── Admin: Pipeline Health ───────────────────────────────────────────────
 
   getPipelineHealth: async (): Promise<PipelineHealth> => {
@@ -309,7 +358,7 @@ export const waterApi = {
 
   // ─── WAI Stress Alerts ───────────────────────────────────────────────────
 
-  getStressAlerts: async (params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}): Promise<any[]> => {
+  getStressAlerts: async (params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}): Promise<StressAlertRow[]> => {
     const { data } = await waterClient.get('/stress-alerts', { params })
     return data
   },
@@ -351,6 +400,18 @@ export const waterApi = {
     return data
   },
 
+  // ─── Model Registry (lifecycle: EXPERIMENTAL → SHADOW → APPROVED → PRODUCTION) ─
+
+  getRegistryModels: async (params: { model_type?: string; status?: string; asset_id?: number; limit?: number } = {}): Promise<ModelVersionRow[]> => {
+    const { data } = await waterClient.get('/registry/models', { params })
+    return data
+  },
+
+  transitionModel: async (modelVersionId: number, action: 'approve' | 'promote' | 'reject', notes?: string): Promise<ModelVersionRow> => {
+    const { data } = await waterClient.post(`/registry/models/${modelVersionId}/${action}`, notes ? { notes } : {})
+    return data
+  },
+
   // ─── Alert workflow (instructions / queue / timeline / KPIs) ────────────
 
   getAlertQueue: async (scope = 'auto'): Promise<AlertQueue> => {
@@ -365,6 +426,11 @@ export const waterApi = {
 
   getEscalations: async (): Promise<EscalationsBoard> => {
     const { data } = await waterClient.get('/alerts/escalations')
+    return data
+  },
+
+  getEpisodeRollups: async (params: { status?: string; limit?: number } = {}): Promise<EpisodeRollupRow[]> => {
+    const { data } = await waterClient.get('/alerts/episodes', { params })
     return data
   },
 

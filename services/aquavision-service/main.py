@@ -222,6 +222,7 @@ from presentation.http.routers import (  # noqa: E402
     overview,
     predictions,
     regions,
+    registry,
     reports,
     sensors,
     ot,
@@ -240,6 +241,7 @@ TAG = ["AquaVision"]
 app.include_router(auth.router)
 app.include_router(health.router)
 app.include_router(validation.router, prefix=WATER_PREFIX, tags=TAG)
+app.include_router(registry.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(overview.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(map_data.router, prefix=WATER_PREFIX, tags=TAG)
 app.include_router(indicators.router, prefix=WATER_PREFIX, tags=TAG)

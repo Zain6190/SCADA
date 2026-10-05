@@ -14,6 +14,7 @@ Writes long-format CSV -> Data/raw/region_features.csv
 """
 from __future__ import annotations
 
+import csv
 import os
 from datetime import date, timedelta
 from pathlib import Path
@@ -26,7 +27,7 @@ SERVICE_ACCOUNT_KEY = Path(__file__).resolve().parent / "service-account.json"
 # psycopg2 needs the plain postgresql:// DSN, not the SQLAlchemy dialect form.
 _PSYCOPG2_DSN = DB_URL.replace("postgresql+psycopg2://", "postgresql://")
 START_DATE = os.getenv("GEE_START_DATE", "2021-01-01")
-END_DATE = os.getenv("GEE_END_DATE", "2026-07-31")
+END_DATE = os.getenv("GEE_END_DATE") or date.today().isoformat()
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "Data" / "raw"
 
@@ -82,12 +83,28 @@ def month_ranges(start: str, end: str) -> list[tuple[str, str]]:
 
 
 def _precip_ic(month_ranges: list[tuple[str, str]]) -> ee.ImageCollection:
-    """CHIRPS monthly precipitation: one image per month = daily sum."""
+    """CHIRPS monthly precipitation: one image per month = daily sum.
+
+    Months without CHIRPS images yet get a fully-masked placeholder band so
+    the stack always keeps one band per month: a 0-band image collapses the
+    stack to a single band, and reduceRegions then names its output 'mean'
+    instead of the month id, so every rainfall lookup silently returned None
+    (the bug that downgraded a complete August to PARTIAL).
+    """
     chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY").select("precipitation")
-    imgs = [
-        chirps.filterDate(s, e).sum().set("month", s)
-        for s, e in month_ranges
-    ]
+    imgs = []
+    for s, e in month_ranges:
+        coll = chirps.filterDate(s, e)
+        img = ee.Image(
+            ee.Algorithms.If(
+                coll.size().gt(0),
+                coll.sum(),
+                ee.Image.constant(0.0)
+                .rename("precipitation")
+                .mask(ee.Image(0)),
+            )
+        )
+        imgs.append(img.set("month", s))
     return ee.ImageCollection(imgs)
 
 
@@ -184,6 +201,29 @@ def _first_or_fill(
     )
 
 
+def _load_existing() -> tuple[list[dict] | None, list[str] | None]:
+    """Current region_features.csv rows + fieldnames, or (None, None)."""
+    path = RAW_DIR / "region_features.csv"
+    if not path.exists():
+        return None, None
+    with open(path, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        return list(reader), list(reader.fieldnames or [])
+
+
+def _fetch_start(existing: list[dict] | None) -> str:
+    """Start of the fetch window: newest CSV month minus a 2-month repair
+    overlap, so trailing incomplete months get re-pulled once finalized.
+    Full history is only fetched when no CSV exists yet."""
+    if not existing:
+        return START_DATE
+    latest = max(r["month"] for r in existing)
+    d = date.fromisoformat(latest[:10]).replace(day=1)
+    for _ in range(2):
+        d = (d - timedelta(days=1)).replace(day=1)
+    return max(d.isoformat(), START_DATE)
+
+
 def main() -> None:
     import json as _json
 
@@ -200,8 +240,10 @@ def main() -> None:
             "features": regions,
         }
     )
-    months = month_ranges(START_DATE, END_DATE)
-    print(f"[gee_fetch] {len(months)} months ({START_DATE} -> {END_DATE})")
+    existing, existing_fields = _load_existing()
+    fetch_start = _fetch_start(existing)
+    months = month_ranges(fetch_start, END_DATE)
+    print(f"[gee_fetch] {len(months)} months ({fetch_start} -> {END_DATE})")
 
     datasets = {
         "rainfall_mm": _precip_ic(months),
@@ -231,21 +273,26 @@ def main() -> None:
                 props = f.get("properties", {})
                 for m in chunk:
                     val = props.get(m)
+                    if val is None and len(chunk) == 1:
+                        val = props.get("mean")
                     _set_nested(results, rid, name, m, val)
             print(f"[gee_fetch]   chunk {chunk_start//CHUNK+1}/{(len(month_ids)+CHUNK-1)//CHUNK} done ({len(chunk)} months)")
     print(f"[gee_fetch] {len(results)} region-months accumulated")
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    import csv
 
     path = RAW_DIR / "region_features.csv"
+    if existing is not None:
+        kept = [r for r in existing if r["month"][:10] < fetch_start]
+        fieldnames = existing_fields
+    else:
+        kept = []
+        fieldnames = ["region_id", "month"] + list(datasets.keys())
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh, fieldnames=["region_id", "month"] + list(datasets.keys())
-        )
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, restval="")
         writer.writeheader()
-        for row in results:
+        for row in kept + results:
             writer.writerow(row)
-    print(f"[gee_fetch] Wrote {len(results)} rows -> {path}")
+    print(f"[gee_fetch] Wrote {len(kept) + len(results)} rows -> {path}")
 
 
 def _set_nested(rows: list, rid: int, feat: str, month: str, value) -> None:

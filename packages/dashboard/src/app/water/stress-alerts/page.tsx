@@ -1,34 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle } from 'lucide-react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, CheckCircle, X } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { AppShell } from '@/components/shell/app-shell'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Spinner, EmptyState } from '@/components/ui/state'
 import { waterApi } from '@/features/water/api'
-import { fmtDateTime } from '@/lib/format'
+import { useWaterRegions } from '@/features/water/hooks'
+import type { StressAlertRow } from '@/features/water/types'
+import { fmtDateTime, titleCase } from '@/lib/format'
 
-interface StressAlert {
-  id: number
-  region_id: number
-  region_name: string | null
-  week_start_date: string
-  alert_type: string
-  severity: string
-  wai_score: number | null
-  rainfall_anomaly: number | null
-  et_anomaly: number | null
-  surface_water_change_pct: number | null
-  status: string
-  confidence: number | null
-  source: string | null
-  notes: string | null
-  created_at: string
-  acknowledged_at: string | null
-  resolved_at: string | null
-}
+const isOpenStatus = (status: string | null | undefined) =>
+  (status ?? '').toUpperCase() !== 'RESOLVED'
 
 const SEVERITY_TONE: Record<string, 'red' | 'amber' | 'sky' | 'emerald'> = {
   Critical: 'red',
@@ -39,9 +26,9 @@ const SEVERITY_TONE: Record<string, 'red' | 'amber' | 'sky' | 'emerald'> = {
 }
 
 const STATUS_TONE: Record<string, 'red' | 'sky' | 'emerald' | 'slate'> = {
-  New: 'red',
-  Acknowledged: 'sky',
-  Resolved: 'emerald',
+  NEW: 'red',
+  ACKNOWLEDGED: 'sky',
+  RESOLVED: 'emerald',
 }
 
 const ALERT_LABELS: Record<string, string> = {
@@ -52,25 +39,41 @@ const ALERT_LABELS: Record<string, string> = {
 }
 
 export default function StressAlertsPage() {
-  const [alerts, setAlerts] = useState<StressAlert[]>([])
+  return (
+    <Suspense fallback={<Spinner label="Loading stress alerts" />}>
+      <StressAlertsView />
+    </Suspense>
+  )
+}
+
+function StressAlertsView() {
+  const searchParams = useSearchParams()
+  const regionId = Number(searchParams.get('region_id')) || null
+  const regions = useWaterRegions()
+  const regionName = regionId
+    ? (regions.data ?? []).find((r) => r.id === regionId)?.name ?? `Region ${regionId}`
+    : null
+
+  const [alerts, setAlerts] = useState<StressAlertRow[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [severityFilter, setSeverityFilter] = useState('')
 
-  const loadAlerts = () => {
-    const params: any = { limit: 100 }
+  const loadAlerts = useCallback(() => {
+    const params: { limit: number; status?: string; severity?: string; region_id?: number } = { limit: 100 }
     if (statusFilter) params.status = statusFilter
     if (severityFilter) params.severity = severityFilter
+    if (regionId) params.region_id = regionId
     waterApi.getStressAlerts(params).then(setAlerts).finally(() => setLoading(false))
-  }
+  }, [statusFilter, severityFilter, regionId])
 
-  useEffect(() => { loadAlerts() }, [statusFilter, severityFilter])
+  useEffect(() => { loadAlerts() }, [loadAlerts])
 
   const handleAck = async (id: number) => { await waterApi.ackStressAlert(id); loadAlerts() }
   const handleResolve = async (id: number) => { await waterApi.resolveStressAlert(id); loadAlerts() }
 
-  const activeAlerts = alerts.filter(a => a.status !== 'Resolved')
-  const resolvedAlerts = alerts.filter(a => a.status === 'Resolved')
+  const activeAlerts = alerts.filter(a => isOpenStatus(a.status))
+  const resolvedAlerts = alerts.filter(a => !isOpenStatus(a.status))
 
   return (
     <AppShell>
@@ -81,9 +84,20 @@ export default function StressAlertsPage() {
           icon={<AlertTriangle className="h-6 w-6" />}
           accent="bg-warn-soft text-warn"
           action={
-            <button onClick={loadAlerts} className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2 text-sm text-ink-muted transition-colors hover:border-brand/25 hover:text-brand">
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              {regionId && (
+                <Link
+                  href="/water/stress-alerts"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-brand/25 bg-brand-soft px-3 py-2 text-sm font-medium text-brand transition-colors hover:border-brand/50"
+                >
+                  {regionName}
+                  <X className="h-3.5 w-3.5" />
+                </Link>
+              )}
+              <button onClick={loadAlerts} className="rounded-xl border border-line-strong bg-surface-alt px-4 py-2 text-sm text-ink-muted transition-colors hover:border-brand/25 hover:text-brand">
+                Refresh
+              </button>
+            </div>
           }
         />
 
@@ -131,7 +145,7 @@ export default function StressAlertsPage() {
                           <div className="flex flex-wrap items-center gap-2 mb-2">
                             <span className="font-bold text-ink">{alert.region_name || `Region ${alert.region_id}`}</span>
                             <Badge tone={SEVERITY_TONE[alert.severity] || 'slate'}>{alert.severity}</Badge>
-                            <Badge tone={STATUS_TONE[alert.status] || 'slate'}>{alert.status}</Badge>
+                            <Badge tone={STATUS_TONE[(alert.status || '').toUpperCase()] || 'slate'}>{titleCase(alert.status)}</Badge>
                             <span className="text-sm text-ink-muted">{ALERT_LABELS[alert.alert_type] || alert.alert_type}</span>
                           </div>
 
@@ -177,12 +191,12 @@ export default function StressAlertsPage() {
 
                         {/* Actions */}
                         <div className="flex flex-col items-end gap-3 sm:min-w-[120px]">
-                          {alert.status === 'New' && (
+                          {(alert.status || '').toUpperCase() === 'NEW' && (
                             <button onClick={() => handleAck(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-brand/25 bg-brand-soft px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand-soft">
                               <CheckCircle className="h-3.5 w-3.5" /> Acknowledge
                             </button>
                           )}
-                          {alert.status !== 'Resolved' && (
+                          {isOpenStatus(alert.status) && (
                             <button onClick={() => handleResolve(alert.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-ok/25 bg-ok-soft px-3 py-1.5 text-xs font-medium text-ok transition-colors hover:bg-ok-soft">
                               <CheckCircle className="h-3.5 w-3.5" /> Resolve
                             </button>

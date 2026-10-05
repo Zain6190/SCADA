@@ -36,6 +36,12 @@ class WaterIndicatorResponse(BaseModel):
     wai_score: Optional[float] = None
     severity: Optional[str] = None
     data_source_version: Optional[str] = None
+    data_status: Optional[str] = None
+    data_quality: Optional[str] = None
+    data_provider: Optional[str] = None
+    wai_model_version: Optional[str] = None
+    quality_status: Optional[str] = None
+    is_complete_period: Optional[bool] = None
 
 
 class WaterPredictionResponse(BaseModel):
@@ -49,6 +55,12 @@ class WaterPredictionResponse(BaseModel):
     predicted_severity: Optional[str] = None
     predicted_wai_score: Optional[float] = None
     confidence: Optional[float] = None
+    lower_bound: Optional[float] = None
+    upper_bound: Optional[float] = None
+    region_name: Optional[str] = None
+    actual_wai_score: Optional[float] = None
+    actual_severity: Optional[str] = None
+    absolute_error: Optional[float] = None
 
 
 class WaterReportResponse(BaseModel):

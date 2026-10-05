@@ -29,4 +29,28 @@ def test_feature_contract_matches_across_scripts():
         assert mod.FEATURE_COLS == FEATURE_COLS, (
             f"{mod.__name__} FEATURE_COLS diverged from the shared contract"
         )
-    assert FEATURE_COLS == ["rainfall_mm", "et_mm", "water_extent", "ndvi", "month_idx"]
+    assert FEATURE_COLS == [
+        "rainfall_mm",
+        "et_mm",
+        "water_extent",
+        "ndvi",
+        "sm_rootzone",
+        "sm_surface",
+        "month_idx",
+        "current_wai",
+    ]
+
+
+def test_served_model_version_matches_training_stamp():
+    """predict must stamp rows with the version train wrote to metrics.json -
+    a hardcoded string silently mislabels rows after a version bump."""
+    import json
+
+    predict = _load("wai_predict_weekly", "scripts/predict_weekly.py")
+    metrics = json.loads(
+        (ML_ROOT / "models" / "artifacts" / "metrics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert predict.served_model_version() == metrics["model_version"]
+    assert metrics["model_version"].startswith("xgb-")

@@ -222,7 +222,7 @@ def job_train_models():
             release_pipeline_lock(conn, pipeline_type)
 
 
-def job_run_wai_pipeline():
+def job_run_wai_pipeline(trigger: str = "SCHEDULED"):
     """Run the weekly WAI prediction + alert pipeline."""
     import subprocess
 
@@ -234,12 +234,13 @@ def job_run_wai_pipeline():
             logger.warning(f"Skipping {pipeline_type} - another run in progress")
             return
 
-        run_id = create_pipeline_run(conn, pipeline_type)
+        run_id = create_pipeline_run(conn, pipeline_type, trigger)
 
         try:
             logger.info("Starting WAI pipeline (sync_indicators, predict_weekly, run_risk_alerts)...")
             result = subprocess.run(
-                [sys.executable, "-m", "scripts.run_pipeline", "--trigger", "SCHEDULED"],
+                [sys.executable, "-m", "scripts.run_pipeline", "--with-fetch",
+                 "--trigger", "SCHEDULED"],
                 cwd=ml_root,
                 capture_output=True,
                 text=True,
@@ -259,6 +260,49 @@ def job_run_wai_pipeline():
             logger.exception(f"WAI pipeline error: {e}")
         finally:
             release_pipeline_lock(conn, pipeline_type)
+
+
+def job_wai_catchup():
+    """Restart-proof catch-up for the weekly WAI pipeline.
+
+    The schedule library has no missed-run catch-up: a container restart
+    around the Sunday 04:00 UTC window silently loses a whole week (observed
+    in production - no SCHEDULED WAI run was ever recorded). This job runs
+    daily at 04:15 UTC and once at startup. If no SUCCESS or
+    PARTIAL_SUCCESS exists for the WAI pipeline in the last 7 days (or none
+    at all), it fires job_run_wai_pipeline(trigger="CATCHUP"), so a missed
+    Sunday slot is repaired no later than Monday morning. A run in progress
+    is excluded because job_run_wai_pipeline reuses the advisory lock.
+    """
+    with get_db_session() as conn:
+        last_success = conn.execute(
+            text(
+                """
+                SELECT MAX(completed_at)
+                FROM aquavision.pipeline_runs
+                WHERE pipeline_type IN ('wai_weekly_pipeline', 'WAI_PIPELINE')
+                  AND status IN ('SUCCESS', 'PARTIAL_SUCCESS')
+                """
+            )
+        ).scalar()
+
+    if last_success is None:
+        logger.warning("WAI catch-up: no successful run on record - triggering")
+        job_run_wai_pipeline(trigger="CATCHUP")
+        return
+
+    if last_success.tzinfo is None:
+        last_success = last_success.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - last_success
+    if age >= timedelta(days=7):
+        logger.warning(
+            f"WAI catch-up: last success {age.days}d ago (>= 7d) - triggering"
+        )
+        job_run_wai_pipeline(trigger="CATCHUP")
+    else:
+        logger.info(
+            f"WAI catch-up: last success {age.days}d {age.seconds // 3600}h ago - up to date"
+        )
 
 
 def job_refresh_weather():
@@ -343,6 +387,68 @@ def job_validate_all_models():
         except Exception as e:
             complete_pipeline_run(session, run_id, "FAILED", str(e))
             logger.exception(f"Batch validation error: {e}")
+        finally:
+            release_pipeline_lock(session, pipeline_type)
+
+
+def job_register_models():
+    """Refresh model registry + apply validation lifecycle transitions (Sunday 03:58 UTC)."""
+    pipeline_type = "REGISTER_MODELS"
+
+    with get_db_session() as session:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(session, pipeline_type)
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, "-c",
+                 f"import sys; sys.path.insert(0, r'{APP_ROOT}'); from scripts.register_models import main; main()"],
+                capture_output=True, text=True, timeout=300, cwd=APP_ROOT
+            )
+            if result.returncode == 0:
+                complete_pipeline_run(session, run_id, "SUCCESS")
+                logger.info("Model registry refresh completed successfully")
+            else:
+                complete_pipeline_run(session, run_id, "FAILED", result.stderr[-500:] if result.stderr else "unknown error")
+                logger.error(f"Model registry refresh failed: {result.stderr[-500:]}")
+        except Exception as e:
+            complete_pipeline_run(session, run_id, "FAILED", str(e))
+            logger.exception(f"Model registry refresh error: {e}")
+        finally:
+            release_pipeline_lock(session, pipeline_type)
+
+
+def job_refresh_gee_features():
+    """Fetch GEE rainfall/ET/NDVI features for active assets (daily 04:30 UTC)."""
+    pipeline_type = "GEE_REFRESH"
+
+    with get_db_session() as session:
+        if not acquire_pipeline_lock(session, pipeline_type):
+            logger.warning(f"Skipping {pipeline_type} - another run in progress")
+            return
+
+        run_id = create_pipeline_run(session, pipeline_type)
+
+        try:
+            if not os.environ.get("GEE_PROJECT"):
+                complete_pipeline_run(session, run_id, "SKIPPED", "GEE_PROJECT not set")
+                logger.warning("GEE feature refresh skipped - GEE_PROJECT not set")
+                return
+            from ml.features.gee_service import GeeFeatureService
+            stats = GeeFeatureService(session).refresh_all_assets(days_back=60)
+            if stats["errors"]:
+                complete_pipeline_run(session, run_id, "PARTIAL_SUCCESS", str(stats))
+                logger.warning(f"GEE feature refresh partial: {stats}")
+            else:
+                complete_pipeline_run(session, run_id, "SUCCESS", str(stats))
+                logger.info(f"GEE feature refresh completed: {stats}")
+        except Exception as e:
+            complete_pipeline_run(session, run_id, "FAILED", str(e))
+            logger.exception(f"GEE feature refresh error: {e}")
         finally:
             release_pipeline_lock(session, pipeline_type)
 
@@ -440,11 +546,18 @@ if __name__ == "__main__":
     # Batch validate all models: Sunday 03:45 UTC (08:45 PKT)
     schedule.every().sunday.at("03:45").do(job_validate_all_models)
 
+    schedule.every().sunday.at("03:58").do(job_register_models)
+
     # WAI pipeline: weekly on Sunday at 04:00 UTC (09:00 PKT) — after ML retrain
     schedule.every().sunday.at("04:00").do(job_run_wai_pipeline)
 
+    schedule.every().day.at("04:15").do(job_wai_catchup)
+
     # Weather forecasts: every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
     schedule.every(6).hours.do(job_refresh_weather)
+
+    # GEE features: daily 04:30 UTC (CHIRPS rainfall + MOD16 ET + MOD13Q1 NDVI)
+    schedule.every().day.at("04:30").do(job_refresh_gee_features)
 
     # Backfill inflow after FFD ingestion (daily 02:00 UTC)
     schedule.every().day.at("02:00").do(job_backfill_inflow)
@@ -471,6 +584,12 @@ if __name__ == "__main__":
     logger.info("Running initial ingestion...")
     job_ingest_irsa()
 
+    logger.info("Checking WAI pipeline freshness...")
+    job_wai_catchup()
+
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception as exc:
+            logger.exception(f"Scheduled job raised {exc}; scheduler loop continuing")
         time.sleep(60)

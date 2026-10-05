@@ -66,6 +66,7 @@ export default function SensorsPage() {
             timestamp: new Date().toISOString(),
             inflow_cusecs: 250000 + Math.floor(Math.random() * 50000),
             sensor_id: 'TEST-001',
+            origin: 'SYNTHETIC',
           }],
           source: 'SENSOR_API',
         }),

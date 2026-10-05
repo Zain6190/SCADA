@@ -28,27 +28,46 @@ interface ValidationReport {
   model_version: string;
   horizon: number;
   metrics: {
-    mae: number;
-    rmse: number;
-    r2: number;
-    mape: number;
-    persistence_mae: number;
-    beats_persistence: boolean;
-    high_flow_mae: number;
-    high_flow_r2: number;
-    walk_forward_mae: number;
+    mae?: number | null;
+    rmse?: number | null;
+    r2?: number | null;
+    mape?: number | null;
+    persistence_mae?: number | null;
+    beats_persistence?: boolean;
+    high_flow_mae?: number | null;
+    high_flow_r2?: number | null;
+    walk_forward_mae?: number | null;
+    auc?: number | null;
+    brier?: number | null;
+    baseline_brier?: number | null;
+    accuracy?: number | null;
+    precision?: number | null;
+    recall?: number | null;
+    f1?: number | null;
+    score?: number | null;
   };
   data_info: {
     total_samples: number;
-    real_samples: number;
-    synthetic_samples: number;
-    train_samples: number;
-    val_samples: number;
-    test_samples: number;
+    real_samples?: number;
+    synthetic_samples?: number;
+    train_samples?: number;
+    val_samples?: number;
+    test_samples?: number;
+    n_folds?: number;
   };
   recommendation: string;
   reasons: string[];
   validated_at: string;
+}
+
+function fmt(v: number | null | undefined, digits = 2): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  return v.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function fmtFixed(v: number | null | undefined, digits = 4): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  return v.toFixed(digits);
 }
 
 function getStatusTone(status: string): "emerald" | "sky" | "amber" | "red" | "slate" {
@@ -76,20 +95,39 @@ function getStatusIcon(status: string) {
 export default function ValidationPage() {
   const [summary, setSummary] = useState<ValidationSummary | null>(null);
   const [reports, setReports] = useState<ValidationReport[]>([]);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [sumRes, repRes] = await Promise.all([
+      const [sumRes, repRes, regRes] = await Promise.all([
         fetch(`${API_BASE}/water/validation/reports/summary`),
-        fetch(`${API_BASE}/water/validation/reports?limit=50`),
+        fetch(`${API_BASE}/water/validation/reports?limit=100`),
+        fetch(`${API_BASE}/water/registry/models?limit=500`),
       ]);
       const sumData = await sumRes.json();
       const repData = await repRes.json();
       setSummary(sumData);
-      setReports(repData.value || []);
+      const regRows = regRes.ok ? await regRes.json() : [];
+      const counts: Record<string, number> = {};
+      for (const row of Array.isArray(regRows) ? regRows : []) {
+        counts[row.status] = (counts[row.status] || 0) + 1;
+      }
+      setStatusCounts(counts);
+      const rows: ValidationReport[] = Array.isArray(repData)
+        ? repData
+        : repData.value || [];
+      const seen = new Set<string>();
+      setReports(
+        rows.filter((r) => {
+          const key = `${r.model_type}:${r.asset_id}:${r.horizon}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+      );
     } catch (e) {
       console.error("Failed to fetch validation data", e);
     } finally {
@@ -108,6 +146,22 @@ export default function ValidationPage() {
       setRunning(false);
     }
   };
+
+  const regReports = reports.filter(
+    (r) => r.model_type !== "flood_classifier" && r.metrics.mae != null
+  );
+  const clfReports = reports.filter((r) => r.model_type === "flood_classifier");
+  const beatsCount = regReports.filter((r) => r.metrics.beats_persistence).length;
+  const r2PassCount = regReports.filter((r) => (r.metrics.r2 ?? 0) > 0.5).length;
+  const maxReal = reports.reduce((m, r) => Math.max(m, r.data_info.real_samples ?? 0), 0);
+  const clfRecalls = clfReports
+    .map((r) => r.metrics.recall)
+    .filter((v): v is number => typeof v === "number");
+  const avgRecall = clfRecalls.length
+    ? clfRecalls.reduce((a, b) => a + b, 0) / clfRecalls.length
+    : null;
+  const toneFor = (ratio: number): string =>
+    ratio >= 0.7 ? "text-ok" : ratio >= 0.4 ? "text-warn" : "text-crit";
 
   if (loading) {
     return (
@@ -186,7 +240,7 @@ export default function ValidationPage() {
                 <div className="text-center">
                   <Badge tone={getStatusTone(status)}>{status}</Badge>
                   <div className="mt-1 text-xs text-ink-subtle">
-                    {summary?.recommendations?.[status] || 0} models
+                    {statusCounts[status] || 0} models
                   </div>
                 </div>
                 {i < 3 && <div className="w-8 h-px bg-surface-sunken mx-3" />}
@@ -198,10 +252,19 @@ export default function ValidationPage() {
 
       {/* Detailed Reports */}
       <Card>
-        <CardHeader title="Asset Validation Details" subtitle="Per-asset walk-forward backtesting results" />
+        <CardHeader title="Asset Validation Details" subtitle="Per-model walk-forward backtesting results" />
         <CardBody>
           <div className="space-y-4">
-            {reports.map((r) => (
+            {reports.length === 0 && (
+              <div className="text-sm text-ink-muted">No validation reports yet.</div>
+            )}
+            {reports.map((r) => {
+              const isClassifier = r.model_type === "flood_classifier";
+              const brierSkill =
+                r.metrics.baseline_brier && r.metrics.brier != null
+                  ? ((r.metrics.baseline_brier - r.metrics.brier) / r.metrics.baseline_brier) * 100
+                  : null;
+              return (
               <div key={r.id} className="border border-line rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
@@ -209,7 +272,11 @@ export default function ValidationPage() {
                     <div>
                       <h3 className="font-medium text-ink">Asset #{r.asset_id} — {r.model_version}</h3>
                       <p className="text-xs text-ink-subtle">
-                        Horizon: {r.horizon}d | Samples: {r.data_info.total_samples} ({r.data_info.real_samples} real)
+                        {isClassifier ? "Flood classifier" : "Regression"} | Horizon: {r.horizon}d | Samples:{" "}
+                        {r.data_info.total_samples}
+                        {isClassifier
+                          ? ` | Folds: ${r.data_info.n_folds ?? "—"}`
+                          : ` (${r.data_info.real_samples ?? "—"} real)`}
                       </p>
                     </div>
                   </div>
@@ -219,56 +286,98 @@ export default function ValidationPage() {
                 </div>
 
                 {/* Metrics Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <div className="text-ink-subtle text-xs">MAE</div>
-                    <div className="font-mono text-ink-muted">
-                      {r.metrics.mae.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                {isClassifier ? (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <div className="text-ink-subtle text-xs">AUC</div>
+                      <div className={`font-mono ${(r.metrics.auc ?? 0) > 0.7 ? "text-ok" : "text-crit"}`}>
+                        {fmtFixed(r.metrics.auc)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Brier Skill vs Baseline</div>
+                      <div className={`font-mono ${(brierSkill ?? 0) > 0 ? "text-ok" : "text-crit"}`}>
+                        {brierSkill === null ? "—" : `${brierSkill.toFixed(1)}%`}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Accuracy</div>
+                      <div className="font-mono text-ink-muted">
+                        {r.metrics.accuracy == null ? "—" : `${(r.metrics.accuracy * 100).toFixed(1)}%`}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">F1</div>
+                      <div className="font-mono text-ink-muted">{fmtFixed(r.metrics.f1)}</div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Precision</div>
+                      <div className="font-mono text-ink-muted">{fmtFixed(r.metrics.precision)}</div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Recall</div>
+                      <div className={`font-mono ${(r.metrics.recall ?? 0) >= 0.3 ? "text-ok" : "text-warn"}`}>
+                        {fmtFixed(r.metrics.recall)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Validation Score</div>
+                      <div className={`font-mono ${(r.metrics.score ?? 0) >= 70 ? "text-ok" : "text-ink-muted"}`}>
+                        {fmt(r.metrics.score, 0)} / 100
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Brier (baseline)</div>
+                      <div className="font-mono text-ink-muted">
+                        {fmtFixed(r.metrics.brier)} ({fmtFixed(r.metrics.baseline_brier)})
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">R²</div>
-                    <div className={`font-mono ${r.metrics.r2 > 0 ? "text-ok" : "text-crit"}`}>
-                      {r.metrics.r2.toFixed(4)}
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <div className="text-ink-subtle text-xs">MAE</div>
+                      <div className="font-mono text-ink-muted">{fmt(r.metrics.mae)}</div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">R²</div>
+                      <div className={`font-mono ${(r.metrics.r2 ?? 0) > 0 ? "text-ok" : "text-crit"}`}>
+                        {fmtFixed(r.metrics.r2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Persistence MAE</div>
+                      <div className="font-mono text-ink-muted">{fmt(r.metrics.persistence_mae)}</div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Beats Persistence</div>
+                      <div className={r.metrics.beats_persistence ? "text-ok font-medium" : "text-crit font-medium"}>
+                        {r.metrics.beats_persistence ? "YES" : "NO"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">High-Flow MAE</div>
+                      <div className="font-mono text-ink-muted">{fmt(r.metrics.high_flow_mae)}</div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">High-Flow R²</div>
+                      <div className={`font-mono ${(r.metrics.high_flow_r2 ?? 0) > 0 ? "text-ok" : "text-crit"}`}>
+                        {fmtFixed(r.metrics.high_flow_r2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Walk-Forward MAE</div>
+                      <div className="font-mono text-ink-muted">{fmt(r.metrics.walk_forward_mae)}</div>
+                    </div>
+                    <div>
+                      <div className="text-ink-subtle text-xs">Train / Val / Test</div>
+                      <div className="font-mono text-ink-muted">
+                        {r.data_info.train_samples ?? "—"}/{r.data_info.val_samples ?? "—"}/
+                        {r.data_info.test_samples ?? "—"}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">Persistence MAE</div>
-                    <div className="font-mono text-ink-muted">
-                      {r.metrics.persistence_mae.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">Beats Persistence</div>
-                    <div className={r.metrics.beats_persistence ? "text-ok font-medium" : "text-crit font-medium"}>
-                      {r.metrics.beats_persistence ? "YES" : "NO"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">High-Flow MAE</div>
-                    <div className="font-mono text-ink-muted">
-                      {r.metrics.high_flow_mae.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">High-Flow R²</div>
-                    <div className={`font-mono ${r.metrics.high_flow_r2 > 0 ? "text-ok" : "text-crit"}`}>
-                      {r.metrics.high_flow_r2.toFixed(4)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">Walk-Forward MAE</div>
-                    <div className="font-mono text-ink-muted">
-                      {r.metrics.walk_forward_mae.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-ink-subtle text-xs">Train / Val / Test</div>
-                    <div className="font-mono text-ink-muted">
-                      {r.data_info.train_samples}/{r.data_info.val_samples}/{r.data_info.test_samples}
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 {/* Reasons */}
                 {r.reasons && r.reasons.length > 0 && (
@@ -282,14 +391,18 @@ export default function ValidationPage() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </CardBody>
       </Card>
 
       {/* Data Requirements */}
       <Card>
-        <CardHeader title="Data Requirements for Model Promotion" />
+        <CardHeader
+          title="Promotion Readiness"
+          subtitle="Computed from the latest walk-forward reports on this page"
+        />
         <CardBody>
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-3 gap-4 font-medium text-ink-subtle text-xs">
@@ -298,29 +411,64 @@ export default function ValidationPage() {
               <div>Status</div>
             </div>
             <div className="grid grid-cols-3 gap-4 text-ink-muted text-sm">
-              <div>Real observations per asset</div>
-              <div>25 days</div>
-              <div className="text-crit">Need 90+ days</div>
+              <div>Real observations (best-fed model)</div>
+              <div className="font-mono">{maxReal}</div>
+              <div className={maxReal >= 90 ? "text-ok" : "text-crit"}>
+                {maxReal >= 90 ? "Meets 90+ day bar" : "Need 90+ days"}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-4 text-ink-muted text-sm">
               <div>Beats persistence baseline</div>
-              <div>{summary?.recommendations?.REJECTED || 0} / {summary?.total_reports} assets</div>
-              <div className="text-crit">Majority fail</div>
+              <div className="font-mono">
+                {beatsCount} / {regReports.length || 0}
+              </div>
+              <div className={regReports.length ? toneFor(beatsCount / regReports.length) : "text-ink-subtle"}>
+                {!regReports.length
+                  ? "No reports"
+                  : beatsCount / regReports.length >= 0.7
+                    ? "Majority pass"
+                    : beatsCount / regReports.length >= 0.4
+                      ? "Mixed"
+                      : "Majority fail"}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-4 text-ink-muted text-sm">
               <div>R² &gt; 0.5</div>
-              <div>0 / {summary?.total_reports} assets</div>
-              <div className="text-crit">None pass</div>
+              <div className="font-mono">
+                {r2PassCount} / {regReports.length || 0}
+              </div>
+              <div className={regReports.length ? toneFor(r2PassCount / regReports.length) : "text-ink-subtle"}>
+                {!regReports.length
+                  ? "No reports"
+                  : r2PassCount / regReports.length >= 0.7
+                    ? "Majority pass"
+                    : r2PassCount / regReports.length >= 0.4
+                      ? "Mixed"
+                      : "Majority fail"}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-4 text-ink-muted text-sm">
-              <div>High-flow recall</div>
-              <div>Not evaluated</div>
-              <div className="text-warn">Need more data</div>
+              <div>Classifier recall (avg)</div>
+              <div className="font-mono">
+                {avgRecall === null ? "—" : `${(avgRecall * 100).toFixed(1)}%`}
+              </div>
+              <div className={avgRecall === null ? "text-ink-subtle" : avgRecall >= 0.6 ? "text-ok" : avgRecall >= 0.3 ? "text-warn" : "text-crit"}>
+                {avgRecall === null
+                  ? "Not evaluated"
+                  : avgRecall >= 0.6
+                    ? "Operational"
+                    : avgRecall >= 0.3
+                      ? "Improving"
+                      : "Needs review"}
+              </div>
             </div>
           </div>
-          <div className="mt-4 p-3 bg-warn-soft border border-warn/25 rounded-lg text-sm text-ink-muted">
-            <strong>Conclusion:</strong> With only 25 real observations per asset, models cannot learn meaningful patterns.
-            Need 6+ months of real IRSA data for production-ready models. Synthetic data is not used for final validation.
+          <div className="mt-4 p-3 bg-surface-sunken border border-line rounded-lg text-sm text-ink-muted">
+            <strong>How promotion works:</strong> every model is backtested with walk-forward
+            folds, then moves EXPERIMENTAL → SHADOW → APPROVED → PRODUCTION. Regression reports
+            are judged on MAE / R² vs the persistence baseline; classifier reports on AUC,
+            Brier skill and precision/recall. SHADOW models serve live traffic with scoring
+            before any human approval step.
           </div>
         </CardBody>
       </Card>

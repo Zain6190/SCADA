@@ -15,6 +15,7 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '@/app/water/flood-map/flood-map.css'
+import { LIGHT_GRAY_TILES, LIGHT_GRAY_ATTRIBUTION, GRAY_TILES_MAX_ZOOM } from '@/lib/map-tiles'
 
 import { RIVER_GEOMETRY, SEGMENT_RIVER } from './rivers'
 import type { AssetReading, FloodTerritoryFeature, ArrivalSegment, AlertMarker } from './use-flood-map-state'
@@ -389,8 +390,9 @@ export function FloodArrivalMap({
         style={{ height: '100%', width: '100%', background: 'rgb(var(--canvas))' }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          attribution={LIGHT_GRAY_ATTRIBUTION}
+          url={LIGHT_GRAY_TILES}
+          maxZoom={GRAY_TILES_MAX_ZOOM}
         />
 
         {showTerritories && territories.map((feature) => {

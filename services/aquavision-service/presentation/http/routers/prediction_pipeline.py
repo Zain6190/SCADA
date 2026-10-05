@@ -34,6 +34,7 @@ class ForecastResponse(BaseModel):
     predicted_outflow: Optional[float] = None
     predicted_discharge: Optional[float] = None
     confidence: Optional[float] = None
+    flood_probability: Optional[float] = None
     model_version: Optional[str] = None
     notes: Optional[str] = None
 
@@ -73,6 +74,7 @@ def list_forecasts(
             predicted_outflow=float(f.predicted_outflow) if f.predicted_outflow else None,
             predicted_discharge=float(f.predicted_discharge) if f.predicted_discharge else None,
             confidence=float(f.confidence) if f.confidence else None,
+            flood_probability=float(f.flood_probability) if f.flood_probability is not None else None,
             model_version=f.model_version,
             notes=f.notes,
         )

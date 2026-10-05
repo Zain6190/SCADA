@@ -235,7 +235,6 @@ def upsert_rows(rows: list[dict]) -> None:
                         observation_count = EXCLUDED.observation_count,
                         expected_observation_count = EXCLUDED.expected_observation_count,
                         quality_status = EXCLUDED.quality_status,
-                        surface_water_change_pct = EXCLUDED.surface_water_change_pct,
                         rainfall_mm_30day = EXCLUDED.rainfall_mm_30day,
                         rainfall_anomaly = EXCLUDED.rainfall_anomaly,
                         et_mm_8day = EXCLUDED.et_mm_8day,
@@ -303,17 +302,28 @@ def run() -> dict:
     upsert_rows(rows)
 
     span = (min(r["week_start_date"] for r in rows), max(r["week_start_date"] for r in rows))
-    partial = sum(1 for r in rows if not r["is_complete_period"])
+    incomplete = [r for r in rows if not r["is_complete_period"]]
+    complete_periods = [r["week_start_date"] for r in rows if r["is_complete_period"]]
+    if complete_periods:
+        last_complete = max(complete_periods)
+        gaps = sum(1 for r in incomplete if r["week_start_date"] < last_complete)
+        lag = len(incomplete) - gaps
+    else:
+        gaps = len(incomplete)
+        lag = 0
     sev = pd.Series([r["severity"] for r in rows]).value_counts()
     print(f"[sync_indicators] {len(rows)} rows across {span[0].date()} .. {span[1].date()}")
-    print(f"[sync_indicators] PARTIAL (incomplete) periods: {partial}")
+    if lag:
+        print(f"[sync_indicators] Trailing data-lag incomplete periods: {lag} "
+              "(newer than last complete month - expected)")
+    print(f"[sync_indicators] PARTIAL (incomplete) periods: {gaps}")
     print(f"[sync_indicators] Skipped {skipped} invalid rows")
     print(f"[sync_indicators] Severity distribution:\n{sev.to_string()}")
     return {
         "records_read": len(feats),
         "records_written": len(rows),
         "records_skipped": skipped,
-        "warning_count": partial,
+        "warning_count": gaps,
         "span": f"{span[0].date()}..{span[1].date()}",
     }
 

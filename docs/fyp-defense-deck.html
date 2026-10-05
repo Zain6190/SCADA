@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IBCP-SCADA · AquaVision — FYP Defense 2026-10-04</title>
+<style>
+  :root {
+    --ink: #06182A;
+    --panel: #0A2237;
+    --panel-2: #0D2A42;
+    --line: #16344E;
+    --flow: #3EC7E0;
+    --silt: #F0A93C;
+    --ok: #5BD6A0;
+    --crit: #FF6468;
+    --ink-hi: #EAF3F9;
+    --ink-lo: #8DA7BC;
+    --display: "Bahnschrift", "DIN Alternate", "Arial Narrow", sans-serif;
+    --body: "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Lucida Console", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #03101D; overflow: hidden; }
+
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  #deck {
+    width: 1280px; height: 720px; position: relative;
+    transform-origin: center center;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 39px, rgba(62,199,224,.035) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, rgba(62,199,224,.035) 39px 40px),
+      var(--ink);
+    color: var(--ink-hi);
+    font-family: var(--body);
+    box-shadow: 0 30px 80px rgba(0,0,0,.6);
+    border: 1px solid var(--line);
+  }
+
+  /* ---------- annunciator strip ---------- */
+  .strip {
+    position: absolute; top: 0; left: 0; right: 0; height: 46px;
+    display: flex; align-items: center; gap: 14px; padding: 0 28px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(10,34,55,.75); z-index: 5;
+    font-family: var(--mono); font-size: 13px; letter-spacing: .14em;
+    color: var(--ink-lo); text-transform: uppercase;
+  }
+  .strip .led {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--flow); box-shadow: 0 0 8px var(--flow);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .strip .sec { color: var(--flow); }
+  .strip .num { margin-left: auto; color: var(--ink-hi); }
+  .strip .num b { color: var(--flow); font-weight: 400; }
+  .strip .num .tot { color: var(--ink-lo); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  #channel { position: absolute; top: 45px; left: 0; right: 0; height: 3px; z-index: 6; background: var(--line); }
+  #channel i { display: block; height: 100%; width: 0; background: var(--flow); transition: width .35s ease; box-shadow: 0 0 6px rgba(62,199,224,.7); }
+
+  /* ---------- slides ---------- */
+  .slide {
+    position: absolute; inset: 46px 0 0 0; padding: 40px 64px 56px;
+    display: none; flex-direction: column;
+  }
+  .slide.active { display: flex; animation: enter .3s ease both; }
+  @keyframes enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  h1 { font-family: var(--display); font-size: 76px; font-weight: 700; line-height: 1.02; letter-spacing: -.01em; }
+  h2 { font-family: var(--display); font-size: 46px; font-weight: 700; line-height: 1.05; margin-bottom: 10px; }
+  .kicker {
+    font-family: var(--mono); font-size: 13px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--silt); margin-bottom: 14px;
+  }
+  .sub { color: var(--ink-lo); font-size: 20px; line-height: 1.5; max-width: 96ch; }
+  .grow { flex: 1; min-height: 0; }
+  .cols { display: flex; gap: 22px; }
+  .col { flex: 1; min-width: 0; }
+
+  /* ---------- panels & readouts ---------- */
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 20px 22px; position: relative;
+  }
+  .panel h3 {
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--flow); font-weight: 500; margin-bottom: 10px;
+  }
+  .panel p, .panel li { font-size: 16.5px; line-height: 1.5; color: var(--ink-hi); }
+  .panel p + p { margin-top: 8px; }
+  .panel .muted { color: var(--ink-lo); }
+  .panel ul { list-style: none; }
+  .panel li { padding: 5px 0 5px 18px; position: relative; color: var(--ink-hi); }
+  .panel li::before { content: "▸"; position: absolute; left: 0; color: var(--flow); }
+  .panel li.warn::before { color: var(--silt); }
+  .panel li.ok::before { color: var(--ok); }
+
+  .stats { display: flex; gap: 22px; }
+  .stat { flex: 1; background: var(--panel); border: 1px solid var(--line); padding: 18px 20px 16px; }
+  .stat b {
+    display: block; font-family: var(--display); font-weight: 700;
+    font-size: 54px; line-height: 1; color: var(--ink-hi);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat b small { font-size: 24px; color: var(--flow); font-weight: 600; }
+  .stat span {
+    display: block; margin-top: 8px; font-family: var(--mono); font-size: 12px;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-lo);
+  }
+  .stat.flow b { color: var(--flow); }
+  .stat.ok b { color: var(--ok); }
+  .stat.silt b { color: var(--silt); }
+  .stat.crit b { color: var(--crit); }
+
+  /* ---------- chips / chains ---------- */
+  .chain { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .chip {
+    font-family: var(--mono); font-size: 14px; letter-spacing: .06em;
+    padding: 9px 15px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink-hi); white-space: nowrap;
+  }
+  .chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+  .arrow { color: var(--flow); font-family: var(--mono); font-size: 17px; }
+  .chip.machine { border-color: rgba(240,169,60,.55); }
+  .chip.human { border-color: rgba(62,199,224,.55); }
+  .chip.term { border-color: rgba(255,100,104,.55); }
+  .c-exp .dot { background: var(--silt); }
+  .c-shadow .dot { background: var(--silt); box-shadow: 0 0 6px var(--silt); }
+  .c-appr .dot { background: var(--flow); }
+  .c-prod .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .c-rej .dot { background: var(--crit); }
+
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: 11.5px;
+    letter-spacing: .1em; padding: 3px 9px; border: 1px solid var(--line);
+    color: var(--ink-lo); text-transform: uppercase; margin-right: 8px;
+  }
+  .tag.m { border-color: rgba(240,169,60,.6); color: var(--silt); }
+  .tag.h { border-color: rgba(62,199,224,.6); color: var(--flow); }
+
+  .legend { display: flex; gap: 26px; font-family: var(--mono); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-lo); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 9px; }
+
+  /* ---------- pipeline diagram ---------- */
+  .pipe { display: flex; align-items: stretch; gap: 0; margin-top: 6px; }
+  .node {
+    flex: 1; background: var(--panel); border: 1px solid var(--line);
+    padding: 16px 14px; text-align: center; position: relative;
+  }
+  .node strong { display: block; font-family: var(--display); font-size: 19px; font-weight: 600; letter-spacing: .02em; }
+  .node span { display: block; margin-top: 7px; font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em; color: var(--ink-lo); line-height: 1.55; }
+  .join { display: flex; align-items: center; padding: 0 8px; color: var(--flow); font-family: var(--mono); font-size: 20px; }
+  .node.hot { border-color: rgba(62,199,224,.5); box-shadow: inset 0 0 0 1px rgba(62,199,224,.15); }
+
+  .note { font-family: var(--mono); font-size: 13.5px; color: var(--silt); line-height: 1.6; }
+  .foot { position: absolute; left: 64px; right: 170px; bottom: 20px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; letter-spacing: .1em; color: var(--ink-lo); text-transform: uppercase; }
+
+  /* ---------- nav ---------- */
+  #nav { position: absolute; right: 20px; bottom: 14px; display: flex; gap: 8px; z-index: 9; }
+  #nav button {
+    font-family: var(--mono); font-size: 16px; width: 40px; height: 34px;
+    background: var(--panel); color: var(--ink-lo); border: 1px solid var(--line);
+    cursor: pointer;
+  }
+  #nav button:hover, #nav button:focus-visible { color: var(--flow); border-color: var(--flow); outline: none; }
+  #dots { position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; display: flex; gap: 7px; z-index: 9; }
+  #dots i { width: 22px; height: 4px; background: var(--line); cursor: pointer; }
+  #dots i.on { background: var(--flow); box-shadow: 0 0 5px rgba(62,199,224,.6); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .strip .led { animation: none; }
+    .slide.active { animation: none; }
+    #channel i { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+<div id="deck">
+
+  <div class="strip">
+    <span class="led"></span>
+    <span>Aquavision ▸ <span class="sec" id="sec">Title</span></span>
+    <span class="num"><b id="cur">01</b><span class="tot">/13</span></span>
+  </div>
+  <div id="channel"><i id="fill"></i></div>
+
+  <!-- 01 · TITLE -->
+  <section class="slide active">
+    <div class="grow" style="display:flex; flex-direction:column; justify-content:center;">
+      <div class="kicker">Final Year Project · Defense · 04 Oct 2026</div>
+      <h1>IBCP-SCADA<br><span style="color:var(--flow)">AquaVision</span></h1>
+      <p class="sub" style="margin-top:22px; font-size:22px;">
+        Flood &amp; irrigation decision support for the Indus Basin — one platform from
+        gauge readings to assigned field work. Every number sourced, validated, and honestly labelled.
+      </p>
+      <div class="legend" style="margin-top:34px;">
+        <span><i style="background:var(--flow)"></i>Data</span>
+        <span><i style="background:var(--silt)"></i>ML</span>
+        <span><i style="background:var(--ok)"></i>Governance</span>
+        <span><i style="background:var(--crit)"></i>Workflow</span>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat flow"><b>21</b><span>Regions monitored</span></div>
+      <div class="stat"><b>11</b><span>Active assets</span></div>
+      <div class="stat silt"><b>88</b><span>Model versions</span></div>
+      <div class="stat ok"><b>397</b><span>Tests passing</span></div>
+    </div>
+    <div class="foot"><span>Indus Basin · SCADA → ML → Decisions</span><span>Live system: localhost:3000</span></div>
+  </section>
+
+  <!-- 02 · PROBLEM -->
+  <section class="slide">
+    <div class="kicker">01 · The problem</div>
+    <h2>The Indus runs on lead time</h2>
+    <p class="sub" style="margin-bottom:24px;">A flood wave, an irrigation release, and a dam's inflow share one river — but operators read them from separate, lagged sources.</p>
+    <div class="cols grow">
+      <div class="panel col">
+        <h3>Flood</h3>
+        <p>The 2022 floods affected ~33 million people across Pakistan.</p>
+        <p class="muted">Warnings exist. Coordination between bulletin, gauge, and ground truth does not.</p>
+      </div>
+      <div class="panel col">
+        <h3>Irrigation</h3>
+        <p>The Indus is the world's largest contiguous irrigation network — every release is a decision with a downstream price.</p>
+        <p class="muted">Canal schedules run on historical habits, not on this week's rainfall or snowmelt.</p>
+      </div>
+      <div class="panel col">
+        <h3>Operations</h3>
+        <p>Bulletins, spreadsheets, phone calls — no single pane of glass, no audit trail, no ownership when an alert fires at 02:00.</p>
+        <p class="muted">Sensors report; nobody is assigned.</p>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:22px; border-color:rgba(62,199,224,.5);">
+      <p><span class="tag h">Our answer</span> Ingest → validate → forecast → alert → <b>assign the work</b>, in one audited system.</p>
+    </div>
+    <div class="foot"><span>Why this system exists</span></div>
+  </section>
+
+  <!-- 03 · ARCHITECTURE -->
+  <section class="slide">
+    <div class="kicker">02 · Architecture</div>
+    <h2>One pipeline, four containers</h2>
+    <div class="grow" style="display:flex; flex-direction:column; justify-content:center; gap:26px;">
+      <div class="pipe">
+        <div class="node"><strong>Sources</strong><span>IRSA · GEE<br>Open-Meteo<br>Field readings</span></div>
+        <div class="join">▸</div>
+        <div class="node"><strong>Scheduler</strong><span>ingest · fetch<br>train · validate<br>pipeline locks</span></div>
+        <div class="join">▸</div>
+        <div class="node hot"><strong>Postgres</strong><span>Neon cloud<br>21 regions<br>audit history</span></div>
+        <div class="join">▸</div>
+        <div class="node hot"><strong>ML core</strong><span>predictors<br>classifiers<br>validation</span></div>
+        <div class="join">▸</div>
+        <div class="node"><strong>Alerts</strong><span>rules + ML<br>SLA engine<br>instructions</span></div>
+        <div class="join">▸</div>
+        <div class="node"><strong>Dashboard</strong><span>FastAPI :8100<br>Next.js :3000<br>role-scoped</span></div>
+      </div>
+      <div class="cols">
+        <div class="panel col">
+          <h3>Runtime</h3>
+          <ul>
+            <li><b>ibcp-api</b> — FastAPI, RBAC, alert + registry endpoints</li>
+            <li><b>ibcp-scheduler</b> — ingestion, WAI pipeline, ML jobs</li>
+            <li><b>ibcp-frontend</b> — Next.js dashboard, map, admin boards</li>
+            <li><b>ibcp-postgis</b> — legacy local store</li>
+          </ul>
+        </div>
+        <div class="panel col">
+          <h3>Engineering discipline</h3>
+          <ul>
+            <li class="ok">Alembic migrations — schema is code, not folklore</li>
+            <li class="ok">Pipeline locks — no job ever double-fires</li>
+            <li class="ok">Every run recorded in <b>pipeline_runs</b> (SUCCESS / FAILED / PARTIAL)</li>
+            <li class="ok">Seed credentials absent → job soft-skips, system stays honest</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>docker compose up — everything runs from this repo</span></div>
+  </section>
+
+  <!-- 04 · SURFACE WATER TRUTH -->
+  <section class="slide">
+    <div class="kicker">03 · Data truth · Sentinel-2 surface water</div>
+    <h2>One methodology, every week</h2>
+    <div class="cols grow" style="margin-top:14px;">
+      <div class="panel col" style="flex:1.25;">
+        <h3>What was wrong</h3>
+        <ul>
+          <li class="warn">Mean reducer over water mask → ~0 km² everywhere</li>
+          <li class="warn">No cloud budget, no date filter — scenes from any season</li>
+          <li class="warn">Partial windows overwrote full history in the CSV</li>
+          <li class="warn">Demo rows seeded with a different methodology → fake Δ%</li>
+        </ul>
+        <h3 style="margin-top:18px;">What ships now</h3>
+        <ul>
+          <li class="ok">Single-pass NDWI+MNDWI composite, service-account GEE auth</li>
+          <li class="ok"><b>Sum-based</b> water area × 30 m pixels — area is area</li>
+          <li class="ok">Cloud-aware week window + tileScale ladder (60→100)</li>
+          <li class="ok">Merge-on-write CSV — partial runs can't destroy history</li>
+          <li class="ok">Demo rows deleted; every Δ shares one methodology</li>
+        </ul>
+      </div>
+      <div class="col" style="flex:1; display:flex; flex-direction:column; gap:22px; justify-content:center;">
+        <div class="stats" style="gap:16px;">
+          <div class="stat flow" style="flex:1;"><b>294</b><span>Weekly rows · 14 weeks</span></div>
+          <div class="stat ok" style="flex:1;"><b>21<small>/21</small></b><span>Regions current · 2026-10-01</span></div>
+        </div>
+        <div class="stats" style="gap:16px;">
+          <div class="stat" style="flex:1;"><b>−43<small>%</small></b><span>Punjab · Δ week/week</span></div>
+          <div class="stat silt" style="flex:1;"><b>+15<small>%</small></b><span>Sindh Δ week/week</span></div>
+        </div>
+        <div class="panel">
+          <p class="note">Honest labels: when CHIRPS/ERA5 finals lag upstream, the UI says
+          “Awaiting finalized … (source lag)” — it never prints 0 as truth.</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>gee/surface_water.py · propagate_surface_water.py · sync_indicators.py</span></div>
+  </section>
+
+  <!-- 05 · WAI -->
+  <section class="slide">
+    <div class="kicker">04 · Indicators</div>
+    <h2>Water Availability Index — 10 inputs, one score</h2>
+    <div class="cols grow" style="margin-top:14px;">
+      <div class="panel col" style="flex:1.2;">
+        <h3>What feeds it</h3>
+        <ul>
+          <li>Discharge &amp; reservoir levels (IRSA, daily)</li>
+          <li>Rainfall (CHIRPS) · Evapotranspiration (ERA5-Land)</li>
+          <li>Surface-water extent (Sentinel-2, weekly)</li>
+          <li>Soil moisture · NDVI · temperature (GEE + weather feed)</li>
+          <li>Water quality &amp; salinity where gauged</li>
+        </ul>
+        <p class="muted" style="margin-top:14px;">Weekly propagation stamps <b>every region</b> with a period-complete row — no NULL weeks hiding in the chart.</p>
+      </div>
+      <div class="col" style="display:flex; flex-direction:column; gap:22px; justify-content:center;">
+        <div class="stats" style="gap:16px;">
+          <div class="stat flow"><b>73.8</b><span>Avg WAI · national</span></div>
+          <div class="stat ok"><b>0</b><span>Critical regions</span></div>
+        </div>
+        <div class="panel">
+          <h3>Provenance on every number</h3>
+          <p>DTO exposes <span class="tag">data_status</span><span class="tag">quality</span><span class="tag">provider</span><span class="tag">model_version</span> — the chart can tell you how much to trust it.</p>
+          <p class="note" style="margin-top:10px;">National status this week: NORMAL · week 2026-10-01</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>GET /water/overview · GET /water/indicators</span></div>
+  </section>
+
+  <!-- 06 · FORECASTING ML -->
+  <section class="slide">
+    <div class="kicker">05 · Machine learning · forecasting</div>
+    <h2>Forecast with intervals, not confidence theatre</h2>
+    <div class="cols grow" style="margin-top:14px;">
+      <div class="panel col">
+        <h3>Flood predictor — 7 / 14 / 30 day</h3>
+        <ul>
+          <li>Quantile forecasts <b>q10–q90</b> → 80% interval with <b>measured</b> coverage</li>
+          <li>Walk-forward R² is the primary metric — a single split lies under drift</li>
+          <li>Beats persistence baseline or it does not ship</li>
+          <li>Horizon with no registry row → badge <b>UNREGISTERED</b>, not a fake score</li>
+        </ul>
+      </div>
+      <div class="panel col">
+        <h3>Organic accuracy loop</h3>
+        <ul>
+          <li>Every matured prediction lands in <b>prediction_errors</b></li>
+          <li>accuracy = 1 − MAPE on real data, per horizon</li>
+          <li>Below min-sample → “Not validated” instead of a number</li>
+          <li>Degradation feeds UC-6 model-quality alerts</li>
+        </ul>
+      </div>
+      <div class="col" style="display:flex; flex-direction:column; gap:22px; justify-content:center;">
+        <div class="stats" style="gap:16px;">
+          <div class="stat flow"><b>401</b><span>Scored predictions · Apr→Oct</span></div>
+        </div>
+        <div class="stats" style="gap:16px;">
+          <div class="stat"><b>220</b><span>Live forecast rows</span></div>
+        </div>
+        <div class="panel"><p class="note">Physics-based fallback (dams/volume balance) keeps flowing where ML has no history.</p></div>
+      </div>
+    </div>
+    <div class="foot"><span>ml/models/prediction_v2.py · scripts/compute_accuracy.py</span></div>
+  </section>
+
+  <!-- 07 · CLASSIFIER -->
+  <section class="slide">
+    <div class="kicker">06 · Machine learning · classification</div>
+    <h2>Probability → alert → assigned work</h2>
+    <div class="pipe" style="margin-top:22px;">
+      <div class="node"><strong>Observations</strong><span>last 60 readings<br>inflow · level · outflow</span></div>
+      <div class="join">▸</div>
+      <div class="node hot"><strong>Flood classifier</strong><span>per-asset model<br>SMOTE-balanced<br>p = flood_probability</span></div>
+      <div class="join">▸</div>
+      <div class="node hot"><strong>Threshold engine</strong><span>p + forecast danger<br>+ rule breaches</span></div>
+      <div class="join">▸</div>
+      <div class="node"><strong>Operational alert</strong><span>alert_source = ML<br>7-day flood risk<br>map + queue</span></div>
+    </div>
+    <div class="cols" style="margin-top:26px;">
+      <div class="panel col">
+        <h3>Scored like a forecast, not a demo</h3>
+        <ul>
+          <li>Walk-forward AUC + Brier skill vs baseline + precision/recall</li>
+          <li>Score ≥ 70 → SHADOW, ≥ 40 → EXPERIMENTAL, else REJECTED</li>
+          <li>No positive or no negative labels → refuses to score</li>
+        </ul>
+      </div>
+      <div class="panel col" style="border-color:rgba(255,100,104,.5);">
+        <h3>One hard serving gate</h3>
+        <ul>
+          <li class="warn">A <b>REJECTED</b> classifier never reaches forecasts, maps, or alerts</li>
+          <li>Gate reads the registry on every tick — rollback is one click</li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot"><span>ml/models/flood_classifier.py · infrastructure/thresholds/engine.py</span></div>
+  </section>
+
+  <!-- 08 · REGISTRY -->
+  <section class="slide">
+    <div class="kicker">07 · MLOps · model registry (UC-9)</div>
+    <h2>Models earn trust in stages</h2>
+    <div class="chain" style="margin-top:24px;">
+      <span class="chip machine c-exp">EXPERIMENTAL</span><span class="arrow">─walk-forward─▶</span>
+      <span class="chip machine c-shadow">SHADOW</span><span class="arrow">─review─▶</span>
+      <span class="chip human c-appr">APPROVED</span><span class="arrow">─promote─▶</span>
+      <span class="chip human c-prod">PRODUCTION</span><span class="arrow" style="color:var(--crit)">─reject─▶</span>
+      <span class="chip term c-rej">REJECTED</span>
+    </div>
+    <div style="margin-top:16px;">
+      <span class="tag m">machine hop — API cannot perform it</span>
+      <span class="tag h">human gate — AQUAVISION_APPROVE_REPORT · approved_by stamped</span>
+    </div>
+    <div class="cols" style="margin-top:26px;">
+      <div class="panel col" style="flex:1.3;">
+        <h3>Weekly chain · no human needed to evaluate</h3>
+        <ul>
+          <li>Sun 03:30 retrain → 03:45 walk-forward validate → 03:58 register &amp; auto-transition</li>
+          <li>Every verdict stored: metrics, reasons, per-fold detail</li>
+          <li>Human-only: approve → promote; reject from <b>any</b> status = rollback</li>
+        </ul>
+        <p class="muted" style="margin-top:12px;">Design doc: <b>docs/model-registry-design.md</b></p>
+      </div>
+      <div class="col" style="display:flex; flex-direction:column; gap:18px;">
+        <div class="stats" style="gap:16px;">
+          <div class="stat silt"><b>88</b><span>Versions tracked</span></div>
+          <div class="stat flow"><b>223</b><span>Validation reports</span></div>
+        </div>
+        <div class="stats" style="gap:16px;">
+          <div class="stat ok"><b>1</b><span>In production · signed 2026-10-03</span></div>
+          <div class="stat"><b>26</b><span>In shadow</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>/admin/registry board · guarded approve / promote / reject API</span></div>
+  </section>
+
+  <!-- 09 · ALERTS -->
+  <section class="slide">
+    <div class="kicker">08 · Workflow</div>
+    <h2>Alerts are events — work is assigned</h2>
+    <div class="chain" style="margin-top:24px;">
+      <span class="chip">NEW</span><span class="arrow">─ack─▶</span>
+      <span class="chip">ACKNOWLEDGED</span><span class="arrow">─work─▶</span>
+      <span class="chip">INVESTIGATING</span><span class="arrow">─report·verify─▶</span>
+      <span class="chip" style="border-color:rgba(91,214,160,.55)">RESOLVED</span>
+    </div>
+    <div class="chain" style="margin-top:14px;">
+      <span class="chip" style="border-color:rgba(255,100,104,.55)">SLA 15/30 min ──▶ ESCALATED</span>
+      <span class="chip">INFO only ──▶ AUTO_RESOLVED</span>
+      <span class="chip">Supervisor issues instruction ──▶ Officer reports ──▶ Verified</span>
+    </div>
+    <div class="cols" style="margin-top:26px;">
+      <div class="panel col" style="flex:1.25;">
+        <h3>The loop</h3>
+        <ul>
+          <li>5 roles: admin · supervisor · officer · analyst · viewer — every action writes actor + role to an append-only event log</li>
+          <li>Instructions carry due times; missed due → auto-escalate</li>
+          <li>Alert can't close while its instructions are open</li>
+          <li>UC-1…UC-8: forecast escalation, threshold breach, outage, accuracy drop, water stress, episode rollup</li>
+        </ul>
+      </div>
+      <div class="col" style="display:flex; flex-direction:column; gap:18px;">
+        <div class="stats" style="gap:16px;">
+          <div class="stat crit"><b>15</b><span>Open (12 esc · 3 new)</span></div>
+          <div class="stat ok"><b>28</b><span>Resolved</span></div>
+        </div>
+        <div class="stats" style="gap:16px;">
+          <div class="stat"><b>49</b><span>Total alerts</span></div>
+          <div class="stat flow"><b>5</b><span>Roles · RBAC</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>docs/alert-workflow-design.md · /water/operator/alerts</span></div>
+  </section>
+
+  <!-- 10 · DASHBOARD -->
+  <section class="slide">
+    <div class="kicker">09 · Product</div>
+    <h2>The dashboard tells the truth first</h2>
+    <div class="cols grow" style="margin-top:14px;">
+      <div class="panel col" style="flex:1.25;">
+        <h3>/water overview — reading order</h3>
+        <ul>
+          <li><b>Basin status</b> — WAI, national verdict, alert count</li>
+          <li><b>Observed inputs</b> — what actually arrived, and when</li>
+          <li><b>Charts</b> — WAI trend · daily observations · forecast severity</li>
+          <li><b>Provenance</b> — provider, quality, model version</li>
+          <li><b>Forecast + alerts</b> — decisions, not decoration</li>
+          <li><b>Map last</b> — context after the numbers, not instead of them</li>
+        </ul>
+      </div>
+      <div class="panel col" style="border-color:rgba(240,169,60,.5);">
+        <h3>Honest labels — by design</h3>
+        <ul>
+          <li class="warn">“Awaiting satellite surface-water sync” — when the week isn't there yet</li>
+          <li class="warn">“Awaiting finalized CHIRPS/ERA5 (source lag)” — upstream stops at Aug 31</li>
+          <li class="warn">Never render missing data as 0</li>
+          <li class="warn">Severity vocabulary uppercase: NEW, not New</li>
+        </ul>
+      </div>
+      <div class="col" style="display:flex; flex-direction:column; gap:18px; justify-content:center;">
+        <div class="panel"><h3>Boards</h3>
+          <ul>
+            <li>/water — operations</li>
+            <li>/admin/alerts — escalation &amp; MTTR</li>
+            <li>/admin/validation — walk-forward evidence</li>
+            <li>/admin/registry — model lifecycle</li>
+            <li>/admin — users, roles, scopes</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>localhost:3000 · map = ESRI gray canvas, 21 regions</span></div>
+  </section>
+
+  <!-- 11 · VERIFICATION -->
+  <section class="slide">
+    <div class="kicker">10 · Evidence</div>
+    <h2>Verified, not asserted</h2>
+    <div class="stats" style="margin-top:22px;">
+      <div class="stat ok"><b>397<small>+1</small></b><span>Pytest pass · 1 skip</span></div>
+      <div class="stat flow"><b>0</b><span>TypeScript errors · tsc --noEmit</span></div>
+      <div class="stat"><b>82</b><span>IRSA ingest runs success</span></div>
+      <div class="stat silt"><b>3</b><span>Sunday ML jobs green</span></div>
+    </div>
+    <div class="cols" style="margin-top:26px;">
+      <div class="panel col">
+        <h3>End-to-end today</h3>
+        <ul>
+          <li class="ok">Surface-water fetch ran live: 105 rows written (GEE)</li>
+          <li class="ok">WAI pipeline propagate → 21/21 regions stamped 2026-10-01</li>
+          <li class="ok">/water → 200, /water/overview → live JSON</li>
+          <li class="ok">Registry API returns valid transitions for every row</li>
+        </ul>
+      </div>
+      <div class="panel col">
+        <h3>What the tests pin down</h3>
+        <ul>
+          <li>Lifecycle: invalid jumps rejected, terminal states terminal</li>
+          <li>Classifier: insufficient / degenerate data refuses to score</li>
+          <li>Alert workflow: RBAC, SLA escalation, instruction gating</li>
+          <li>WAI + registry + ingest suites — all green in CI-able run</li>
+        </ul>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:22px;">
+      <p class="note">git: main at c5bc4b9 — “feat(aquavision): truthful surface-water pipeline + overview upgrade”, 13 files, +699/−81.</p>
+    </div>
+    <div class="foot"><span>pytest · tsc · live smoke — repeatable commands in AGENTS.md</span></div>
+  </section>
+
+  <!-- 12 · LIMITS -->
+  <section class="slide">
+    <div class="kicker">11 · Honest limits &amp; roadmap</div>
+    <h2>What we know is not finished</h2>
+    <div class="cols grow" style="margin-top:14px;">
+      <div class="panel col">
+        <h3>Constraints we label, not hide</h3>
+        <ul>
+          <li class="warn">CHIRPS daily stops 2026-08-31, ERA5 monthly 2026-08-01 — UI says “source lag”</li>
+          <li class="warn">JRC global surface water ends 2021 — label weights renormalized</li>
+          <li class="warn">free-tier GEE budget caps scale — ladder (60→100) per region</li>
+        </ul>
+      </div>
+      <div class="panel col">
+        <h3>Engineering deferrals</h3>
+        <ul>
+          <li class="warn">high_flow_predictor has no walk-forward reports yet — stays EXPERIMENTAL</li>
+          <li class="warn">Registry labels &amp; gates serving but doesn't pick artifact bytes yet</li>
+          <li class="warn">Promotion has no notification hook — board-watchers only</li>
+          <li class="warn">Asset ↔ region mapping pending (province NULL)</li>
+        </ul>
+      </div>
+      <div class="panel col">
+        <h3>Next</h3>
+        <ul>
+          <li class="ok">Wire PRODUCTION row → artifact selection (get_active_model)</li>
+          <li class="ok">Extend validation reporting to all model types</li>
+          <li class="ok">Dispatcher emails on promote/reject</li>
+          <li class="ok">Region-scoped queues once assets carry regions</li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot"><span>A system you can trust admits what it doesn't know</span></div>
+  </section>
+
+  <!-- 13 · END -->
+  <section class="slide">
+    <div class="grow" style="display:flex; flex-direction:column; justify-content:center;">
+      <div class="kicker">End of presentation</div>
+      <h1 style="font-size:64px;">Questions?</h1>
+      <p class="sub" style="margin-top:20px;">
+        The system is running — API :8100, dashboard :3000 — and the evidence is in the repo.
+      </p>
+      <div class="cols" style="margin-top:36px;">
+        <div class="panel col">
+          <h3>Walkthroughs in-tree</h3>
+          <ul>
+            <li>docs/alert-workflow-design.md — UC-1…8</li>
+            <li>docs/model-registry-design.md — UC-9…12</li>
+            <li>docs/aquavision-architecture.md</li>
+          </ul>
+        </div>
+        <div class="panel col">
+          <h3>Live to click now</h3>
+          <ul>
+            <li>/water — overview, charts, map</li>
+            <li>/water/operator/alerts — issue → report → verify</li>
+            <li>/admin/registry — approve / promote / reject</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>IBCP-SCADA · AquaVision · FYP defense 2026-10-04</span><span>Thank you</span></div>
+  </section>
+
+  <div id="dots"></div>
+  <div id="nav">
+    <button id="prev" title="Previous (←)" aria-label="Previous slide">‹</button>
+    <button id="next" title="Next (→ / Space)" aria-label="Next slide">›</button>
+  </div>
+
+</div>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const sections = ['Title','Problem','Architecture','Surface water','Indicators','Forecasting','Classification','Registry','Workflow','Product','Evidence','Limits','Q&A'];
+  const total = slides.length;
+  let i = -1;
+
+  const dots = document.getElementById('dots');
+  slides.forEach((_, n) => {
+    const d = document.createElement('i');
+    d.title = (n + 1) + ' / ' + total;
+    d.addEventListener('click', () => go(n));
+    dots.appendChild(d);
+  });
+
+  function go(n) {
+    const target = Math.max(0, Math.min(total - 1, n));
+    if (target === i) return;
+    i = target;
+    slides.forEach((s, n2) => s.classList.toggle('active', n2 === i));
+    document.getElementById('cur').textContent = String(i + 1).padStart(2, '0');
+    document.getElementById('sec').textContent = sections[i] || '';
+    document.getElementById('fill').style.width = ((i + 1) / total * 100) + '%';
+    Array.from(dots.children).forEach((d, n2) => d.classList.toggle('on', n2 === i));
+    history.replaceState(null, '', '#' + (i + 1));
+  }
+
+  document.getElementById('next').addEventListener('click', () => go(i + 1));
+  document.getElementById('prev').addEventListener('click', () => go(i - 1));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ' || e.key === 'Enter') { e.preventDefault(); go(i + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'Backspace') { e.preventDefault(); go(i - 1); }
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(total - 1);
+  });
+
+  function fit() {
+    const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720) * 0.98;
+    document.getElementById('deck').style.transform = 'scale(' + s + ')';
+  }
+  window.addEventListener('resize', fit);
+
+  const h = parseInt(location.hash.slice(1), 10);
+  go(h >= 1 && h <= total ? h - 1 : 0);
+  fit();
+</script>
+</body>
+</html>

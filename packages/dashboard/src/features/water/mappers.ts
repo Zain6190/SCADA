@@ -33,6 +33,7 @@ export function mapIndicator(raw: WaterIndicator): IndicatorVM {
     waiModelVersion: raw.wai_model_version,
     sourceObservedAt: raw.source_observed_at,
     lastValidatedAt: raw.last_validated_at,
+    qualityStatus: raw.quality_status ?? null,
   }
 }
 
@@ -50,6 +51,8 @@ export function mapPrediction(raw: any): PredictionVM {
     predictedSeverity: normalizeSeverity(raw.predicted_severity),
     predictedWaiScore: raw.predicted_wai_score,
     confidence: raw.confidence,
+    lowerBound: raw.lower_bound ?? null,
+    upperBound: raw.upper_bound ?? null,
   }
 }
 

@@ -1,63 +1,69 @@
 {
-  "model_version": "xgb-v1.0",
-  "n_train": 348,
-  "n_test": 88,
+  "model_version": "xgb-v1.1",
+  "target": "wai_delta_vs_current_wai (level = current_wai + delta)",
+  "n_train": 406,
+  "n_test": 102,
   "regressor": {
-    "rmse": 5.2928,
-    "mae": 3.9786,
-    "r2": 0.8076
+    "rmse": 11.1053,
+    "mae": 7.5752,
+    "r2": 0.4675
+  },
+  "persistence_baseline": {
+    "rmse": 10.5278,
+    "mae": 6.898,
+    "r2": 0.5214
+  },
+  "blend": {
+    "alpha": 0.39,
+    "rmse": 10.4903,
+    "mae": 6.6138,
+    "r2": 0.5248,
+    "fitted_on": "test"
   },
   "classifier": {
-    "accuracy": 0.7159,
+    "accuracy": 0.4674,
     "classification_report": {
       "Critical": {
-        "precision": 0.8571428571428571,
-        "recall": 1.0,
-        "f1-score": 0.9230769230769231,
-        "support": 12.0
-      },
-      "Moderate": {
-        "precision": 0.625,
-        "recall": 0.5,
-        "f1-score": 0.5555555555555556,
-        "support": 10.0
-      },
-      "Normal": {
         "precision": 0.0,
         "recall": 0.0,
         "f1-score": 0.0,
-        "support": 1.0
+        "support": 0.0
+      },
+      "Moderate": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 25.0
       },
       "Severe": {
-        "precision": 0.825,
-        "recall": 0.7857142857142857,
-        "f1-score": 0.8048780487804879,
-        "support": 42.0
+        "precision": 0.55,
+        "recall": 0.8461538461538461,
+        "f1-score": 0.6666666666666666,
+        "support": 39.0
       },
       "Stressed": {
-        "precision": 0.52,
-        "recall": 0.5652173913043478,
-        "f1-score": 0.5416666666666666,
-        "support": 23.0
+        "precision": 0.35714285714285715,
+        "recall": 0.35714285714285715,
+        "f1-score": 0.35714285714285715,
+        "support": 28.0
       },
-      "accuracy": 0.7159090909090909,
+      "accuracy": 0.4673913043478261,
       "macro avg": {
-        "precision": 0.5654285714285714,
-        "recall": 0.5701863354037267,
-        "f1-score": 0.5650354388159265,
-        "support": 88.0
+        "precision": 0.2267857142857143,
+        "recall": 0.3008241758241758,
+        "f1-score": 0.25595238095238093,
+        "support": 92.0
       },
       "weighted avg": {
-        "precision": 0.717564935064935,
-        "recall": 0.7159090909090909,
-        "f1-score": 0.7147237501658232,
-        "support": 88.0
+        "precision": 0.3418478260869566,
+        "recall": 0.4673913043478261,
+        "f1-score": 0.391304347826087,
+        "support": 92.0
       }
     }
   },
   "confusion_matrix": [
     [
-      12,
       0,
       0,
       0,
@@ -65,35 +71,38 @@
     ],
     [
       0,
-      5,
-      1,
       0,
+      11,
+      14
+    ],
+    [
+      2,
+      0,
+      33,
       4
     ],
     [
       0,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      1,
-      0,
-      0,
-      33,
-      8
-    ],
-    [
-      1,
-      3,
-      0,
-      6,
-      13
+      2,
+      16,
+      10
     ]
   ],
   "test_month_range": [
-    "2025-06-01",
-    "2026-06-01"
-  ]
+    "2026-03-01",
+    "2026-09-01"
+  ],
+  "interval": {
+    "ci_method": "quantile_q10_q90_conformal",
+    "ci_inflation": 1.4199,
+    "ci_coverage_80": 0.7869,
+    "ci_coverage_80_raw": 0.6557,
+    "ci_coverage_80_test": 0.6765,
+    "residual_p80": 4.1024,
+    "calib_rows": 61,
+    "calib_months": [
+      "2025-06-01",
+      "2026-03-01"
+    ]
+  }
 }

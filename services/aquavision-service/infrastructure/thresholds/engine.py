@@ -475,6 +475,39 @@ def _link_alert_to_episode(
     db.flush()
 
 
+def close_resolved_episodes(db: Session) -> int:
+    """Resolve OPEN episodes whose member alerts are all terminal.
+
+    Episodes close when every linked alert reached RESOLVED or
+    FALSE_OR_INVALID_DATA (UC-8: the umbrella resolves only after its
+    members do). Episodes with no linked alerts are left untouched.
+    Returns the number of episodes closed.
+    """
+    open_episodes = db.execute(
+        select(WaterAlertEpisode).where(WaterAlertEpisode.status == "OPEN")
+    ).scalars().all()
+
+    closed = 0
+    for episode in open_episodes:
+        members = db.execute(
+            select(WaterOperationalAlert).where(
+                WaterOperationalAlert.episode_id == episode.id
+            )
+        ).scalars().all()
+        if not members:
+            continue
+        if any(m.status not in (STATUS_RESOLVED, STATUS_FALSE_INVALID) for m in members):
+            continue
+        episode.status = "RESOLVED"
+        episode.resolved_at = datetime.now(timezone.utc)
+        closed += 1
+        logger.info(f"Episode closed: {episode.episode_key} (all member alerts resolved)")
+
+    if closed:
+        db.commit()
+    return closed
+
+
 # ─── Phase 2C: Auto-Clear ──────────────────────────────────────────────────
 
 def _auto_clear_resolved_alerts(db: Session, asset_id: int, obs: WaterObservation, threshold: WaterAssetThreshold) -> List[str]:
@@ -1180,6 +1213,7 @@ def store_prediction(
     confidence: float = None,
     model_version: str = None,
     horizon_days: int = 7,
+    flood_probability: float = None,
 ):
     """Store an ML prediction in water_asset_forecasts for historical tracking."""
     from infrastructure.db.models import WaterAssetForecast
@@ -1196,6 +1230,7 @@ def store_prediction(
         predicted_inflow=predicted_inflow,
         predicted_outflow=predicted_outflow,
         predicted_discharge=predicted_discharge,
+        flood_probability=flood_probability,
         confidence=confidence,
         model_version=model_version or f"xgb_{asset_id}_{horizon_days}d",
         notes=f"Auto-persisted by threshold engine",
@@ -1252,6 +1287,13 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                     )
                     continue
 
+                try:
+                    from ml.models.flood_classifier import get_flood_probability
+                    flood_probability = get_flood_probability(db, asset.id)
+                except Exception as e:
+                    logger.debug("Classifier probability unavailable for %s: %s", asset.canonical_name, e)
+                    flood_probability = None
+
                 for horizon in [3, 7, 14, 30]:
                     key = f"{asset.id}_{horizon}"
                     model_path = Path(__file__).parent.parent.parent / "models" / "flood_xgb" / f"{key}.joblib"
@@ -1293,6 +1335,7 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                             confidence=100.0 - result.risk_score,
                             model_version=f"xgb_{asset.id}_{horizon}d",
                             horizon_days=horizon,
+                            flood_probability=flood_probability if horizon == 7 else None,
                         )
                     else:
                         from ml.targets import resolve_target_field
@@ -1308,6 +1351,7 @@ def run_prediction_pipeline(db: Session = None) -> dict:
                             confidence=100.0 - result.risk_score,
                             model_version=f"xgb_{asset.id}_{horizon}d",
                             horizon_days=horizon,
+                            flood_probability=flood_probability if horizon == 7 else None,
                         )
                     total_stored += 1
                 
@@ -1357,14 +1401,18 @@ def evaluate_all_assets(db: Session = None) -> dict:
         # Phase 2C: Check escalations across all assets
         escalated = _check_escalation(db)
 
+        episodes_closed = close_resolved_episodes(db)
+
         logger.info(
             f"Threshold evaluation complete: {len(assets)} assets checked, "
-            f"{total_alerts} new alerts, {len(escalated)} escalations"
+            f"{total_alerts} new alerts, {len(escalated)} escalations, "
+            f"{episodes_closed} episodes closed"
         )
         return {
             "assets_checked": len(assets),
             "new_alerts": total_alerts,
             "escalations": len(escalated),
+            "episodes_closed": episodes_closed,
             "alerts": results,
         }
     finally:

@@ -25,6 +25,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("validate_all")
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "flood_xgb"
+CLASSIFIER_DIR = Path(__file__).resolve().parent.parent / "data" / "models"
+CLASSIFIER_VERSION = "xgb-flood-v1.2-h7"
+FLOOD_LABEL_STATUSES = ("HIGH", "VERY_HIGH", "EXCEPTIONALLY_HIGH")
 
 
 def get_db():
@@ -271,15 +274,258 @@ def store_validation_report(asset_id: int, model_type: str, model_version: str,
                 "score": metrics.get("score"),
                 "persistence_mae": metrics.get("persistence_mae"),
                 "mae_improvement_pct": metrics.get("mae_improvement_pct"),
+                "auc": metrics.get("auc"),
+                "brier": metrics.get("brier"),
+                "baseline_brier": metrics.get("baseline_brier"),
+                "accuracy": metrics.get("accuracy"),
+                "precision": metrics.get("precision"),
+                "recall": metrics.get("recall"),
+                "f1": metrics.get("f1"),
             }),
             "data_info": json.dumps({
                 "total_samples": metrics.get("total_samples"),
                 "n_folds": metrics.get("n_folds"),
             }),
             "recommendation": metrics.get("recommendation", "EXPERIMENTAL"),
-            "reasons": json.dumps([f"Walk-forward backtest: R2={metrics.get('r2', 0):.4f}, MAE={metrics.get('mae', 0):.2f}"]),
+            "reasons": json.dumps([metrics.get("reason", f"Walk-forward backtest: R2={metrics.get('r2', 0):.4f}, MAE={metrics.get('mae', 0):.2f}")]),
             "fold_details": json.dumps(metrics.get("fold_details", [])),
         })
+
+
+def get_classifier_assets():
+    """Get assets that have a trained flood classifier pkl."""
+    engine = get_db()
+    results = []
+    with engine.connect() as conn:
+        for path in sorted(CLASSIFIER_DIR.glob("flood_classifier_asset_*.pkl")):
+            suffix = path.stem.rsplit("_", 1)[-1]
+            if not suffix.isdigit():
+                continue
+            row = conn.execute(text(
+                "SELECT id, canonical_name FROM aquavision.water_assets WHERE id = :id"
+            ), {"id": int(suffix)}).mappings().first()
+            if row:
+                results.append({"id": row["id"], "name": row["canonical_name"]})
+    return results
+
+
+def load_classifier_frame(asset_id: int) -> "pd.DataFrame":
+    """Observation frame the flood classifier trains on (same query as training)."""
+    from decimal import Decimal
+    from sqlalchemy import text as sql_text
+
+    engine = get_db()
+    with engine.connect() as conn:
+        rows = conn.execute(sql_text("""
+            SELECT observed_at,
+                   COALESCE(inflow_cusecs, discharge_cusecs) as inflow_cusecs,
+                   outflow_cusecs,
+                   water_level_ft, discharge_cusecs
+            FROM aquavision.water_observations
+            WHERE asset_id = :asset_id
+            AND (inflow_cusecs IS NOT NULL OR discharge_cusecs IS NOT NULL)
+            ORDER BY observed_at
+        """), {"asset_id": asset_id}).mappings().all()
+
+    df = pd.DataFrame(rows)
+    for col in df.columns:
+        if df[col].dtype == object:
+            try:
+                df[col] = df[col].apply(lambda x: float(x) if isinstance(x, (Decimal, int)) else x)
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            except Exception:
+                pass
+    return df
+
+
+def walk_forward_classifier(asset_id: int, df: "pd.DataFrame", horizon: int = 7,
+                            n_folds: int = 5) -> dict:
+    """Expanding-window walk-forward backtest for the flood classifier.
+
+    Mirrors FloodClassifier.train (same features/labels, production GBM
+    hyperparameters, SMOTE parity) but folds chronologically so every test
+    sample is predicted by a model that never saw it. Recommendation gates:
+    skill vs the climatology Brier baseline, discrimination (AUC) and the
+    operational precision/recall pair.
+    """
+    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.metrics import (
+        accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
+    )
+
+    from ml.models.flood_classifier import FloodClassifier
+
+    clf = FloodClassifier(asset_id)
+    features = clf.build_features(df)
+    labels = clf.build_labels(df, horizon)
+    valid_mask = features.notna().all(axis=1) & labels.notna()
+    features = features[valid_mask]
+    labels = labels[valid_mask]
+
+    if len(features) < 100:
+        return {"error": f"insufficient_data: {len(features)} samples (need 100)"}
+
+    n_pos_all = int(labels.sum())
+    core = labels.iloc[: len(labels) - horizon] if len(labels) > horizon else labels
+    n_pos_core = int(core.sum())
+    if n_pos_core == 0:
+        return {"error": "no_positive_labels: no flood events in the frame"}
+    if n_pos_core == len(core):
+        return {"error": "no_negative_labels: every sample is a flood"}
+    if n_pos_all == 0:
+        return {"error": "no_positive_labels: no flood events in the frame"}
+
+    fold_size = len(features) // (n_folds + 2)
+    if fold_size < 5:
+        return {"error": "insufficient_data: too few samples for walk-forward folds"}
+
+    y_all: list = []
+    p_all: list = []
+    base_all: list = []
+    fold_metrics = []
+
+    for fold in range(n_folds):
+        train_end = fold_size * (fold + 2)
+        test_start = train_end
+        test_end = min(test_start + fold_size, len(features))
+        if test_end <= test_start or (test_end - test_start) < 5:
+            continue
+        if train_end < 50:
+            continue
+
+        X_train = features.iloc[:train_end]
+        y_train = labels.iloc[:train_end]
+        X_test = features.iloc[test_start:test_end]
+        y_test = labels.iloc[test_start:test_end]
+
+        flood_ratio = float(y_train.mean())
+        n_flood = int(y_train.sum())
+        if flood_ratio < 0.3 and n_flood >= 5:
+            try:
+                from imblearn.over_sampling import SMOTE
+                X_train, y_train = SMOTE(
+                    random_state=42, k_neighbors=min(5, n_flood - 1)
+                ).fit_resample(X_train, y_train)
+            except Exception:
+                pass
+
+        model = GradientBoostingClassifier(
+            n_estimators=200,
+            max_depth=5,
+            learning_rate=0.05,
+            subsample=0.8,
+            min_samples_leaf=10,
+            random_state=42,
+        )
+        try:
+            model.fit(X_train, y_train)
+        except ValueError:
+            logger.warning("  walk-forward fold %s unusable (single-class train window)", fold + 1)
+            continue
+
+        y_prob = model.predict_proba(X_test)[:, 1]
+        y_test_list = list(y_test)
+        p_list = list(y_prob)
+        base_rate = float(y_train.mean()) if len(y_train) else 0.0
+        base_list = [base_rate] * len(y_test_list)
+
+        y_all.extend(y_test_list)
+        p_all.extend(p_list)
+        base_all.extend(base_list)
+
+        y_pred = (y_prob >= 0.5).astype(int)
+        fold_brier = float(np.mean((y_prob - y_test.values) ** 2))
+        fold_metrics.append({
+            "fold": fold + 1,
+            "train_samples": int(len(X_train)),
+            "test_samples": int(len(y_test)),
+            "brier": round(fold_brier, 4),
+            "recall": round(recall_score(y_test, y_pred, zero_division=0), 4),
+            "precision": round(precision_score(y_test, y_pred, zero_division=0), 4),
+            "flood_rate_test": round(float(y_test.mean()), 4),
+        })
+
+    if not fold_metrics:
+        return {"error": "no_valid_folds"}
+
+    y_arr = np.asarray(y_all, dtype=float)
+    p_arr = np.asarray(p_all, dtype=float)
+    base_arr = np.asarray(base_all, dtype=float)
+
+    n_pos = int(y_arr.sum())
+    if n_pos == 0:
+        return {"error": "no_positive_labels: no flood events in any test fold"}
+    if n_pos == len(y_arr):
+        return {"error": "no_negative_labels: every test sample is a flood"}
+
+    try:
+        auc = float(roc_auc_score(y_arr, p_arr))
+    except ValueError:
+        auc = 0.5
+
+    brier = float(np.mean((p_arr - y_arr) ** 2))
+    baseline_brier = float(np.mean((base_arr - y_arr) ** 2))
+    y_pred = (p_arr >= 0.5).astype(int)
+    accuracy = float(accuracy_score(y_arr, y_pred))
+    precision = float(precision_score(y_arr, y_pred, zero_division=0))
+    recall = float(recall_score(y_arr, y_pred, zero_division=0))
+    f1 = float(f1_score(y_arr, y_pred, zero_division=0))
+
+    score = 0
+    if auc > 0.80:
+        score += 40
+    elif auc > 0.70:
+        score += 30
+    elif auc > 0.60:
+        score += 15
+    elif auc > 0.55:
+        score += 5
+
+    brier_skill = (baseline_brier - brier) / max(baseline_brier, 1e-8)
+    if brier_skill >= 0.20:
+        score += 30
+    elif brier_skill >= 0.10:
+        score += 20
+    elif brier_skill > 0:
+        score += 10
+
+    if recall >= 0.60:
+        score += 15
+    elif recall >= 0.30:
+        score += 8
+
+    if precision >= 0.50:
+        score += 15
+    elif precision >= 0.30:
+        score += 8
+
+    if score >= 70:
+        recommendation = "SHADOW"
+    elif score >= 40:
+        recommendation = "EXPERIMENTAL"
+    else:
+        recommendation = "REJECTED"
+
+    return {
+        "total_samples": int(len(y_arr)),
+        "n_folds": len(fold_metrics),
+        "auc": round(auc, 4),
+        "brier": round(brier, 4),
+        "baseline_brier": round(baseline_brier, 4),
+        "brier_skill_pct": round(brier_skill * 100, 2),
+        "accuracy": round(accuracy, 4),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1": round(f1, 4),
+        "flood_events": n_pos,
+        "score": score,
+        "recommendation": recommendation,
+        "reason": (
+            f"Walk-forward classifier: AUC={auc:.4f}, Brier={brier:.4f} "
+            f"vs baseline={baseline_brier:.4f}, F1={f1:.4f}"
+        ),
+        "fold_details": fold_metrics,
+    }
 
 
 def main():
@@ -291,7 +537,7 @@ def main():
     logger.info(f"Found {len(assets)} assets with trained models")
 
     all_results = []
-    horizons = [7, 14, 30]
+    horizons = [3, 7, 14, 30]
 
     for asset in assets:
         aid = asset["id"]
@@ -333,6 +579,44 @@ def main():
                 "horizon": horizon, "status": "VALIDATED",
                 **metrics,
             })
+
+    classifier_assets = get_classifier_assets()
+    logger.info(f"Found {len(classifier_assets)} assets with flood classifiers")
+
+    for asset in classifier_assets:
+        aid = asset["id"]
+        name = asset["name"]
+        logger.info(f"Validating flood classifier for {name} ...")
+
+        try:
+            df = load_classifier_frame(aid)
+            metrics = walk_forward_classifier(aid, df)
+        except Exception as e:
+            logger.warning(f"  SKIPPED: validation error: {e}")
+            metrics = {"error": f"validation_error: {e}"}
+
+        if "error" in metrics:
+            logger.warning(f"  SKIPPED: {metrics['error']}")
+            all_results.append({
+                "asset_id": aid, "asset_name": name,
+                "horizon": 7, "status": "SKIPPED",
+                "reason": metrics["error"],
+            })
+            continue
+
+        store_validation_report(
+            aid, "flood_classifier", CLASSIFIER_VERSION, 7, metrics
+        )
+        logger.info(
+            f"  AUC={metrics['auc']:.4f}, Brier={metrics['brier']:.4f} "
+            f"(baseline {metrics['baseline_brier']:.4f}), F1={metrics['f1']:.4f}, "
+            f"Score={metrics['score']}, Recommendation={metrics['recommendation']}"
+        )
+        all_results.append({
+            "asset_id": aid, "asset_name": name,
+            "horizon": 7, "status": "VALIDATED",
+            **metrics,
+        })
 
     # Summary
     validated = sum(1 for r in all_results if r.get("status") == "VALIDATED")

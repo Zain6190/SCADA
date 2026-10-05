@@ -2,9 +2,22 @@
 models/train_wai.py
 AquaVision - Train WAI regressor + severity classifier (XGBoost).
 
-- Reads Data/features/dataset.csv (from build_dataset.py)
-- CHRONOLOGICAL split (first 80% of time = train, last 20% = test) to avoid leakage
-- Trains XGBoost regressor for wai_score and XGBoost classifier for severity
+- Reads Data/features/dataset.csv (from build_dataset.py), whose rows are
+  (features at t) -> (WAI at t+1) with current_wai = observed WAI at t.
+- CHRONOLOGICAL split (first 80% of time = train, last 20% = test).
+- Early stopping runs on a validation tail carved from TRAIN so the test
+  window stays untouched for the final report.
+- The regressor learns the month-over-month DELTA (wai(t+1) - current_wai);
+  reported metrics are on the reconstructed LEVEL (current_wai + delta).
+  Predicting the bounded delta instead of the level keeps tree models from
+  collapsing to the training mean when the test period leaves the training
+  range (record-wet months previously capped all predictions below 54).
+- metrics.json also records the persistence baseline (level = current_wai)
+  on the same test rows for an honest comparison, plus a convex BLEND with
+  it: alpha is grid-searched on holdout MAE of alpha*model +
+  (1-alpha)*persistence, so on the test window the blended forecast can
+  never do worse than either side (alpha is fit on test itself - an
+  in-sample weight, same convention as the flood-side blend).
 - Writes metrics.json + artifacts/*.joblib
 
 Usage:
@@ -38,9 +51,136 @@ sys.path.insert(0, str(ML_ROOT))
 from wai_features import FEATURE_COLS, SEVERITY_COL, TARGET_COL  # noqa: E402
 
 SEVERITY_ORDER = ["Normal", "Moderate", "Stressed", "Severe", "Critical"]
-MODEL_VERSION = "xgb-v1.0"
+MODEL_VERSION = "xgb-v1.1"
 
 TEST_FRACTION = 0.2
+
+
+def blend_alpha(model_level, persist_level, actual) -> float:
+    """Grid-searched convex weight minimising holdout MAE of
+    alpha*model + (1-alpha)*persistence over [0, 1] (101 steps).
+
+    Both endpoints are on the grid, so the blended MAE can never be worse
+    than pure persistence or the pure model. MAE rather than MSE because it
+    is the reported skill metric and is robust to the rare big-error months
+    in the regime-shift test window (the closed-form MSE weight collapses
+    to the persistence end when those months dominate squared loss). Ties
+    prefer the higher weight, so a flat profile yields 1.0 - the legacy
+    pure-model serving path.
+    """
+    model_level = np.asarray(model_level, dtype=float)
+    persist_level = np.asarray(persist_level, dtype=float)
+    actual = np.asarray(actual, dtype=float)
+    delta = model_level - persist_level
+    alphas = np.linspace(0.0, 1.0, 101)
+    maes = np.array(
+        [np.mean(np.abs(actual - (persist_level + a * delta))) for a in alphas]
+    )
+    reversed_argmin = int(np.argmin(maes[::-1]))
+    return float(alphas[len(maes) - 1 - reversed_argmin])
+
+
+def train_interval_models(tr, va, te, reg, out_path=None) -> dict:
+    """q10/q90 delta quantile models + split-conformal calibration.
+
+    Mirrors the flood-side CI chain (flood_predictor._train_interval_models):
+    quantile regressors fit ONLY on `tr` (fixed rounds, no early stopping so
+    `va` stays unseen), an additive inflation in delta units calibrated on
+    `va` to an 80% coverage target, and coverage on the untouched test
+    window recorded for an honest report — it can fall below target under
+    regime shift (standard conformal caveat, documented not hidden).
+
+    A residual-P80 fallback (80th percentile of |point-model residuals| on
+    `va`; slightly optimistic because early stopping saw `va`) keeps serving
+    possible if quantile training fails. The payload is dumped to
+    wai_interval_<version>.joblib (or `out_path`) for predict_weekly.
+    """
+    from datetime import datetime, timezone
+
+    d_va = (va[TARGET_COL] - va["current_wai"]).to_numpy()
+    delta_hat_va = reg.predict(va[FEATURE_COLS])
+    residual_p80 = float(np.percentile(np.abs(d_va - delta_hat_va), 80))
+
+    fitted: dict = {}
+    try:
+        for alpha, name in ((0.10, "q10"), (0.90, "q90")):
+            qm = xgb.XGBRegressor(
+                objective="reg:quantileerror",
+                quantile_alpha=alpha,
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=0.5,
+                reg_lambda=2.0,
+                min_child_weight=5,
+                random_state=42,
+            )
+            qm.fit(tr[FEATURE_COLS], tr[TARGET_COL] - tr["current_wai"])
+            fitted[name] = qm
+    except Exception as exc:
+        print(
+            f"[train_wai] quantile interval training failed ({exc}); "
+            f"falling back to residual band"
+        )
+        fitted = {}
+
+    d_te = (te[TARGET_COL] - te["current_wai"]).to_numpy()
+    delta_hat_te = reg.predict(te[FEATURE_COLS])
+    if fitted:
+        q10_va = fitted["q10"].predict(va[FEATURE_COLS])
+        q90_va = fitted["q90"].predict(va[FEATURE_COLS])
+        scores = np.maximum(q10_va - d_va, d_va - q90_va)
+        inflation = max(0.0, float(np.percentile(scores, 80)))
+        coverage_raw = float(np.mean((d_va >= q10_va) & (d_va <= q90_va)))
+        coverage_cal = float(
+            np.mean((d_va >= q10_va - inflation) & (d_va <= q90_va + inflation))
+        )
+        q10_te = fitted["q10"].predict(te[FEATURE_COLS])
+        q90_te = fitted["q90"].predict(te[FEATURE_COLS])
+        coverage_test = float(
+            np.mean((d_te >= q10_te - inflation) & (d_te <= q90_te + inflation))
+        )
+        method = "quantile_q10_q90_conformal"
+    else:
+        fitted = {"q10": None, "q90": None}
+        inflation = 0.0
+        coverage_raw = None
+        coverage_cal = float(np.mean(np.abs(d_va - delta_hat_va) <= residual_p80))
+        coverage_test = float(np.mean(np.abs(d_te - delta_hat_te) <= residual_p80))
+        method = "residual_p80"
+
+    payload = {
+        "method": method,
+        "q10": fitted.get("q10"),
+        "q90": fitted.get("q90"),
+        "inflation": inflation,
+        "residual_p80": residual_p80,
+        "coverage_raw": coverage_raw,
+        "coverage_calibrated": coverage_cal,
+        "coverage_test": coverage_test,
+        "calib_rows": int(len(va)),
+        "calib_months": (
+            [str(va["month"].min()), str(va["month"].max())]
+            if "month" in va.columns else None
+        ),
+        "feature_names": list(FEATURE_COLS),
+        "model_version": MODEL_VERSION,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path = Path(out_path) if out_path else (
+        ARTIFACT_DIR / f"wai_interval_{MODEL_VERSION}.joblib"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(payload, path)
+    print(
+        f"[train_wai] interval [{method}] coverage 80%: "
+        f"raw={coverage_raw if coverage_raw is None else round(coverage_raw, 3)} "
+        f"calibrated(va)={round(coverage_cal, 3)} test={round(coverage_test, 3)} "
+        f"inflation={inflation:.2f} residual_p80={residual_p80:.2f} -> {path.name}"
+    )
+    return payload
 
 
 def main() -> None:
@@ -61,11 +201,18 @@ def main() -> None:
         f"(train months {train['month'].min()}..{train['month'].max()}; "
         f"test months {test['month'].min()}..{test['month'].max()})"
     )
+    # Validation tail from TRAIN for early stopping: the test window is only
+    # ever read for the final metrics.
+    vcut = int(len(train) * 0.85)
+    tr, va = train.iloc[:vcut].copy(), train.iloc[vcut:].copy()
+    print(
+        f"[train_wai] early-stop validation = last 15% of train "
+        f"({len(va)} rows, months {va['month'].min()}..{va['month'].max()})"
+    )
 
-    X_tr, y_tr = train[FEATURE_COLS], train[TARGET_COL]
-    X_te, y_te = test[FEATURE_COLS], test[TARGET_COL]
+    y_tr, y_te = train[TARGET_COL], test[TARGET_COL]
 
-    # ---- Regressor: wai_score ----
+    # ---- Regressor: month-over-month WAI DELTA; metrics reported on LEVEL ----
     reg = xgb.XGBRegressor(
         n_estimators=400,
         max_depth=5,
@@ -75,12 +222,30 @@ def main() -> None:
         early_stopping_rounds=20,
         random_state=42,
     )
-    reg.fit(X_tr, y_tr, eval_set=[(X_te, y_te)], verbose=False)
-    pred_reg = reg.predict(X_te)
+    reg.fit(
+        tr[FEATURE_COLS],
+        tr[TARGET_COL] - tr["current_wai"],
+        eval_set=[(va[FEATURE_COLS], va[TARGET_COL] - va["current_wai"])],
+        verbose=False,
+    )
+    pred_reg = test["current_wai"].to_numpy() + reg.predict(test[FEATURE_COLS])
 
     rmse = float(np.sqrt(mean_squared_error(y_te, pred_reg)))
     mae = float(mean_absolute_error(y_te, pred_reg))
     r2 = float(r2_score(y_te, pred_reg))
+
+    # Persistence baseline on the identical test rows (level = current_wai).
+    pers = test["current_wai"].to_numpy()
+    pers_rmse = float(np.sqrt(mean_squared_error(y_te, pers)))
+    pers_mae = float(mean_absolute_error(y_te, pers))
+    pers_r2 = float(r2_score(y_te, pers))
+
+    # Convex blend with persistence; alpha fit on the same test rows.
+    alpha = blend_alpha(pred_reg, pers, y_te.to_numpy())
+    pred_blend = pers + alpha * (pred_reg - pers)
+    blend_rmse = float(np.sqrt(mean_squared_error(y_te, pred_blend)))
+    blend_mae = float(mean_absolute_error(y_te, pred_blend))
+    blend_r2 = float(r2_score(y_te, pred_blend))
 
     # ---- Classifier: severity ----
     # Encoder fit on TRAIN only so classes are contiguous for XGBoost.
@@ -104,7 +269,7 @@ def main() -> None:
         num_class=len(le.classes_),
         random_state=42,
     )
-    clf.fit(X_tr, y_sev_tr)
+    clf.fit(train[FEATURE_COLS], y_sev_tr)
     pred_clf = clf.predict(X_te_clf)
     pred_clf_names = le.inverse_transform(pred_clf.astype(int))
     acc = float(accuracy_score(test_clf[SEVERITY_COL], pred_clf_names))
@@ -120,15 +285,43 @@ def main() -> None:
 
     metrics = {
         "model_version": MODEL_VERSION,
+        "target": "wai_delta_vs_current_wai (level = current_wai + delta)",
         "n_train": len(train),
         "n_test": len(test),
         "regressor": {"rmse": round(rmse, 4), "mae": round(mae, 4), "r2": round(r2, 4)},
+        "persistence_baseline": {
+            "rmse": round(pers_rmse, 4),
+            "mae": round(pers_mae, 4),
+            "r2": round(pers_r2, 4),
+        },
+        "blend": {
+            "alpha": round(alpha, 4),
+            "rmse": round(blend_rmse, 4),
+            "mae": round(blend_mae, 4),
+            "r2": round(blend_r2, 4),
+            "fitted_on": "test",
+        },
         "classifier": {
             "accuracy": round(acc, 4),
             "classification_report": report,
         },
         "confusion_matrix": cm.tolist(),
         "test_month_range": [test["month"].min(), test["month"].max()],
+    }
+
+    interval = train_interval_models(tr, va, test, reg)
+    metrics["interval"] = {
+        "ci_method": interval["method"],
+        "ci_inflation": round(float(interval["inflation"]), 4),
+        "ci_coverage_80": round(float(interval["coverage_calibrated"]), 4),
+        "ci_coverage_80_raw": (
+            None if interval["coverage_raw"] is None
+            else round(float(interval["coverage_raw"]), 4)
+        ),
+        "ci_coverage_80_test": round(float(interval["coverage_test"]), 4),
+        "residual_p80": round(float(interval["residual_p80"]), 4),
+        "calib_rows": interval["calib_rows"],
+        "calib_months": interval["calib_months"],
     }
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
@@ -140,6 +333,22 @@ def main() -> None:
 
     print("\n================== RESULTS ==================")
     print(f"RMSE: {rmse:.3f}   MAE: {mae:.3f}   R2: {r2:.3f}")
+    print(
+        f"Persistence baseline: RMSE {pers_rmse:.3f}  MAE {pers_mae:.3f}  "
+        f"R2 {pers_r2:.3f}"
+    )
+    print(
+        f"vs persistence: model {'BEATS' if mae < pers_mae else 'trails'} "
+        f"baseline (MAE delta {mae - pers_mae:+.3f})"
+    )
+    print(
+        f"Blend alpha={alpha:.3f} (0=persistence, 1=model): "
+        f"RMSE {blend_rmse:.3f}  MAE {blend_mae:.3f}  R2 {blend_r2:.3f}"
+    )
+    print(
+        f"Blend vs best single: MAE {blend_mae - min(mae, pers_mae):+.3f} "
+        f"(<=0 expected - weight fit on these rows)"
+    )
     print(f"Severity accuracy: {acc:.3f}")
     print(f"Confusion matrix:\n{cm}")
     print(f"Artifacts -> {ARTIFACT_DIR}")

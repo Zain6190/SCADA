@@ -32,9 +32,10 @@ from sqlalchemy import select
 from infrastructure.db.engine import SessionLocal
 from infrastructure.db.models import (
     WaterAsset, WaterObservation, WaterSource, RawSourceRecord,
-    WaterFFDObservation,
+    WaterFFDObservation, WaterObservationQuarantine, DataQualityLog,
 )
 from infrastructure.ingestion.pmd_html_parser import parse_ffd_html
+from infrastructure.ingestion.validators import build_quarantine_record, validate_observation
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,7 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
 
         stored = 0
         skipped = 0
+        invalid = 0
 
         for obs in observations:
             asset_id = _get_asset_id(db, obs.canonical_name)
@@ -173,6 +175,43 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
 
             # Convert headroom_current (thousands of cusecs) to discharge_cusecs
             discharge_cusecs = obs.headroom_current * 1000 if obs.headroom_current else None
+
+            row = {"discharge_cusecs": discharge_cusecs}
+            validation = validate_observation(row, asset_id, source_date=target_date)
+            if validation.quality_status == "INVALID":
+                quarantine = build_quarantine_record(
+                    row, asset_id, validation,
+                    source_record_id=raw_record.id,
+                    parser_version="pmd_html_parser_v2.0",
+                )
+                if quarantine:
+                    db.add(WaterObservationQuarantine(
+                        asset_id=quarantine.asset_id,
+                        source_record_id=quarantine.source_record_id,
+                        raw_payload=quarantine.raw_payload,
+                        parsed_values=quarantine.parsed_values,
+                        failure_reason=quarantine.failure_reason,
+                        field_name=quarantine.field_name,
+                        raw_value=quarantine.raw_value,
+                        parser_version=quarantine.parser_version,
+                        data_status=quarantine.data_status,
+                    ))
+                for v in validation.violations:
+                    db.add(DataQualityLog(
+                        asset_id=asset_id,
+                        check_type=v.get("check", "UNKNOWN"),
+                        field_name=v.get("field", "unknown"),
+                        raw_value=float(v["raw_value"]) if v.get("raw_value") not in (None, "") else None,
+                        quality_status="INVALID",
+                        details=v.get("detail", ""),
+                        source_record_id=raw_record.id,
+                    ))
+                invalid += 1
+                logger.warning(
+                    f"FFD bulk {obs.canonical_name}: INVALID observation quarantined - "
+                    f"{[v['detail'] for v in validation.violations]}"
+                )
+                continue
 
             # Store observation
             water_obs = WaterObservation(
@@ -229,6 +268,7 @@ def ingest_ffd_html_file(html_path: Path, target_date: date = None, dry_run: boo
         "parsed": len(observations),
         "stored": stored,
         "skipped": skipped,
+        "invalid": invalid,
     }
 
 

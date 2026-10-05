@@ -87,6 +87,56 @@ class AnomalyTrainResponse(BaseModel):
     results: list
 
 
+class AnomalyPoint(BaseModel):
+    observed_at: str
+    anomaly_score: float
+    is_anomaly: bool
+    severity: str
+    anomaly_features: list = []
+    level_ft: float
+    inflow_cusecs: float
+    outflow_cusecs: float
+
+
+class AnomalyHistoryResponse(BaseModel):
+    asset_id: int
+    asset_name: str
+    model_version: str
+    model_status: str
+    trained_at: Optional[str] = None
+    training_samples: Optional[int] = None
+    contamination: Optional[float] = None
+    window_days: int
+    scored_count: int
+    anomaly_count: int
+    points: List[AnomalyPoint]
+
+
+class AnomalyAssetSummary(BaseModel):
+    asset_id: int
+    asset_name: str
+    asset_type: str
+    has_model: bool
+    model_version: Optional[str] = None
+    model_status: Optional[str] = None
+    trained_at: Optional[str] = None
+    training_samples: Optional[int] = None
+    contamination: Optional[float] = None
+    observations_scored: int = 0
+    anomaly_count: int = 0
+    worst_severity: Optional[str] = None
+    latest_anomaly: Optional[AnomalyPoint] = None
+
+
+class AnomalySummaryResponse(BaseModel):
+    generated_at: str
+    window_days: int
+    assets_total: int
+    assets_with_models: int
+    total_anomalies: int
+    assets: List[AnomalyAssetSummary]
+
+
 @router.get("/ml/predictions/{asset_id}", response_model=List[PredictionResponse])
 def get_predictions(
     asset_id: int,
@@ -208,6 +258,115 @@ def trigger_training(
 
 
 # ─── Anomaly Detection ──────────────────────────────────────────────────────
+
+_SEVERITY_RANK = {"LOW": 1, "MODERATE": 2, "HIGH": 3}
+
+
+@router.get("/ml/anomalies/summary", response_model=AnomalySummaryResponse)
+def get_anomaly_summary(
+    days: int = Query(30, ge=1, le=365),
+    session: Session = Depends(get_session),
+):
+    """Per-asset anomaly rollup over a trailing window (real scoring).
+
+    Must be registered BEFORE /ml/anomalies/{asset_id} so "summary" is not
+    swallowed by the int path parameter.
+    """
+    from ml.models.anomaly_detector import AnomalyDetector
+
+    detector = AnomalyDetector()
+    assets = session.query(WaterAsset).order_by(WaterAsset.id).all()
+
+    try:
+        histories = detector.score_many(
+            session, [a.id for a in assets], days=days
+        )
+    except Exception as exc:
+        logger.warning(f"Anomaly summary scoring failed: {exc}")
+        histories = {}
+
+    entries: List[AnomalyAssetSummary] = []
+    assets_with_models = 0
+    total_anomalies = 0
+
+    for asset in assets:
+        entry = AnomalyAssetSummary(
+            asset_id=asset.id,
+            asset_name=asset.canonical_name,
+            asset_type=asset.asset_type or "",
+            has_model=False,
+        )
+        history = histories.get(asset.id)
+        if history is None:
+            entries.append(entry)
+            continue
+
+        art = history["artifact"]
+        anomalies = [p for p in history["points"] if p["is_anomaly"]]
+        worst = None
+        for p in anomalies:
+            if worst is None or _SEVERITY_RANK.get(p["severity"], 0) > _SEVERITY_RANK.get(worst, 0):
+                worst = p["severity"]
+        latest = max(anomalies, key=lambda p: p["observed_at"]) if anomalies else None
+
+        entry.has_model = True
+        entry.model_version = art.get("model_version")
+        entry.model_status = art.get("model_status")
+        entry.trained_at = art.get("trained_at")
+        entry.training_samples = art.get("training_samples")
+        entry.contamination = art.get("contamination")
+        entry.observations_scored = len(history["points"])
+        entry.anomaly_count = len(anomalies)
+        entry.worst_severity = worst
+        entry.latest_anomaly = AnomalyPoint(**latest) if latest else None
+
+        assets_with_models += 1
+        total_anomalies += len(anomalies)
+        entries.append(entry)
+
+    return AnomalySummaryResponse(
+        generated_at=datetime.utcnow().isoformat(),
+        window_days=days,
+        assets_total=len(assets),
+        assets_with_models=assets_with_models,
+        total_anomalies=total_anomalies,
+        assets=entries,
+    )
+
+
+@router.get("/ml/anomalies/{asset_id}/history", response_model=AnomalyHistoryResponse)
+def get_anomaly_history(
+    asset_id: int,
+    days: int = Query(90, ge=1, le=365),
+    session: Session = Depends(get_session),
+):
+    """Score every observation for an asset over a trailing window."""
+    asset = session.get(WaterAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    from ml.models.anomaly_detector import AnomalyDetector
+
+    history = AnomalyDetector().score_history(asset_id, session, days=days)
+    if history is None:
+        raise HTTPException(status_code=404, detail="No trained anomaly model for this asset")
+
+    art = history["artifact"]
+    points = [AnomalyPoint(**p) for p in history["points"]]
+    return AnomalyHistoryResponse(
+        asset_id=asset_id,
+        asset_name=asset.canonical_name,
+        model_version=art.get("model_version", ""),
+        model_status=art.get("model_status", ""),
+        trained_at=art.get("trained_at"),
+        training_samples=art.get("training_samples"),
+        contamination=art.get("contamination"),
+        window_days=days,
+        scored_count=len(points),
+        anomaly_count=history["anomaly_count"],
+        points=points,
+    )
+
 
 @router.get("/ml/anomalies/{asset_id}", response_model=List[AnomalyResponse])
 def get_anomalies(
@@ -401,6 +560,54 @@ class ModelPerformance(BaseModel):
     model_file: str = ""
 
 
+REGISTRY_TYPE_MAP = {"high_flow": "high_flow_predictor"}
+
+
+def _lifecycle_status_map():
+    """Registry lifecycle status from aquavision.model_versions.
+
+    Returns (exact, by_asset): exact maps (model_type, asset_id, horizon) ->
+    status; by_asset maps (model_type, asset_id) -> set of statuses.
+    """
+    exact: dict = {}
+    by_asset: dict = {}
+    try:
+        from sqlalchemy import text as sql_text
+        from infrastructure.db.engine import engine
+
+        with engine.connect() as conn:
+            rows = conn.execute(sql_text(
+                "SELECT model_type, asset_id, version, status FROM aquavision.model_versions"
+            )).mappings().all()
+        for row in rows:
+            version = str(row["version"] or "")
+            horizon = None
+            if "-h" in version:
+                try:
+                    horizon = int(version.rsplit("-h", 1)[1])
+                except ValueError:
+                    horizon = None
+            asset_id = int(row["asset_id"])
+            exact[(row["model_type"], asset_id, horizon)] = row["status"]
+            by_asset.setdefault((row["model_type"], asset_id), set()).add(row["status"])
+    except Exception as exc:
+        logger.warning(f"model_versions registry lookup failed: {exc}")
+    return exact, by_asset
+
+
+def _resolve_model_status(exact, by_asset, model_type, asset_id, horizon, fallback):
+    reg_type = REGISTRY_TYPE_MAP.get(model_type, model_type)
+    if horizon is not None:
+        status = exact.get((reg_type, int(asset_id), int(horizon)))
+        if status:
+            return status
+    elif reg_type:
+        statuses = by_asset.get((reg_type, int(asset_id)))
+        if statuses and len(statuses) == 1:
+            return next(iter(statuses))
+    return fallback
+
+
 @router.get("/ml/model-performance", response_model=List[ModelPerformance])
 def get_model_performance():
     """Read model performance from the single canonical metadata file."""
@@ -414,10 +621,59 @@ def get_model_performance():
     with open(metadata_path) as f:
         raw = json.load(f)
 
-    if isinstance(raw, list):
-        return [ModelPerformance(**item) for item in raw]
+    exact_status, by_asset_status = _lifecycle_status_map()
+
+    def build(item: dict) -> ModelPerformance:
+        try:
+            asset_id = int(item.get("asset_id"))
+        except (TypeError, ValueError):
+            return None
+        model_type = item.get("model_type") or "model"
+        try:
+            raw_h = item.get("horizon") or item.get("horizon_days")
+            horizon = int(raw_h) if raw_h is not None else None
+        except (TypeError, ValueError):
+            horizon = None
+        fallback = item.get("model_status") or item.get("status") or "UNKNOWN"
+        status = _resolve_model_status(
+            exact_status, by_asset_status, model_type, asset_id, horizon, fallback
+        )
+        fi = item.get("feature_importance") or item.get("top_features") or {}
+        if isinstance(fi, dict):
+            fi = {k: v for k, v in fi.items() if isinstance(v, (int, float)) and v == v and v not in (float("inf"), float("-inf"))}
+        return ModelPerformance(
+            asset_id=asset_id,
+            asset_name=item.get("asset_name") or f"Asset {asset_id}",
+            model_type=model_type,
+            model_status=status,
+            trained_at=item.get("trained_at"),
+            saved_at=item.get("saved_at"),
+            samples=item.get("samples"),
+            train_samples=item.get("train_samples"),
+            test_samples=item.get("test_samples"),
+            r2=_opt_float(item.get("r2")),
+            mae=_opt_float(item.get("mae")),
+            rmse=_opt_float(item.get("rmse")),
+            mape=_opt_float(item.get("mape")),
+            accuracy=_opt_float(item.get("accuracy")),
+            auc=_opt_float(item.get("auc")),
+            f1=_opt_float(item.get("f1")),
+            precision=_opt_float(item.get("precision")),
+            recall=_opt_float(item.get("recall")),
+            feature_importance=fi,
+            horizon_days=horizon,
+            model_version=item.get("model_version") or (raw.get("model_version") if isinstance(raw, dict) else None),
+            model_file=item.get("model_file", ""),
+        )
 
     results: List[ModelPerformance] = []
+    if isinstance(raw, list):
+        for item in raw:
+            built = build(item)
+            if built is not None:
+                results.append(built)
+        return results
+
     for aid, asset in (raw.get("assets") or {}).items():
         raw_aid = asset.get("asset_id")
         if raw_aid is None:
@@ -432,32 +688,15 @@ def get_model_performance():
                 continue
         asset_name = asset.get("asset_name") or f"Asset {asset_id}"
         for key, m in (asset.get("models") or {}).items():
-            results.append(
-                ModelPerformance(
-                    asset_id=asset_id,
-                    asset_name=asset_name,
-                    model_type=m.get("model_type") or key,
-                    model_status=m.get("status") or m.get("model_status") or "UNKNOWN",
-                    trained_at=m.get("trained_at"),
-                    saved_at=m.get("saved_at"),
-                    samples=m.get("samples"),
-                    train_samples=m.get("train_samples"),
-                    test_samples=m.get("test_samples"),
-                    r2=_opt_float(m.get("r2")),
-                    mae=_opt_float(m.get("mae")),
-                    rmse=_opt_float(m.get("rmse")),
-                    mape=_opt_float(m.get("mape")),
-                    accuracy=_opt_float(m.get("accuracy")),
-                    auc=_opt_float(m.get("auc")),
-                    f1=_opt_float(m.get("f1")),
-                    precision=_opt_float(m.get("precision")),
-                    recall=_opt_float(m.get("recall")),
-                    feature_importance=m.get("feature_importance") or m.get("top_features") or {},
-                    horizon_days=m.get("horizon") or m.get("horizon_days"),
-                    model_version=raw.get("model_version") or m.get("model_version"),
-                    model_file=m.get("model_file", ""),
-                )
-            )
+            entry = dict(m)
+            if "model_type" not in entry:
+                tail, _, suffix = key.rpartition("_")
+                entry["model_type"] = tail if suffix.isdigit() else key
+            entry["asset_id"] = asset_id
+            entry["asset_name"] = asset_name
+            built = build(entry)
+            if built is not None:
+                results.append(built)
     return results
 
 
@@ -465,6 +704,7 @@ def _opt_float(v):
     if v is None or v == "":
         return None
     try:
-        return float(v)
+        f = float(v)
     except (TypeError, ValueError):
         return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None

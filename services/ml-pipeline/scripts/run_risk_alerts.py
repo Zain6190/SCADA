@@ -37,10 +37,13 @@ DB_URL = os.getenv(
 )
 
 sys.path.insert(0, str(ML_ROOT))
-from wai_features import FEATURE_COLS  # noqa: E402
+from wai_features import (  # noqa: E402
+    FEATURE_COLS,
+    fetch_current_wai,
+    fetch_known_regions,
+)
 
 RULE_VERSION = os.getenv("GEE_RULE_VERSION", "risk-v1.0")
-_ONE_MONTH = timedelta(days=31)
 th: dict = {}
 
 _engine = None
@@ -76,16 +79,6 @@ def anomaly_ratio(feats: pd.DataFrame, detector) -> pd.Series:
     return (1.0 - scores) / 2.0
 
 
-def _confidence(wai: float, anom_ratio: float) -> float:
-    """MODEL confidence 0..1: distance from the nearest severity boundary +
-    anomaly strength. Far below a boundary (very dry) is high confidence."""
-    boundaries = sorted(
-        {th[k] for k in ("wai_critical_min", "wai_severe_min", "wai_stressed_min")}
-    )
-    margin = min(abs(wai - b) for b in boundaries)
-    return round(min(0.99, max(0.5, 0.5 + margin / 40.0 * 0.35 + float(anom_ratio) * 0.3)), 3)
-
-
 def build_alert_rows(region_rows: list[dict]) -> list[dict]:
     """Decide which alerts to create for each region based on model outputs."""
     alerts = []
@@ -94,7 +87,7 @@ def build_alert_rows(region_rows: list[dict]) -> list[dict]:
         rain_anom = r["rainfall_anomaly"]  # % anomaly (negative = deficit)
         et_anom = r["et_anomaly"]          # % anomaly (positive = high ET)
         anom_ratio = r["anomaly_ratio"]
-        conf = _confidence(wai, anom_ratio)
+        conf = r["band_confidence"]
 
         if wai < th["wai_critical_min"]:
             alerts.append(
@@ -131,14 +124,21 @@ def build_alert_rows(region_rows: list[dict]) -> list[dict]:
     return alerts
 
 
+def _prev_month(day: date) -> date:
+    """First day of the calendar month before day's month."""
+    return (day.replace(day=1) - timedelta(days=1)).replace(day=1)
+
+
 def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
     """Insert/update alerts for the given period; resolve episodes that cleared.
 
     Dedup rule: one alert row per (region_id, week_start_date, alert_type,
     rule_version). If the same condition still holds on a re-run, the existing
-    row is updated (fresh wai/confidence, source, rule_version). If a condition
-    clears, the previous model-generated alert for that period is resolved so
-    users never get a pile-up of duplicate alerts across re-runs.
+    row is updated (fresh wai/confidence, source, rule_version). Rows for the
+    same key under a different rule_version are superseded (resolved) when the
+    condition is re-written, and model-generated rows for the current or
+    previous period whose condition no longer holds are auto-resolved, so
+    users never get a pile-up of stale or duplicate alerts across re-runs.
 
     Returns (written_count, resolved_count).
     """
@@ -146,31 +146,46 @@ def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
     written = 0
     resolved = 0
     now_ts = f"{datetime.now(timezone.utc).isoformat()}"
+    active_statuses = ("'New','ACTIVE','ACKNOWLEDGED','INVESTIGATING','ACTION_REQUIRED',"
+                       "'RESPONSE_COMPLETED','WAITING_FOR_VERIFICATION','ESCALATED','HANDOVER_REQUIRED'")
     with eng.begin() as conn:
         for a in alerts:
-            exists = conn.execute(
+            note = f"auto (anomaly_ratio={a['anom_ratio']:.2f})"
+            resolved += conn.execute(
                 text(
-                    "SELECT id FROM aquavision.water_alerts "
-                    "WHERE region_id=:r AND week_start_date=:w AND alert_type=:t AND rule_version=:v"
+                    f"""
+                    UPDATE aquavision.water_alerts
+                    SET status='RESOLVED', resolved_at=:now,
+                        notes=COALESCE(notes,'') || ' (superseded by rule upgrade; auto-resolved)'
+                    WHERE region_id=:r AND week_start_date=:w AND alert_type=:t
+                      AND (rule_version IS NULL OR rule_version <> :v)
+                      AND status IN ({active_statuses})
+                    """
                 ),
-                {"r": a["region_id"], "w": week, "t": a["alert_type"], "v": RULE_VERSION},
-            ).fetchone()
-            if exists:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE aquavision.water_alerts
-                        SET severity=:severity, wai_score=:wai, rainfall_anomaly=:rain,
-                            et_anomaly=:et, confidence=:conf, source='MODEL', notes=:notes
-                        WHERE id=:id
-                        """
-                    ),
-                    {
-                        "id": exists[0], "severity": a["severity"], "wai": a["wai_score"],
-                        "rain": a["rainfall_anomaly"], "et": a["et_anomaly"],
-                        "conf": a["confidence"], "notes": f"auto (anomaly_ratio={a['anom_ratio']:.2f})",
-                    },
-                )
+                {
+                    "now": now_ts, "r": a["region_id"], "w": week,
+                    "t": a["alert_type"], "v": RULE_VERSION,
+                },
+            ).rowcount
+            updated = conn.execute(
+                text(
+                    """
+                    UPDATE aquavision.water_alerts
+                    SET severity=:severity, wai_score=:wai, rainfall_anomaly=:rain,
+                        et_anomaly=:et, confidence=:conf, source='MODEL', notes=:notes
+                    WHERE region_id=:r AND week_start_date=:w
+                      AND alert_type=:t AND rule_version=:v
+                    """
+                ),
+                {
+                    "severity": a["severity"], "wai": a["wai_score"],
+                    "rain": a["rainfall_anomaly"], "et": a["et_anomaly"],
+                    "conf": a["confidence"], "notes": note,
+                    "r": a["region_id"], "w": week,
+                    "t": a["alert_type"], "v": RULE_VERSION,
+                },
+            ).rowcount
+            if updated:
                 written += 1
                 continue
             conn.execute(
@@ -194,7 +209,7 @@ def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
                     "wai": a["wai_score"],
                     "rain": a["rainfall_anomaly"],
                     "et": a["et_anomaly"],
-                    "notes": f"auto (anomaly_ratio={a['anom_ratio']:.2f})",
+                    "notes": note,
                     "conf": a["confidence"],
                     "rule_version": RULE_VERSION,
                     "now_ts": now_ts,
@@ -202,23 +217,26 @@ def write_alerts(alerts: list[dict], week: date) -> tuple[int, int]:
             )
             written += 1
 
-        # Resolve model alerts for the PREVIOUS period whose condition cleared
-        # (still in an open lifecycle state, auto-generated by us).
-        prev_week = (week - _ONE_MONTH).strftime("%Y-%m-%d") if week else None
-        if prev_week:
-            active_statuses = ("'New','ACTIVE','ACKNOWLEDGED','INVESTIGATING','ACTION_REQUIRED',"
-                               "'RESPONSE_COMPLETED','WAITING_FOR_VERIFICATION','ESCALATED','HANDOVER_REQUIRED'")
-            still_active = {(a["region_id"], a["alert_type"]) for a in alerts}
+        # Resolve model alerts for the current and previous periods whose
+        # condition cleared (still in an open lifecycle state, auto-generated
+        # by us). Legacy rows written before rule_version/source existed are
+        # included so they stop lingering as New forever.
+        still_active = {(a["region_id"], a["alert_type"]) for a in alerts}
+        periods = [week] if week else []
+        if week:
+            periods.append(_prev_month(week))
+        for period in periods:
             stale_rows = conn.execute(
                 text(
                     f"""
                     SELECT id, region_id, alert_type FROM aquavision.water_alerts
-                    WHERE source='MODEL' AND rule_version=:v
-                      AND week_start_date=:prev
+                    WHERE (source='MODEL' OR source IS NULL)
+                      AND (rule_version IS NULL OR rule_version=:v)
+                      AND week_start_date=:period
                       AND status IN ({active_statuses})
                     """
                 ),
-                {"v": RULE_VERSION, "prev": prev_week},
+                {"v": RULE_VERSION, "period": period.strftime("%Y-%m-%d")},
             ).fetchall()
             for row in stale_rows:
                 if (row[1], row[2]) in still_active:
@@ -242,8 +260,17 @@ def main() -> dict:
 
     Thresholds load here, not at module level, so importing this module
     (unit tests, feature-contract checks) never needs a live database.
+    The predict_weekly import lives here too: in the shared test process the
+    service's own scripts package may already sit in sys.modules['scripts'],
+    and a module-level ml-pipeline import would fail to resolve.
     """
     global th
+    from scripts.predict_weekly import (
+        band_and_confidence,
+        load_blend_alpha,
+        load_interval,
+    )
+
     th = load_thresholds()
     reg = joblib.load(latest_artifact("wai_reg_*.joblib"))
     detector = joblib.load(latest_artifact("anomaly_if.joblib"))
@@ -261,19 +288,58 @@ def main() -> dict:
     print(f"[risk_alerts] using latest complete month: {latest_month.date()}")
     if X.empty:
         raise RuntimeError(f"No GEE features for latest complete month {latest_month}")
+    # only regions the app registered (FK on water_alerts)
+    known = fetch_known_regions(engine())
+    skipped = int((~X["region_id"].isin(known)).sum())
+    X = X[X["region_id"].isin(known)].copy()
+    if skipped:
+        print(
+            f"[risk_alerts] skipped {skipped} feature rows for unregistered "
+            f"regions (not in shared.regions)"
+        )
+    if X.empty:
+        raise RuntimeError("No feature rows for registered regions")
 
-    # seasonality feature = NEXT month (we forecast one month ahead)
-    X["month_idx"] = (latest_month + pd.DateOffset(months=1)).month
+    # seasonality feature = season of the INPUT month (matches training:
+    # features at t -> WAI at t+1, month_idx from month t)
+    X["month_idx"] = latest_month.month
     X.loc[X["water_extent"] == -1, "water_extent"] = float("nan")
-    for col in ["rainfall_mm", "et_mm", "water_extent", "ndvi"]:
+    for col in [
+        "rainfall_mm",
+        "et_mm",
+        "water_extent",
+        "ndvi",
+        "sm_rootzone",
+        "sm_surface",
+    ]:
         X[col] = X[col].fillna(feats[col].median())
+    # feature contract: observed WAI at/before the input month (regressor
+    # predicts the delta against it)
+    X["current_wai"] = X["region_id"].map(fetch_current_wai(engine(), latest_month))
+    missing = int(X["current_wai"].isna().sum())
+    if missing:
+        X["current_wai"] = X["current_wai"].fillna(X["current_wai"].median())
+        print(
+            f"[risk_alerts] note: {missing} regions lack observed WAI history "
+            f"-> current_wai filled with cross-region median"
+        )
+    if X["current_wai"].isna().any():
+        raise RuntimeError("current_wai unavailable for every region; cannot run")
 
-    pred_wai = reg.predict(X[FEATURE_COLS])
+    current = X["current_wai"].to_numpy()
+    pred_delta = reg.predict(X[FEATURE_COLS])
+    pred_wai = np.clip(
+        current + load_blend_alpha() * pred_delta, 0.0, 100.0
+    )
     anom_ratio = anomaly_ratio(X, detector)
+    raw_level = np.clip(current + pred_delta, 0.0, 100.0)
+    _, _, band_conf = band_and_confidence(
+        X, current, pred_delta, raw_level, load_interval()
+    )
 
     # Build region_rows with rainfall/ET anomaly from the current month's data
     region_rows = []
-    for row, wai, ar in zip(X.itertuples(), pred_wai, anom_ratio):
+    for row, wai, ar, bc in zip(X.itertuples(), pred_wai, anom_ratio, band_conf):
         # anomaly % vs that region's own historical mean (simple z-ish proxy)
         hist = feats[feats["region_id"] == row.region_id]
         hist = hist[hist["et_mm"] > 0]
@@ -292,6 +358,7 @@ def main() -> dict:
                 rainfall_anomaly=round(float(rain_anom), 2),
                 et_anomaly=round(float(et_anom), 2),
                 anomaly_ratio=round(float(ar), 4),
+                band_confidence=round(float(bc), 3),
             )
         )
 

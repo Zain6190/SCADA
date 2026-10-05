@@ -22,6 +22,7 @@ import {
   Settings,
   Radio,
   ClipboardList,
+  Database,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -116,6 +117,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Alerts', href: '/admin/alerts', icon: Bell, section: 'admin' },
       { label: 'Assets', href: '/admin/assets', icon: Gauge, section: 'admin' },
       { label: 'ML Validation', href: '/admin/validation', icon: BarChart3, section: 'admin' },
+      { label: 'Model Registry', href: '/admin/registry', icon: Database, section: 'admin' },
       { label: 'Downstream Impact', href: '/admin/impact', icon: MapPin, section: 'admin' },
     ],
   },

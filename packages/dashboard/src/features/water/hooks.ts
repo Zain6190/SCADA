@@ -18,11 +18,15 @@ export const waterKeys = {
   indicators: (params: IndicatorParams) => [...waterKeys.all, 'indicators', params] as const,
   predictions: () => [...waterKeys.all, 'predictions'] as const,
   alerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'alerts', params] as const,
+  stressAlerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'stress-alerts', params] as const,
   operationalAlerts: (params: Record<string, unknown> = {}) => [...waterKeys.all, 'operational-alerts', params] as const,
   map: () => [...waterKeys.all, 'map'] as const,
   regions: () => [...waterKeys.all, 'regions'] as const,
   reports: () => [...waterKeys.all, 'reports'] as const,
   assets: () => [...waterKeys.all, 'assets'] as const,
+  operationalAssets: () => [...waterKeys.all, 'operational-assets'] as const,
+  observations: (assetId: number | null | undefined, days: number) =>
+    [...waterKeys.all, 'assets', assetId, 'observations', days] as const,
   assetReadings: (assetId: number | null | undefined) =>
     [...waterKeys.all, 'assets', assetId, 'readings'] as const,
   assetNotes: (assetId: number | null | undefined) =>
@@ -72,6 +76,14 @@ export function useWaterAlerts(params: { status?: string; severity?: string; lim
   })
 }
 
+export function useStressAlerts(params: { status?: string; severity?: string; region_id?: number; limit?: number } = {}) {
+  return useQuery({
+    queryKey: waterKeys.stressAlerts(params),
+    queryFn: () => waterApi.getStressAlerts(params),
+    refetchInterval: 30_000,
+  })
+}
+
 export function useAckOperationalAlert() {
   const qc = useQueryClient()
   return useMutation({
@@ -113,6 +125,25 @@ export function useEscalateOperationalAlert() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: waterKeys.all })
     },
+  })
+}
+
+// ─── Assets & Observations (overview charts) ─────────────────────────────────
+
+export function useOperationalAssets() {
+  return useQuery({
+    queryKey: waterKeys.operationalAssets(),
+    queryFn: () => waterApi.getOperationalAssets(),
+    refetchInterval: REFRESH_INTERVAL,
+  })
+}
+
+export function useAssetObservations(assetId: number | null | undefined, days = 30) {
+  return useQuery({
+    queryKey: waterKeys.observations(assetId, days),
+    queryFn: () => waterApi.getOperationalObservations(assetId as number, days),
+    enabled: !!assetId,
+    refetchInterval: REFRESH_INTERVAL,
   })
 }
 

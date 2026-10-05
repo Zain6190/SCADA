@@ -3,7 +3,8 @@
 import { RegionDetailClient } from './client'
 
 export function generateStaticParams() {
-  return Array.from({ length: 24 }, (_, i) => ({ id: String(i + 1) }))
+  const ids = Array.from({ length: 24 }, (_, i) => String(i + 1)).concat(['39', '40', '41'])
+  return ids.map((id) => ({ id }))
 }
 
 export default function RegionDetailPage() {

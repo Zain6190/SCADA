@@ -38,7 +38,23 @@ const SEVERITY_TONE: Record<string, 'red' | 'amber' | 'sky' | 'emerald' | 'slate
   Normal: 'emerald',
 }
 
-const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
+const ASSET_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+function statusTone(status?: string | null): 'red' | 'amber' | 'sky' | 'emerald' | 'slate' {
+  switch (status) {
+    case 'REJECTED':
+      return 'red'
+    case 'EXPERIMENTAL':
+      return 'amber'
+    case 'SHADOW':
+      return 'sky'
+    case 'APPROVED':
+    case 'PRODUCTION':
+      return 'emerald'
+    default:
+      return 'slate'
+  }
+}
 
 interface WAIPrediction {
   id: number
@@ -49,6 +65,8 @@ interface WAIPrediction {
   predicted_severity: string
   predicted_wai_score: number
   confidence: number | null
+  lower_bound: number | null
+  upper_bound: number | null
 }
 
 export default function PredictionsPage() {
@@ -138,6 +156,30 @@ function FloodPredictionsTab() {
     retry: 1,
   })
 
+  const { data: validation } = useQuery({
+    queryKey: ['ml-validation-reports', 'flood_predictor'],
+    queryFn: () => waterApi.getValidationReports({ model_type: 'flood_predictor', limit: 100 }),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
+
+  const statusByAsset = new Map<number, string>()
+  for (const r of validation?.reports ?? []) {
+    if (r.horizon === 7 && !statusByAsset.has(r.asset_id)) {
+      statusByAsset.set(r.asset_id, r.recommendation)
+    }
+  }
+
+  const statusCounts: Record<string, number> = {}
+  for (const s of Array.from(statusByAsset.values())) {
+    statusCounts[s] = (statusCounts[s] ?? 0) + 1
+  }
+  const precedence = ['REJECTED', 'EXPERIMENTAL', 'SHADOW', 'APPROVED', 'PRODUCTION']
+  const worstStatus = precedence.find((s) => statusCounts[s])
+  const headerLabel = worstStatus
+    ? precedence.filter((s) => statusCounts[s]).map((s) => `${s} ${statusCounts[s]}`).join(' · ')
+    : 'UNVALIDATED'
+
   return (
     <>
       {trainMutation.isSuccess && (
@@ -177,9 +219,9 @@ function FloodPredictionsTab() {
       )}
 
       <div className="flex items-center gap-3">
-        <Badge tone="amber">
+        <Badge tone={statusTone(worstStatus)}>
           <FlaskConical className="mr-1 inline h-3 w-3" />
-          EXPERIMENTAL
+          {headerLabel}
         </Badge>
         <button
           onClick={() => trainMutation.mutate()}
@@ -200,6 +242,7 @@ function FloodPredictionsTab() {
             onToggle={() => setExpanded(expanded === id ? null : id)}
             metadata={metadata}
             reliability={reliability?.assets?.[String(id)]}
+            status={statusByAsset.get(id)}
           />
         ))}
       </div>
@@ -213,12 +256,14 @@ function PredictionCard({
   onToggle,
   metadata,
   reliability,
+  status,
 }: {
   assetId: number
   isExpanded: boolean
   onToggle: () => void
   metadata?: any
   reliability?: V2AssetReliability
+  status?: string
 }) {
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['ml-predictions', assetId],
@@ -263,7 +308,7 @@ function PredictionCard({
             <EmptyState title="No model" message="Train models first." />
           ) : (
             <>
-              <PredictionDetails pred={pred} />
+              <PredictionDetails pred={pred} status={status} />
               {assetMeta && <ModelHealthBar assetMeta={assetMeta} />}
             </>
           )}
@@ -273,7 +318,8 @@ function PredictionCard({
   )
 }
 
-function PredictionDetails({ pred }: { pred: MLPrediction }) {
+function PredictionDetails({ pred, status }: { pred: MLPrediction; status?: string }) {
+  const effectiveStatus = status ?? pred.model_status
   const topFeatures = Object.entries(pred.feature_importance)
     .map(([k, v]) => [k, Number(v)] as const)
     .sort(([, a], [, b]) => b - a)
@@ -322,9 +368,9 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
             </div>
             <div>
               <div className="text-ink-subtle">Status</div>
-              <Badge tone="amber">
+              <Badge tone={statusTone(effectiveStatus)}>
                 <FlaskConical className="mr-1 inline h-3 w-3" />
-                {pred.model_status}
+                {effectiveStatus}
               </Badge>
             </div>
           </>
@@ -336,9 +382,9 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
             </div>
             <div>
               <div className="text-ink-subtle">Status</div>
-              <Badge tone="amber">
+              <Badge tone={statusTone(effectiveStatus)}>
                 <FlaskConical className="mr-1 inline h-3 w-3" />
-                {pred.model_status}
+                {effectiveStatus}
               </Badge>
             </div>
           </>
@@ -404,7 +450,7 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
       )}
 
       <div className="text-ink-subtle">
-        Model: {pred.model_version} | {pred.model_status} | {pred.prediction_date}
+        Model: {pred.model_version} | {effectiveStatus} | {pred.prediction_date}
       </div>
     </div>
   )
@@ -412,7 +458,7 @@ function PredictionDetails({ pred }: { pred: MLPrediction }) {
 
 function ModelHealthBar({ assetMeta }: { assetMeta: any }) {
   const models = assetMeta.models || {}
-  const entries = Object.entries(models).filter(([, v]: [string, any]) => v.status === 'SUCCESS')
+  const entries = Object.entries(models).filter(([, v]: [string, any]) => v.r2 != null || v.mae != null)
 
   if (entries.length === 0) return null
 
@@ -441,33 +487,35 @@ function WAIPredictionsTab() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    waterApi.getPredictions({ limit: 50 }).then(setPredictions).finally(() => setLoading(false))
+    waterApi.getPredictions().then(data => setPredictions(data as WAIPrediction[])).finally(() => setLoading(false))
   }, [])
 
   if (loading) return <Spinner label="Loading WAI predictions" />
   if (predictions.length === 0) return <EmptyState title="No WAI predictions" message="Run the prediction pipeline to generate forecasts." />
 
-  const xgbPreds = predictions.filter(p => p.model_version === 'xgb-v1.0')
-  const otherPreds = predictions.filter(p => p.model_version !== 'xgb-v1.0')
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const openPreds = predictions.filter(p => new Date(p.target_week_start_date) >= startOfToday)
+  const historicalPreds = predictions.filter(p => new Date(p.target_week_start_date) < startOfToday)
 
   return (
     <div className="space-y-4">
-      {xgbPreds.length > 0 && (
+      {openPreds.length > 0 && (
         <div>
           <h3 className="mb-3 text-sm font-semibold text-ink-muted">XGBoost Next-Month Forecasts</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {xgbPreds.map(pred => (
+            {openPreds.map(pred => (
               <WAIPredictionCard key={pred.id} pred={pred} />
             ))}
           </div>
         </div>
       )}
 
-      {otherPreds.length > 0 && (
+      {historicalPreds.length > 0 && (
         <div>
           <h3 className="mb-3 text-sm font-semibold text-ink-muted">Historical Predictions</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {otherPreds.slice(0, 14).map(pred => (
+            {historicalPreds.slice(0, 14).map(pred => (
               <WAIPredictionCard key={pred.id} pred={pred} />
             ))}
           </div>
@@ -495,6 +543,14 @@ function WAIPredictionCard({ pred }: { pred: WAIPrediction }) {
             <span className="text-ink-subtle">Confidence</span>
             <span className="font-mono text-ink-muted">
               {pred.confidence != null ? `${(pred.confidence * 100).toFixed(0)}%` : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-ink-subtle">80% Range</span>
+            <span className="font-mono text-ink-muted">
+              {pred.lower_bound != null && pred.upper_bound != null
+                ? `${pred.lower_bound.toFixed(1)} — ${pred.upper_bound.toFixed(1)}`
+                : '—'}
             </span>
           </div>
           <div className="flex justify-between">

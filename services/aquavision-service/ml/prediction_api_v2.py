@@ -6,6 +6,9 @@
 # GET  /water/v2/asset/{asset_id}/forecast    - Chart data for frontend
 
 import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -14,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from infrastructure.db.engine import get_session
+from infrastructure.db.engine import SessionLocal, get_session
 from infrastructure.db.models import WaterAsset
 
 logger = logging.getLogger(__name__)
@@ -108,6 +111,7 @@ class LeadTimeResponse(BaseModel):
     discharge: DischargeResponse
     rainfall: RainfallResponse
     confidence: Optional[float] = None
+    model_status: Optional[str] = None
 
 
 class AlertResponse(BaseModel):
@@ -218,6 +222,7 @@ def get_prediction(
                     discharge=DischargeResponse(**v.discharge.__dict__),
                     rainfall=RainfallResponse(**v.rainfall.__dict__),
                     confidence=v.confidence,
+                    model_status=v.model_status,
                 )
                 for k, v in result.predictions.items()
             },
@@ -266,6 +271,7 @@ def get_single_lead_prediction(
             discharge=DischargeResponse(**forecast.discharge.__dict__),
             rainfall=RainfallResponse(**forecast.rainfall.__dict__),
             confidence=forecast.confidence,
+            model_status=forecast.model_status,
         )
 
     except HTTPException:
@@ -275,28 +281,76 @@ def get_single_lead_prediction(
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
-@router.get("/v2/national-overview", response_model=NationalOverviewResponse)
-def get_national_overview(
-    session: Session = Depends(get_session),
-):
-    """National overview for NDMA dashboard.
+_overview_cache: Dict[str, object] = {"data": None, "at": 0.0}
+_overview_lock = threading.Lock()
+_overview_refreshing = False
+_OVERVIEW_TTL = 600.0
 
-    Returns WAI scores and predictions for all provinces and assets.
-    """
-    from ml.models.prediction_v2 import AquaVisionPredictionModel
 
-    model = AquaVisionPredictionModel(session=session)
+def _store_overview(built) -> None:
+    _overview_cache["data"] = built
+    _overview_cache["at"] = time.monotonic()
 
-    # Get all active assets
+
+def _refresh_overview_background() -> None:
+    global _overview_refreshing
+    try:
+        with SessionLocal() as s:
+            _store_overview(_build_overview(s))
+        logger.info("national-overview cache refreshed")
+    except Exception:
+        logger.exception("national-overview background refresh failed")
+    finally:
+        with _overview_lock:
+            _overview_refreshing = False
+
+
+def _spawn_overview_refresh() -> None:
+    global _overview_refreshing
+    with _overview_lock:
+        if _overview_refreshing:
+            return
+        _overview_refreshing = True
+    threading.Thread(target=_refresh_overview_background, daemon=True).start()
+
+
+def _overview_predict(asset_id: int, asset_name: str, asset_type: str):
+    try:
+        with SessionLocal() as s:
+            from ml.models.prediction_v2 import AquaVisionPredictionModel
+            model = AquaVisionPredictionModel(session=s)
+            result = model.predict(
+                asset_id=asset_id,
+                asset_name=asset_name,
+                asset_type=asset_type,
+                lead_times=[7],
+            )
+            forecast_7d = result.predictions.get("7_day")
+            return {
+                "pred": asdict(result),
+                "wai": forecast_7d.water_stress.value if forecast_7d else None,
+                "alerts": list(result.alerts),
+            }
+    except Exception as e:
+        logger.warning(f"Prediction failed for asset {asset_id}: {e}")
+        return None
+
+
+def _build_overview(session: Session):
+    """National overview for NDMA dashboard: WAI scores and predictions for
+    all provinces and assets. Assets predict in parallel (one session each)."""
     assets = session.query(WaterAsset).filter(WaterAsset.is_active == True).all()
 
-    # Group by province
-    province_assets = {}
+    province_assets: Dict[str, list] = {}
     for asset in assets:
-        province = asset.province or "Unknown"
-        if province not in province_assets:
-            province_assets[province] = []
-        province_assets[province].append(asset)
+        province_assets.setdefault(asset.province or "Unknown", []).append(asset)
+
+    jobs = [(a.id, a.canonical_name, a.asset_type or "barrage")
+            for a in assets]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(
+            lambda j: _overview_predict(j[0], j[1], j[2]), jobs))
+    by_asset = {j[0]: r for j, r in zip(jobs, results) if r is not None}
 
     from domain.water_classifier import classify_severity
 
@@ -305,20 +359,24 @@ def get_national_overview(
     assets_monitored = 0
 
     for province, prov_assets in province_assets.items():
-        predicted = []
+        asset_predictions = []
+        wai_scores = []
+        alerts = []
         for asset in prov_assets:
-            try:
-                predicted.append(model.predict(
-                    asset_id=asset.id,
-                    asset_name=asset.canonical_name,
-                    asset_type=asset.asset_type or "barrage",
-                    lead_times=[7],
-                ))
-            except Exception as e:
-                logger.warning(f"Prediction failed for asset {asset.id}: {e}")
+            res = by_asset.get(asset.id)
+            if res is None:
+                continue
+            pred = res["pred"]
+            meta = pred.get("model_metadata") or {}
+            if meta.get("status") == "NO_DATA":
+                continue
+            asset_predictions.append(pred)
+            stress = ((pred.get("predictions") or {}).get("7_day") or {}).get("water_stress") or {}
+            if res["wai"] is not None and stress.get("category") != "No Data":
+                wai_scores.append(res["wai"])
+            alerts.extend(res["alerts"] or [])
 
-        real, wai_scores, alerts = partition_real_forecasts(predicted)
-        if not real:
+        if not asset_predictions:
             continue
 
         avg_wai = mean_wai(wai_scores)
@@ -326,10 +384,10 @@ def get_national_overview(
             province=province,
             wai_score=int(round(avg_wai)) if avg_wai is not None else None,
             category=classify_severity(avg_wai) if avg_wai is not None else None,
-            assets=[asdict(result) for result in real],
+            assets=asset_predictions,
         ))
         all_alerts.extend(alerts)
-        assets_monitored += len(real)
+        assets_monitored += len(asset_predictions)
 
     national_wai = mean_wai([p.wai_score for p in provinces if p.wai_score is not None])
 
@@ -343,6 +401,26 @@ def get_national_overview(
         critical_alerts=critical_alerts,
         assets_monitored=assets_monitored,
     )
+
+
+@router.get("/v2/national-overview", response_model=NationalOverviewResponse)
+def get_national_overview(
+    session: Session = Depends(get_session),
+):
+    """NDMA dashboard view — cached (TTL 10 min) with background refresh."""
+    data = _overview_cache["data"]
+    if data is not None:
+        if time.monotonic() - _overview_cache["at"] < _OVERVIEW_TTL:
+            return data
+        _spawn_overview_refresh()
+        return data
+    with _overview_lock:
+        data = _overview_cache["data"]
+        if data is not None and time.monotonic() - _overview_cache["at"] < _OVERVIEW_TTL:
+            return data
+        built = _build_overview(session)
+        _store_overview(built)
+        return built
 
 
 @router.get("/v2/asset/{asset_id}/forecast-chart", response_model=ForecastChartResponse)

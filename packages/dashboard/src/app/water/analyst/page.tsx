@@ -153,6 +153,7 @@ function ModelPerformanceCard({ model }: { model: ModelPerformance }) {
             <MetricBar label="AUC" value={model.auc} max={1} color="amber" />
             <MetricBar label="F1" value={model.f1} max={1} color="sky" />
             <MetricBar label="Precision" value={model.precision} max={1} color="violet" />
+            <MetricBar label="Recall" value={model.recall} max={1} color="sky" />
           </>
         )}
         {isAnomaly && (

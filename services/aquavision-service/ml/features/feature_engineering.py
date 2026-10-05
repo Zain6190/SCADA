@@ -62,7 +62,11 @@ class FloodFeatureBuilder:
     
     LAG_DAYS = [1, 3, 7, 14, 30]
     ROLLING_WINDOWS = [7, 14, 30]
-    
+    # GEE composites publish with a lag (CHIRPS ~30d, MOD16 8d, MOD13 16d),
+    # so "as of date d" means the latest row available within this window —
+    # same semantics at train time and serve time.
+    GEE_LOOKBACK_DAYS = 45
+
     def __init__(self, session: Session):
         self.session = session
         self._threshold_cache: Dict[int, Optional[WaterAssetThreshold]] = {}
@@ -70,6 +74,8 @@ class FloodFeatureBuilder:
         self._ffd_span: Optional[tuple] = None
         self._weather_cache: Dict[tuple, Optional[Dict]] = {}
         self._weather_span: Optional[tuple] = None
+        self._gee_cache: Dict[tuple, Optional[Dict]] = {}
+        self._gee_span: Optional[tuple] = None
     
     def build_training_table(
         self,
@@ -321,6 +327,25 @@ class FloodFeatureBuilder:
             self._weather_cache[(asset_id, day)] = picked
         self._weather_span = (span_start, span_end)
 
+        self._gee_cache = {}
+        gee_rows = self.session.execute(
+            text("""
+                SELECT observed_on, rainfall_mm, et_mm, ndvi
+                FROM aquavision.gee_features
+                WHERE asset_id = :asset_id
+                AND observed_on >= :start
+                AND observed_on <= :end
+            """),
+            {
+                "asset_id": asset_id,
+                "start": span_start - timedelta(days=self.GEE_LOOKBACK_DAYS),
+                "end": span_end,
+            },
+        ).mappings().all()
+        for row in gee_rows:
+            self._gee_cache[(asset_id, self._as_date(row["observed_on"]))] = dict(row)
+        self._gee_span = (span_start - timedelta(days=self.GEE_LOOKBACK_DAYS), span_end)
+
     def _get_observations(
         self,
         asset_id: int,
@@ -548,6 +573,16 @@ class FloodFeatureBuilder:
             features["forecast_temp_max"] = 0.0
             features["forecast_humidity_mean"] = 0.0
 
+        # GEE observed features (CHIRPS rain / MOD16 ET / MOD13 NDVI).
+        # Sums and recency are relative to the latest row available as of
+        # this date; dates with no GEE coverage in the lookback window get
+        # 0.0 at both train and serve time (trees bucket it as "no data").
+        features["gee_rain_mm"] = self._gee_rain_window(asset_id, current["date"], 1)
+        features["gee_rain_3d"] = self._gee_rain_window(asset_id, current["date"], 3)
+        features["gee_rain_7d"] = self._gee_rain_window(asset_id, current["date"], 7)
+        features["gee_et_mm"] = self._gee_recent_value(asset_id, current["date"], "et_mm")
+        features["gee_ndvi"] = self._gee_recent_value(asset_id, current["date"], "ndvi")
+
         return features
     
     def _get_threshold(self, asset_id: int):
@@ -611,6 +646,65 @@ class FloodFeatureBuilder:
         result = dict(row) if row else None
         self._weather_cache[key] = result
         return result
+
+    def _get_gee_row(self, asset_id: int, dt) -> Optional[Dict]:
+        """Get GEE feature row (rainfall/et/ndvi) for asset on date.
+
+        Hits the prefetched cache first; dates inside the prefetched span but
+        without a row are known-empty. Outside the span (prediction path),
+        one range fetch over the lookback window resolves the whole scan.
+        """
+        if dt is None:
+            return None
+        d = self._as_date(dt)
+        key = (asset_id, d)
+        if key in self._gee_cache:
+            return self._gee_cache[key]
+        if self._gee_span is not None and self._gee_span[0] <= d <= self._gee_span[1]:
+            self._gee_cache[key] = None
+            return None
+        rows = self.session.execute(
+            text("""
+                SELECT observed_on, rainfall_mm, et_mm, ndvi
+                FROM aquavision.gee_features
+                WHERE asset_id = :asset_id
+                AND observed_on >= :start
+                AND observed_on <= :end
+            """),
+            {"asset_id": asset_id, "start": d - timedelta(days=self.GEE_LOOKBACK_DAYS), "end": d},
+        ).mappings().all()
+        for row in rows:
+            self._gee_cache[(asset_id, self._as_date(row["observed_on"]))] = dict(row)
+        for offset in range(self.GEE_LOOKBACK_DAYS + 1):
+            self._gee_cache.setdefault((asset_id, d - timedelta(days=offset)), None)
+        return self._gee_cache.get(key)
+
+    def _gee_rain_window(self, asset_id: int, dt, n_days: int) -> float:
+        """Sum of rainfall over the n most recent GEE rows within the lookback window."""
+        if dt is None:
+            return 0.0
+        d = self._as_date(dt)
+        total = 0.0
+        taken = 0
+        for offset in range(self.GEE_LOOKBACK_DAYS + 1):
+            if taken >= n_days:
+                break
+            row = self._get_gee_row(asset_id, d - timedelta(days=offset))
+            if row and row.get("rainfall_mm") is not None:
+                total += float(row["rainfall_mm"])
+                taken += 1
+        return round(total, 3)
+
+    def _gee_recent_value(self, asset_id: int, dt, field: str) -> float:
+        """Most recent non-null value of a GEE field within the lookback window."""
+        if dt is None:
+            return 0.0
+        d = self._as_date(dt)
+        for offset in range(self.GEE_LOOKBACK_DAYS + 1):
+            row = self._get_gee_row(asset_id, d - timedelta(days=offset))
+            if row and row.get(field) is not None:
+                return float(row[field])
+        return 0.0
     
     def _get_target_value(self, obs: Dict, target_field: str = "auto") -> Optional[float]:
         """Get target value for prediction.

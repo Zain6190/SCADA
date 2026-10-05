@@ -76,7 +76,7 @@ class TestComputeRealtimeWai(unittest.TestCase):
 
 
 class TestGetWaiForPrediction(unittest.TestCase):
-    def test_prefers_realtime(self):
+    def test_blends_realtime_with_weekly(self):
         session = MagicMock()
         result = MagicMock()
         result.mappings.return_value.all.return_value = [
@@ -86,7 +86,7 @@ class TestGetWaiForPrediction(unittest.TestCase):
         session.execute.return_value = result
         wai, _, _ = get_wai_for_prediction(session, 1, stale_indicator_wai=11.0)
         self.assertIsNotNone(wai)
-        self.assertNotEqual(wai, 11.0)
+        self.assertEqual(wai, round(0.5 * 100.0 + 0.5 * 11.0, 2))
 
     def test_falls_back_to_stale_when_no_history(self):
         session = MagicMock()

@@ -18,6 +18,39 @@ class WaterPredictionRepository:
         q = q.order_by(orm.WaterPrediction.target_week_start_date.desc())
         return list(self._db.execute(q).scalars())
 
+    def list_with_actual(
+        self, region_id: Optional[int] = None
+    ) -> List[tuple]:
+        """Predictions joined to the actual indicator for the same target week.
+
+        Returns (prediction, region_name, actual_wai, actual_severity) tuples;
+        actuals are NULL until the target week has an observed indicator row.
+        """
+        q = (
+            select(
+                orm.WaterPrediction,
+                orm.Region.name,
+                orm.WaterIndicator.wai_score,
+                orm.WaterIndicator.severity,
+            )
+            .outerjoin(
+                orm.WaterIndicator,
+                (orm.WaterIndicator.region_id == orm.WaterPrediction.region_id)
+                & (
+                    orm.WaterIndicator.week_start_date
+                    == orm.WaterPrediction.target_week_start_date
+                ),
+            )
+            .outerjoin(orm.Region, orm.Region.id == orm.WaterPrediction.region_id)
+            .order_by(
+                orm.WaterPrediction.target_week_start_date.desc(),
+                orm.WaterPrediction.region_id.asc(),
+            )
+        )
+        if region_id is not None:
+            q = q.where(orm.WaterPrediction.region_id == region_id)
+        return list(self._db.execute(q).all())
+
     def upsert(
         self,
         region_id: int,

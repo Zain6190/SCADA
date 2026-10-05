@@ -56,6 +56,17 @@ function statusTone(status?: string | null): 'emerald' | 'sky' | 'amber' | 'red'
   return 'neutral'
 }
 
+function validationBadge(validation?: Record<string, string>) {
+  const statuses = Object.values(validation ?? {})
+  if (statuses.length === 0) return null
+  if (statuses.includes('REJECTED')) return <Badge tone="red">VALIDATION FAILED</Badge>
+  if (statuses.includes('EXPERIMENTAL') || statuses.includes('UNREGISTERED')) {
+    return <Badge tone="amber">EXPERIMENTAL</Badge>
+  }
+  if (statuses.includes('SHADOW')) return <Badge tone="sky">SHADOW</Badge>
+  return <Badge tone="neutral">{statuses[0]}</Badge>
+}
+
 const ASSETS = [
   { id: 1, name: 'Tarbela', type: 'reservoir' },
   { id: 2, name: 'Mangla', type: 'reservoir' },
@@ -208,6 +219,7 @@ function AssetPredictionDetail({ assetId }: { assetId: number }) {
   if (!data) return <EmptyState title="No prediction" message="No data available." />
 
   const coverage = data.model_metadata.ci_coverage_80
+  const validation = data.model_metadata.model_validation
 
   return (
     <div className="space-y-4">
@@ -224,7 +236,7 @@ function AssetPredictionDetail({ assetId }: { assetId: number }) {
         </div>
         <div className="flex items-center gap-2">
           <ReliabilityBadge r={reliability?.assets?.[String(assetId)]} />
-          <Badge tone="amber">EXPERIMENTAL</Badge>
+          {validationBadge(validation)}
         </div>
       </div>
 
@@ -409,6 +421,11 @@ function LeadTimeCard({
         icon={<BarChart3 className="h-5 w-5 text-brand" />}
       />
       <CardBody className="space-y-3">
+        {forecast.model_status === 'REJECTED' && (
+          <div className="rounded-lg border border-crit/25 bg-crit-soft px-2 py-1 text-[10px] font-semibold text-crit">
+            Failed walk-forward validation — treat as indicative only
+          </div>
+        )}
         {/* Discharge */}
         <div className="rounded-lg border border-line-strong bg-surface-alt p-3">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-brand">

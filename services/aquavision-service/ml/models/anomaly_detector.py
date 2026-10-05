@@ -7,7 +7,7 @@
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -23,6 +23,10 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 # Model status label — displayed in all ML outputs
 MODEL_STATUS = "EXPERIMENTAL"
 MODEL_VERSION = "iforest-v1.0"
+
+_ARTIFACT_CACHE: Dict[str, Tuple[float, int, Dict]] = {}
+
+_SERIES_CACHE: Dict[int, Tuple[tuple, Dict]] = {}
 
 
 @dataclass
@@ -56,6 +60,15 @@ class AnomalyDetector:
 
     def __init__(self):
         os.makedirs(MODEL_DIR, exist_ok=True)
+
+    @staticmethod
+    def _severity_for(score: float) -> str:
+        """Severity band for a decision_function score (negative = anomalous)."""
+        if score < -0.3:
+            return "HIGH"
+        if score < -0.15:
+            return "MODERATE"
+        return "LOW"
 
     def _build_features(
         self,
@@ -288,12 +301,7 @@ class AnomalyDetector:
                 anomaly_features = [feature_names[j] for j in top_indices if feature_scores[j] > 1.0]
 
                 # Severity based on anomaly score
-                if score < -0.3:
-                    severity = "HIGH"
-                elif score < -0.15:
-                    severity = "MODERATE"
-                else:
-                    severity = "LOW"
+                severity = self._severity_for(float(score))
 
                 details = {
                     "level_ft": float(obs.water_level_ft or 0),
@@ -315,6 +323,253 @@ class AnomalyDetector:
         # Sort by score (most anomalous first)
         anomaly_results.sort(key=lambda r: r.anomaly_score)
         return anomaly_results[:top_n]
+
+    def _load_artifact(self, asset_id: int) -> Optional[Dict]:
+        """Load the trained artifact, cached by file (mtime, size).
+
+        Returns None when no artifact has been trained for the asset.
+        """
+        model_path = os.path.join(MODEL_DIR, f"anomaly_{asset_id}.joblib")
+        if not os.path.exists(model_path):
+            return None
+        stat = os.stat(model_path)
+        key = os.path.abspath(model_path)
+        cached = _ARTIFACT_CACHE.get(key)
+        if cached is not None and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+            return cached[2]
+        artifact = joblib.load(model_path)
+        _ARTIFACT_CACHE[key] = (stat.st_mtime, stat.st_size, artifact)
+        return artifact
+
+    def _load_series(
+        self,
+        session: Session,
+        asset_ids: Optional[List[int]] = None,
+    ) -> Dict[int, List[tuple]]:
+        """Load observation series (column-level, no ORM entity hydration)."""
+        from infrastructure.db.models import WaterObservation
+
+        query = session.query(
+            WaterObservation.asset_id,
+            WaterObservation.observed_at,
+            WaterObservation.water_level_ft,
+            WaterObservation.inflow_cusecs,
+            WaterObservation.outflow_cusecs,
+        ).order_by(WaterObservation.observed_at.asc())
+        if asset_ids is not None:
+            query = query.filter(WaterObservation.asset_id.in_(asset_ids))
+
+        series: Dict[int, List[tuple]] = {}
+        for row in query.all():
+            series.setdefault(row[0], []).append(row)
+        return series
+
+    def _score_series(
+        self,
+        artifact: Dict,
+        rows: List[tuple],
+        days: Optional[int],
+    ) -> Optional[Dict]:
+        """Score pre-loaded observation rows for one asset (real inference).
+
+        Features are built over the FULL series (lags and rolling stats need
+        history); points are then filtered to the window when days is given,
+        so scores match predict() exactly. Returns None when there is too
+        little data.
+        """
+        if len(rows) < 5:
+            return None
+
+        model = artifact["model"]
+        scaler = artifact["scaler"]
+
+        timestamps = np.array([r[1] for r in rows])
+        levels = np.array([float(r[2] or 0) for r in rows])
+        inflows = np.array([float(r[3] or 0) for r in rows])
+        outflows = np.array([float(r[4] or 0) for r in rows])
+
+        X, feature_names = self._build_features(levels, inflows, outflows, timestamps)
+        X_scaled = scaler.transform(X)
+        predictions = model.predict(X_scaled)
+        scores = model.decision_function(X_scaled)
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=days)
+            if days is not None
+            else None
+        )
+        points = []
+        for i, row in enumerate(rows):
+            ts = row[1]
+            if ts is None:
+                continue
+            if cutoff is not None:
+                ts_utc = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+                if ts_utc < cutoff:
+                    continue
+
+            is_anomaly = predictions[i] == -1
+            anomaly_features: List[str] = []
+            if is_anomaly:
+                scaled_row = np.abs(X_scaled[i])
+                top = np.argsort(scaled_row)[::-1][:3]
+                anomaly_features = [feature_names[j] for j in top if scaled_row[j] > 1.0]
+
+            score = scores[i]
+            points.append({
+                "observed_at": ts.isoformat(),
+                "anomaly_score": round(float(score), 4),
+                "is_anomaly": bool(is_anomaly),
+                "severity": self._severity_for(float(score)),
+                "anomaly_features": anomaly_features,
+                "level_ft": float(row[2] or 0),
+                "inflow_cusecs": float(row[3] or 0),
+                "outflow_cusecs": float(row[4] or 0),
+            })
+
+        return {
+            "artifact": {
+                "model_version": artifact.get("model_version", MODEL_VERSION),
+                "model_status": artifact.get("model_status", MODEL_STATUS),
+                "trained_at": artifact.get("trained_at"),
+                "training_samples": artifact.get("training_samples"),
+                "contamination": artifact.get("contamination"),
+            },
+            "points": points,
+            "anomaly_count": sum(1 for p in points if p["is_anomaly"]),
+        }
+
+    def _series_fingerprints(
+        self,
+        session: Session,
+        asset_ids: List[int],
+    ) -> Dict[int, tuple]:
+        """Cheap per-asset data fingerprint (row count, latest timestamp)."""
+        from sqlalchemy import func
+        from infrastructure.db.models import WaterObservation
+
+        if not asset_ids:
+            return {}
+        rows = (
+            session.query(
+                WaterObservation.asset_id,
+                func.count(WaterObservation.id),
+                func.max(WaterObservation.observed_at),
+            )
+            .filter(WaterObservation.asset_id.in_(asset_ids))
+            .group_by(WaterObservation.asset_id)
+            .all()
+        )
+        return {
+            r[0]: (int(r[1]), r[2].isoformat() if r[2] else None)
+            for r in rows
+        }
+
+    @staticmethod
+    def _trim_history(history: Dict, keep_days: int = 370) -> Dict:
+        """Keep only points that can appear in a legal window (max 365 days)."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+        points = []
+        for p in history["points"]:
+            ts = datetime.fromisoformat(p["observed_at"])
+            ts_utc = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+            if ts_utc >= cutoff:
+                points.append(p)
+        return {
+            "artifact": history["artifact"],
+            "points": points,
+            "anomaly_count": sum(1 for p in points if p["is_anomaly"]),
+        }
+
+    @staticmethod
+    def _window_history(history: Dict, days: int) -> Dict:
+        """Slice a cached full history to a trailing window."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        points = []
+        for p in history["points"]:
+            ts = datetime.fromisoformat(p["observed_at"])
+            ts_utc = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+            if ts_utc >= cutoff:
+                points.append(p)
+        return {
+            "artifact": history["artifact"],
+            "points": points,
+            "anomaly_count": sum(1 for p in points if p["is_anomaly"]),
+        }
+
+    def score_history(
+        self,
+        asset_id: int,
+        session: Session,
+        days: int = 90,
+    ) -> Optional[Dict]:
+        """Score every observation for one asset over a trailing window.
+
+        Returns None when no trained artifact exists or there is too little
+        data to score.
+        """
+        return self.score_many(session, [asset_id], days=days).get(asset_id)
+
+    def score_many(
+        self,
+        session: Session,
+        asset_ids: List[int],
+        days: int = 90,
+    ) -> Dict[int, Optional[Dict]]:
+        """Score many assets with one bulk series query and cached artifacts.
+
+        Full scored series are cached per asset and invalidated by a cheap
+        fingerprint (row count, latest observation, artifact file), so repeat
+        calls only re-slice the window. Assets without a trained artifact (or
+        that fail to score) map to None.
+        """
+        artifacts: Dict[int, Optional[Dict]] = {}
+        for aid in asset_ids:
+            try:
+                artifacts[aid] = self._load_artifact(aid)
+            except Exception as exc:
+                logger.warning(f"Anomaly artifact load failed for asset {aid}: {exc}")
+                artifacts[aid] = None
+
+        wanted = [aid for aid in asset_ids if artifacts[aid] is not None]
+        fingerprints = self._series_fingerprints(session, wanted) if wanted else {}
+
+        scored: Dict[int, Optional[Dict]] = {}
+        pending: Dict[int, Tuple[tuple, Dict]] = {}
+
+        for aid in wanted:
+            artifact = artifacts[aid]
+            try:
+                stat = os.stat(os.path.abspath(os.path.join(MODEL_DIR, f"anomaly_{aid}.joblib")))
+                count, latest = fingerprints.get(aid, (0, None))
+                fingerprint = (stat.st_mtime, stat.st_size, count, latest)
+            except OSError as exc:
+                logger.warning(f"Anomaly artifact stat failed for asset {aid}: {exc}")
+                scored[aid] = None
+                continue
+
+            cached = _SERIES_CACHE.get(aid)
+            if cached is not None and cached[0] == fingerprint:
+                scored[aid] = self._window_history(cached[1], days)
+            else:
+                pending[aid] = (fingerprint, artifact)
+
+        if pending:
+            series = self._load_series(session, list(pending))
+            for aid, (fingerprint, artifact) in pending.items():
+                try:
+                    full = self._score_series(artifact, series.get(aid, []), None)
+                except Exception as exc:
+                    logger.warning(f"Anomaly scoring failed for asset {aid}: {exc}")
+                    full = None
+                if full is None:
+                    scored[aid] = None
+                    continue
+                trimmed = self._trim_history(full)
+                _SERIES_CACHE[aid] = (fingerprint, trimmed)
+                scored[aid] = self._window_history(trimmed, days)
+
+        return {aid: scored.get(aid) for aid in asset_ids}
 
     def train_all(self, session: Session) -> List[Dict]:
         """Train anomaly detectors for all assets with sufficient data."""

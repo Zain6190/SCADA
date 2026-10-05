@@ -20,6 +20,9 @@ class TestClassifier(unittest.TestCase):
 
     def test_worst_severity(self):
         self.assertEqual(worst_severity(["Normal", "Severe", "Stressed"]), "Severe")
+        self.assertEqual(worst_severity(["Critical", "Severe"]), "Critical")
+        self.assertEqual(worst_severity(["Severe", "Critical"]), "Critical")
+        self.assertEqual(worst_severity(["Stressed", "Critical"]), "Critical")
         self.assertEqual(worst_severity([]), "Unknown")
 
 

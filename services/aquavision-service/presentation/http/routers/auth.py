@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 
@@ -31,6 +31,7 @@ from infrastructure.auth.security import get_password_hash, verify_password
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import (
     Asset,
+    AuditLog,
     Permission,
     Region,
     Role,
@@ -78,10 +79,20 @@ def _check_access_allowed(user: User) -> None:
     readable detail string that the frontend maps to a status screen."""
     access = (user.access_status or "ACTIVE").upper()
     if not user.is_active or access in DISABLED_STATUSES:
+        log_security_event(
+            action="AUTH_FAILED_ACCOUNT_DISABLED",
+            user_id=user.id,
+            details={"access_status": access},
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=DETAIL_ACCOUNT_DISABLED
         )
     if access in NON_ACCESS_STATUSES:
+        log_security_event(
+            action="AUTH_FAILED_ACCESS_PENDING",
+            user_id=user.id,
+            details={"access_status": access},
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=DETAIL_ACCESS_PENDING
         )
@@ -151,6 +162,18 @@ def login(request: Request, body: LoginRequest, db=Depends(get_session)):
     user.last_login_at = datetime.now(UTC)
     db.commit()
     db.refresh(user)
+
+    write_audit(
+        action="LOGIN_SUCCESS",
+        module="auth",
+        user_id=user.id,
+        resource_type="user",
+        resource_id=str(user.id),
+        result="success",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        details={"username": body.username},
+    )
 
     payload = _user_payload(user, db)
     roles = payload["roles"]
@@ -354,6 +377,57 @@ def list_roles(admin: User = Depends(require_admin), db=Depends(get_session)):
             ).scalars().all()),
         }
         for r in rows
+    ]
+
+
+class AuditEntryResponse(BaseModel):
+    id: int
+    timestamp: datetime
+    action: str
+    module: Optional[str] = None
+    actor: Optional[str] = None
+    user_id: Optional[int] = None
+    role: Optional[str] = None
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    result: Optional[str] = None
+    ip_address: Optional[str] = None
+    details: Optional[dict] = None
+
+
+@router.get("/audit", response_model=List[AuditEntryResponse])
+def list_audit_log(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    module: Optional[str] = Query(None),
+    admin: User = Depends(require_admin),
+    db=Depends(get_session),
+):
+    """Newest-first system audit trail with actor emails. Admin only."""
+    stmt = select(AuditLog, User.email).outerjoin(User, AuditLog.user_id == User.id)
+    if module:
+        stmt = stmt.where(AuditLog.module == module)
+    rows = db.execute(
+        stmt.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return [
+        AuditEntryResponse(
+            id=entry.id,
+            timestamp=entry.timestamp,
+            action=entry.action,
+            module=entry.module,
+            actor=email,
+            user_id=entry.user_id,
+            role=entry.role,
+            resource_type=entry.resource_type,
+            resource_id=entry.resource_id,
+            result=entry.result,
+            ip_address=entry.ip_address,
+            details=entry.details,
+        )
+        for entry, email in rows
     ]
 
 

@@ -12,11 +12,13 @@
 from datetime import datetime, timedelta, date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy import select, desc, and_, func
 from sqlalchemy.orm import Session
 
+from infrastructure.audit import write_audit
 from infrastructure.db.engine import get_session
 from infrastructure.db.models import (
     WaterAsset, WaterAssetThreshold, WaterObservation,
@@ -177,6 +179,7 @@ class AlertActionInput(BaseModel):
 class EvaluateResponse(BaseModel):
     assets_checked: int
     new_alerts: int
+    episodes_closed: int = 0
     alerts: dict
 
 
@@ -620,6 +623,7 @@ def escalate_alert(
 @router.post("/operational/alerts/{alert_id}/ack", response_model=AlertResponse)
 def acknowledge_alert(
     alert_id: int,
+    request: Request,
     payload: AlertActionInput = AlertActionInput(),
     user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
@@ -630,6 +634,18 @@ def acknowledge_alert(
         raise HTTPException(status_code=404, detail="Alert not found")
     actor = alert_workflow.actor_from_token(user)
     alert_workflow.ack_alert(session, alert, actor, notes=payload.notes)
+
+    write_audit(
+        action="ALERT_ACKNOWLEDGED",
+        module="alerts",
+        user_id=actor.user_id,
+        resource_type="operational_alert",
+        resource_id=str(alert_id),
+        details={"asset_id": alert.asset_id, "notes": payload.notes},
+        result="success",
+        ip_address=request.client.host if request and request.client else None,
+        user_agent=request.headers.get("user-agent") if request else None,
+    )
 
     asset = session.get(WaterAsset, alert.asset_id)
     return _build_alert_response(alert, asset)
@@ -697,21 +713,38 @@ def list_thresholds(
 @router.put("/operational/thresholds/{threshold_id}", response_model=ThresholdResponse)
 def update_threshold(
     threshold_id: int,
+    request: Request,
     payload: ThresholdUpdateInput,
+    user: dict = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """Update an asset threshold configuration."""
+    """Update an asset threshold configuration (authenticated, audited)."""
     threshold = session.get(WaterAssetThreshold, threshold_id)
     if not threshold:
         raise HTTPException(status_code=404, detail="Threshold not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    before = jsonable_encoder({f: getattr(threshold, f) for f in update_data})
     for field, value in update_data.items():
         setattr(threshold, field, value)
     threshold.updated_at = datetime.utcnow()
 
     session.commit()
     session.refresh(threshold)
+
+    actor = alert_workflow.actor_from_token(user)
+    write_audit(
+        action="THRESHOLD_UPDATED",
+        module="thresholds",
+        user_id=actor.user_id,
+        resource_type="asset_threshold",
+        resource_id=str(threshold_id),
+        before_value=before,
+        after_value=jsonable_encoder(update_data),
+        result="success",
+        ip_address=request.client.host if request and request.client else None,
+        user_agent=request.headers.get("user-agent") if request else None,
+    )
 
     asset = session.get(WaterAsset, threshold.asset_id)
     return ThresholdResponse(
@@ -1131,6 +1164,7 @@ class AssetWeeklySummary(BaseModel):
     province: Optional[str]
     total_observations: int
     date_range: str
+    last_observed_at: Optional[str] = None
     weeks: List[WeeklyObservationSummary]
 
 
@@ -1158,8 +1192,9 @@ def get_weekly_summary(
         )
         .order_by(WaterObservation.asset_id, WaterObservation.observed_at)
     )
+    q = q.where(official_observation_clause())
     if asset_id:
-        q = q.where(WaterObservation.asset_id == asset_id, official_observation_clause())
+        q = q.where(WaterObservation.asset_id == asset_id)
 
     rows = session.execute(q).all()
 
@@ -1175,11 +1210,16 @@ def get_weekly_summary(
                 "asset_name": asset.canonical_name,
                 "river": asset.river,
                 "province": asset.province,
+                "last_obs": None,
                 "weeks": defaultdict(lambda: {
                     "level": [], "inflow": [], "outflow": [], "discharge": [],
                     "sources": set(), "origins": set(), "count": 0,
                 }),
             }
+
+        ts = obs.observed_at
+        if asset_data[aid]["last_obs"] is None or ts > asset_data[aid]["last_obs"]:
+            asset_data[aid]["last_obs"] = ts
 
         # Calculate ISO week start (Monday)
         obs_date = obs.observed_at.date() if hasattr(obs.observed_at, 'date') else obs.observed_at
@@ -1228,6 +1268,7 @@ def get_weekly_summary(
 
         total_obs = sum(w["count"] for w in data["weeks"].values())
         date_range = f"{start_date} → {end_date}" if weeks_list else "No data"
+        last = data["last_obs"]
         result.append(AssetWeeklySummary(
             asset_id=aid,
             asset_name=data["asset_name"],
@@ -1235,6 +1276,7 @@ def get_weekly_summary(
             province=data["province"],
             total_observations=total_obs,
             date_range=date_range,
+            last_observed_at=last.isoformat() if last else None,
             weeks=weeks_list,
         ))
 

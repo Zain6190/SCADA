@@ -31,7 +31,9 @@ Stages (each is idempotent - upserts, so re-runs never duplicate rows):
 
     [optional] gee_fetch            refresh Data/raw/region_features.csv from GEE
     sync_indicators                 real WAI indicators -> water_indicators_weekly
+    fetch_surface_water             Sentinel-2 NDWI fetch -> surface_water.csv
     sync_surface_water              NDWI/MNDWI water area -> surface_water_weekly
+    propagate_surface_water         water area + change -> water_indicators_weekly
     compute_spi                     SPI (Standardized Precipitation Index) from rainfall
     predict_weekly                  XGBoost forecast   -> water_predictions_weekly
     run_risk_alerts                 MODEL alerts       -> water_alerts
@@ -64,7 +66,6 @@ DB_URL = os.getenv(
 PIPELINE_NAME = "wai_weekly_pipeline"  # pipeline_runs.pipeline_type is varchar(20)
 CODE_VERSION = os.getenv("GEE_CODE_VERSION", "1.0.0")
 SOURCE_VERSION = os.getenv("GEE_SOURCE_VERSION", "GEE-CHIRPS/ERA5-JRC-2026.8")
-MODEL_VERSION = os.getenv("GEE_MODEL_VERSION", "xgb-v1.0")
 LOG_DIR = ML_ROOT / "logs"
 LOCK_KEY = int(os.getenv("PIPELINE_LOCK_KEY", "1463592275"))  # stable bigint advisory-lock key
 STAGE_TIMEOUT = int(os.getenv("PIPELINE_STAGE_TIMEOUT", "1800"))  # seconds per stage
@@ -73,11 +74,14 @@ MAX_CACHE_DAYS = int(os.getenv("PIPELINE_MAX_CACHE_DAYS", "7"))  # max cached-CS
 RAW_CSV = ML_ROOT / "Data" / "raw" / "region_features.csv"
 SURFACE_WATER_CSV = ML_ROOT / "Data" / "raw" / "surface_water.csv"
 
-STAGES = ["sync_indicators", "sync_surface_water", "compute_spi",
-          "build_dataset", "train_wai", "train_anomaly", "predict_weekly", "run_risk_alerts"]
+STAGES = ["sync_indicators", "fetch_surface_water", "sync_surface_water",
+          "propagate_surface_water", "compute_spi",
+          "build_dataset", "train_wai", "train_anomaly", "predict_weekly",
+          "run_risk_alerts", "validate_preds"]
 MODULE_OVERRIDES = {"build_dataset": "gee.build_dataset",
                     "train_wai": "models.train_wai",
-                    "train_anomaly": "models.train_anomaly"}
+                    "train_anomaly": "models.train_anomaly",
+                    "validate_preds": "scripts.validate_predictions"}
 
 _engine = None
 
@@ -85,7 +89,7 @@ _engine = None
 def engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(DB_URL)
+        _engine = create_engine(DB_URL, pool_pre_ping=True)
     return _engine
 
 
@@ -137,7 +141,19 @@ def acquire_lock(conn) -> bool:
 
 
 def release_lock(conn) -> None:
-    conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_KEY})
+    try:
+        conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_KEY})
+    except Exception as exc:
+        print(f"[pipeline] advisory unlock failed ({exc}); dropping pool - "
+              "Postgres frees the advisory lock when its session ends")
+        global _engine
+        if _engine is not None:
+            _engine.dispose()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def sweep_stale_runs(stale_after: str = STALE_AFTER) -> int:
@@ -295,9 +311,12 @@ def _parse_stage(stage: str, output: str, code: int) -> dict:
         "records_written": {
             "sync_indicators": r"Upserted (\d+) indicator rows",
             "sync_surface_water": r"(\d+) inserted",
+            "fetch_surface_water": r"Wrote (\d+) rows ->",
+            "propagate_surface_water": r"Propagated (\d+) rows",
             "compute_spi": r"Updated (\d+) rows",
             "predict_weekly": r"Wrote (\d+) predictions",
             "run_risk_alerts": r"Wrote (\d+) alerts",
+            "validate_preds": r"Validated (\d+) predictions",
             "gee_fetch": r"Wrote (\d+) rows ->",
         },
         "records_skipped": {"sync_indicators": r"Skipped (\d+) invalid rows"},
@@ -430,6 +449,32 @@ def main() -> None:
                     summary["error_count"] = 0
                 else:
                     stage_results.append(summary)
+                    smap = run_stage(run_pk, run_id, "fetch_smap",
+                                     module="gee.fetch_smap")
+                    if smap["status"] != "SUCCESS":
+                        smap["error_count"] = 0
+                        warnings.append(
+                            "fetch_smap failed; soil-moisture columns missing from CSV")
+                    stage_results.append(smap)
+                continue
+
+            if stage == "fetch_surface_water":
+                if not gee_configured():
+                    log = LOG_DIR / run_id / "fetch_surface_water.log"
+                    log.parent.mkdir(parents=True, exist_ok=True)
+                    reason = "no GEE credentials; keeping cached surface_water.csv"
+                    log.write_text(f"[fetch_surface_water] SKIPPED - {reason}\n")
+                    warnings.append(f"fetch_surface_water: {reason}")
+                    record_skipped_stage(run_pk, run_id, "fetch_surface_water",
+                                          str(log), reason)
+                    continue
+                sw = run_stage(run_pk, run_id, "fetch_surface_water",
+                               module="gee.surface_water")
+                if sw["status"] == "FAILED":
+                    sw["error_count"] = 0
+                    warnings.append(
+                        "fetch_surface_water failed; using cached surface_water.csv")
+                stage_results.append(sw)
                 continue
 
             summary = run_stage(
@@ -438,6 +483,12 @@ def main() -> None:
                 env_extra={"SYNC_DATA_STATUS": "STALE"} if (stage == "sync_indicators" and stale_data) else None,
             )
             stage_results.append(summary)
+            if stage == "validate_preds" and summary["status"] == "FAILED":
+                # optional stage: a scoring failure must not fail a run whose
+                # core outputs (indicators, predictions) are already written
+                summary["error_count"] = 0
+                warnings.append("validate_preds failed; closed-week scoring "
+                                "skipped for this run")
             if stage == "sync_indicators":
                 m = re.search(r"across (\d{4}-\d{2}-\d{2}) \.\. (\d{4}-\d{2}-\d{2})",
                               summary["output"])

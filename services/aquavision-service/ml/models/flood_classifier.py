@@ -303,6 +303,52 @@ class FloodClassifier:
         return clf
 
 
+def get_flood_probability(session, asset_id: int) -> Optional[float]:
+    """Latest classifier probability for an asset from recent observations.
+
+    Shared by the daily prediction pipeline (persisted on the 7-day forecast
+    row for shadow scoring); returns None when the model or data is missing.
+    """
+    from decimal import Decimal
+
+    from sqlalchemy import text
+
+    path = MODEL_DIR / f"flood_classifier_asset_{asset_id}.pkl"
+    if not path.exists():
+        return None
+
+    rows = session.execute(
+        text("""
+            SELECT observed_at,
+                   COALESCE(inflow_cusecs, discharge_cusecs) AS inflow_cusecs,
+                   outflow_cusecs, water_level_ft, discharge_cusecs
+            FROM aquavision.water_observations
+            WHERE asset_id = :asset_id
+            AND inflow_cusecs IS NOT NULL
+            ORDER BY observed_at DESC
+            LIMIT 60
+        """),
+        {"asset_id": asset_id},
+    ).mappings().all()
+    if not rows:
+        return None
+
+    df = pd.DataFrame(list(reversed(rows)))
+    for col in df.columns:
+        if df[col].dtype == object:
+            try:
+                df[col] = df[col].apply(lambda x: float(x) if isinstance(x, (Decimal, int)) else x)
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            except Exception:
+                pass
+
+    clf = FloodClassifier.load(asset_id, path)
+    pred = clf.predict(df)
+    if "error" in pred:
+        return None
+    return float(pred["flood_probability"])
+
+
 def train_all_classifiers(horizon: int = 7) -> list[dict]:
     """Train flood classifiers for all assets with sufficient data."""
     from sqlalchemy import text

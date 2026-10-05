@@ -20,7 +20,12 @@ def get_use_case(session: Session = Depends(get_session)) -> GetWaterPredictions
 @router.get("/predictions", response_model=List[WaterPredictionResponse])
 def list_predictions(
     region_id: Optional[int] = None,
+    include_actual: bool = False,
     use_case: GetWaterPredictionsUseCase = Depends(get_use_case),
 ):
-    """Predicted WAI/severity for upcoming weeks (model_version tracked per row)."""
-    return use_case.execute(region_id=region_id)
+    """Predicted WAI/severity for upcoming weeks (model_version tracked per row).
+
+    include_actual=True joins the observed indicator for each target week so
+    the dashboard can chart predicted vs actual and show per-row error.
+    """
+    return use_case.execute(region_id=region_id, include_actual=include_actual)

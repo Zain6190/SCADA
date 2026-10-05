@@ -5,6 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { Sidebar } from '@/components/shell/sidebar'
 import { cn } from '@/lib/utils'
+import sidebarStyles from './sidebar.module.css'
 
 export function MobileNavigationDrawer({
   open,
@@ -19,9 +20,9 @@ export function MobileNavigationDrawer({
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in" />
-        {/* The drawer is portalled outside the page, so it carries the
-            inverted tokens itself rather than inheriting them. */}
-        <Dialog.Content className={cn('nav-surface fixed inset-y-0 left-0 z-50 flex w-72 flex-col outline-none shadow-pop data-[state=open]:animate-in data-[state=open]:slide-in-from-left', className)}>
+        <Dialog.Content className={cn(sidebarStyles.surface, 'fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[calc(100vw-32px)] flex-col outline-none shadow-pop data-[state=open]:animate-in data-[state=open]:slide-in-from-left', className)}>
+          <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+          <Dialog.Description className="sr-only">Switch workspaces and open pages available to your role.</Dialog.Description>
           <div className="flex justify-end p-3">
             <button
               onClick={onClose}

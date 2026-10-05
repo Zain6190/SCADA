@@ -21,8 +21,10 @@ imbalanced-learn
 beautifulsoup4
 requests
 pdfplumber
+reportlab
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 schedule==1.2.2
 cdsapi
 netCDF4
+earthengine-api
