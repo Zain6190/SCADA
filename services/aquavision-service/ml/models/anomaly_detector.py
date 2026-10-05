@@ -7,7 +7,7 @@
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -56,6 +56,15 @@ class AnomalyDetector:
 
     def __init__(self):
         os.makedirs(MODEL_DIR, exist_ok=True)
+
+    @staticmethod
+    def _severity_for(score: float) -> str:
+        """Severity band for a decision_function score (negative = anomalous)."""
+        if score < -0.3:
+            return "HIGH"
+        if score < -0.15:
+            return "MODERATE"
+        return "LOW"
 
     def _build_features(
         self,
@@ -288,12 +297,7 @@ class AnomalyDetector:
                 anomaly_features = [feature_names[j] for j in top_indices if feature_scores[j] > 1.0]
 
                 # Severity based on anomaly score
-                if score < -0.3:
-                    severity = "HIGH"
-                elif score < -0.15:
-                    severity = "MODERATE"
-                else:
-                    severity = "LOW"
+                severity = self._severity_for(float(score))
 
                 details = {
                     "level_ft": float(obs.water_level_ft or 0),
@@ -315,6 +319,88 @@ class AnomalyDetector:
         # Sort by score (most anomalous first)
         anomaly_results.sort(key=lambda r: r.anomaly_score)
         return anomaly_results[:top_n]
+
+    def score_history(
+        self,
+        asset_id: int,
+        session: Session,
+        days: int = 90,
+    ) -> Optional[Dict]:
+        """Score every observation in the trailing window (real inference).
+
+        Features are built over the FULL series (lags and rolling stats need
+        history) and points are then filtered to the window, so scores match
+        predict() exactly. Returns None when no trained artifact exists or
+        there is too little data to score.
+        """
+        from infrastructure.db.models import WaterObservation
+
+        model_path = os.path.join(MODEL_DIR, f"anomaly_{asset_id}.joblib")
+        if not os.path.exists(model_path):
+            return None
+
+        artifact = joblib.load(model_path)
+        model = artifact["model"]
+        scaler = artifact["scaler"]
+
+        observations = (
+            session.query(WaterObservation)
+            .filter(WaterObservation.asset_id == asset_id)
+            .order_by(WaterObservation.observed_at.asc())
+            .all()
+        )
+        if len(observations) < 5:
+            return None
+
+        levels = np.array([float(o.water_level_ft or 0) for o in observations])
+        inflows = np.array([float(o.inflow_cusecs or 0) for o in observations])
+        outflows = np.array([float(o.outflow_cusecs or 0) for o in observations])
+        timestamps = np.array([o.observed_at for o in observations])
+
+        X, feature_names = self._build_features(levels, inflows, outflows, timestamps)
+        X_scaled = scaler.transform(X)
+        predictions = model.predict(X_scaled)
+        scores = model.decision_function(X_scaled)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        points = []
+        for i, (obs, pred, score) in enumerate(zip(observations, predictions, scores)):
+            ts = obs.observed_at
+            if ts is None:
+                continue
+            ts_utc = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+            if ts_utc < cutoff:
+                continue
+
+            is_anomaly = pred == -1
+            anomaly_features: List[str] = []
+            if is_anomaly:
+                row = np.abs(X_scaled[i])
+                top = np.argsort(row)[::-1][:3]
+                anomaly_features = [feature_names[j] for j in top if row[j] > 1.0]
+
+            points.append({
+                "observed_at": ts.isoformat(),
+                "anomaly_score": round(float(score), 4),
+                "is_anomaly": bool(is_anomaly),
+                "severity": self._severity_for(float(score)),
+                "anomaly_features": anomaly_features,
+                "level_ft": float(obs.water_level_ft or 0),
+                "inflow_cusecs": float(obs.inflow_cusecs or 0),
+                "outflow_cusecs": float(obs.outflow_cusecs or 0),
+            })
+
+        return {
+            "artifact": {
+                "model_version": artifact.get("model_version", MODEL_VERSION),
+                "model_status": artifact.get("model_status", MODEL_STATUS),
+                "trained_at": artifact.get("trained_at"),
+                "training_samples": artifact.get("training_samples"),
+                "contamination": artifact.get("contamination"),
+            },
+            "points": points,
+            "anomaly_count": sum(1 for p in points if p["is_anomaly"]),
+        }
 
     def train_all(self, session: Session) -> List[Dict]:
         """Train anomaly detectors for all assets with sufficient data."""

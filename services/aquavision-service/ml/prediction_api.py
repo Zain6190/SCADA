@@ -87,6 +87,56 @@ class AnomalyTrainResponse(BaseModel):
     results: list
 
 
+class AnomalyPoint(BaseModel):
+    observed_at: str
+    anomaly_score: float
+    is_anomaly: bool
+    severity: str
+    anomaly_features: list = []
+    level_ft: float
+    inflow_cusecs: float
+    outflow_cusecs: float
+
+
+class AnomalyHistoryResponse(BaseModel):
+    asset_id: int
+    asset_name: str
+    model_version: str
+    model_status: str
+    trained_at: Optional[str] = None
+    training_samples: Optional[int] = None
+    contamination: Optional[float] = None
+    window_days: int
+    scored_count: int
+    anomaly_count: int
+    points: List[AnomalyPoint]
+
+
+class AnomalyAssetSummary(BaseModel):
+    asset_id: int
+    asset_name: str
+    asset_type: str
+    has_model: bool
+    model_version: Optional[str] = None
+    model_status: Optional[str] = None
+    trained_at: Optional[str] = None
+    training_samples: Optional[int] = None
+    contamination: Optional[float] = None
+    observations_scored: int = 0
+    anomaly_count: int = 0
+    worst_severity: Optional[str] = None
+    latest_anomaly: Optional[AnomalyPoint] = None
+
+
+class AnomalySummaryResponse(BaseModel):
+    generated_at: str
+    window_days: int
+    assets_total: int
+    assets_with_models: int
+    total_anomalies: int
+    assets: List[AnomalyAssetSummary]
+
+
 @router.get("/ml/predictions/{asset_id}", response_model=List[PredictionResponse])
 def get_predictions(
     asset_id: int,
@@ -208,6 +258,112 @@ def trigger_training(
 
 
 # ─── Anomaly Detection ──────────────────────────────────────────────────────
+
+_SEVERITY_RANK = {"LOW": 1, "MODERATE": 2, "HIGH": 3}
+
+
+@router.get("/ml/anomalies/summary", response_model=AnomalySummaryResponse)
+def get_anomaly_summary(
+    days: int = Query(30, ge=1, le=365),
+    session: Session = Depends(get_session),
+):
+    """Per-asset anomaly rollup over a trailing window (real scoring).
+
+    Must be registered BEFORE /ml/anomalies/{asset_id} so "summary" is not
+    swallowed by the int path parameter.
+    """
+    from ml.models.anomaly_detector import AnomalyDetector
+
+    detector = AnomalyDetector()
+    assets = session.query(WaterAsset).order_by(WaterAsset.id).all()
+
+    entries: List[AnomalyAssetSummary] = []
+    assets_with_models = 0
+    total_anomalies = 0
+
+    for asset in assets:
+        entry = AnomalyAssetSummary(
+            asset_id=asset.id,
+            asset_name=asset.canonical_name,
+            asset_type=asset.asset_type or "",
+            has_model=False,
+        )
+        try:
+            history = detector.score_history(asset.id, session, days=days)
+        except Exception as exc:
+            logger.warning(f"Anomaly summary failed for asset {asset.id}: {exc}")
+            history = None
+
+        if history is None:
+            entries.append(entry)
+            continue
+
+        art = history["artifact"]
+        anomalies = [p for p in history["points"] if p["is_anomaly"]]
+        worst = None
+        for p in anomalies:
+            if worst is None or _SEVERITY_RANK.get(p["severity"], 0) > _SEVERITY_RANK.get(worst, 0):
+                worst = p["severity"]
+        latest = max(anomalies, key=lambda p: p["observed_at"]) if anomalies else None
+
+        entry.has_model = True
+        entry.model_version = art.get("model_version")
+        entry.model_status = art.get("model_status")
+        entry.trained_at = art.get("trained_at")
+        entry.training_samples = art.get("training_samples")
+        entry.contamination = art.get("contamination")
+        entry.observations_scored = len(history["points"])
+        entry.anomaly_count = len(anomalies)
+        entry.worst_severity = worst
+        entry.latest_anomaly = AnomalyPoint(**latest) if latest else None
+
+        assets_with_models += 1
+        total_anomalies += len(anomalies)
+        entries.append(entry)
+
+    return AnomalySummaryResponse(
+        generated_at=datetime.utcnow().isoformat(),
+        window_days=days,
+        assets_total=len(assets),
+        assets_with_models=assets_with_models,
+        total_anomalies=total_anomalies,
+        assets=entries,
+    )
+
+
+@router.get("/ml/anomalies/{asset_id}/history", response_model=AnomalyHistoryResponse)
+def get_anomaly_history(
+    asset_id: int,
+    days: int = Query(90, ge=1, le=365),
+    session: Session = Depends(get_session),
+):
+    """Score every observation for an asset over a trailing window."""
+    asset = session.get(WaterAsset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    from ml.models.anomaly_detector import AnomalyDetector
+
+    history = AnomalyDetector().score_history(asset_id, session, days=days)
+    if history is None:
+        raise HTTPException(status_code=404, detail="No trained anomaly model for this asset")
+
+    art = history["artifact"]
+    points = [AnomalyPoint(**p) for p in history["points"]]
+    return AnomalyHistoryResponse(
+        asset_id=asset_id,
+        asset_name=asset.canonical_name,
+        model_version=art.get("model_version", ""),
+        model_status=art.get("model_status", ""),
+        trained_at=art.get("trained_at"),
+        training_samples=art.get("training_samples"),
+        contamination=art.get("contamination"),
+        window_days=days,
+        scored_count=len(points),
+        anomaly_count=history["anomaly_count"],
+        points=points,
+    )
+
 
 @router.get("/ml/anomalies/{asset_id}", response_model=List[AnomalyResponse])
 def get_anomalies(

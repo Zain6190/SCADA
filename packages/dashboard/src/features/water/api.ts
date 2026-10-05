@@ -23,6 +23,8 @@ import type {
   MLTrainResult,
   MLAnomaly,
   MLAnomalyTrainResult,
+  MLAnomalyHistory,
+  MLAnomalySummary,
   PipelineHealth,
   AssetWeeklySummary,
   ModelPerformance,
@@ -318,6 +320,16 @@ export const waterApi = {
 
   trainAnomalyDetectors: async (): Promise<MLAnomalyTrainResult> => {
     const { data } = await waterClient.post('/ml/anomalies/train')
+    return data
+  },
+
+  getMLAnomalySummary: async (days = 30): Promise<MLAnomalySummary> => {
+    const { data } = await waterClient.get('/ml/anomalies/summary', { params: { days } })
+    return data
+  },
+
+  getMLAnomalyHistory: async (assetId: number, days = 90): Promise<MLAnomalyHistory> => {
+    const { data } = await waterClient.get(`/ml/anomalies/${assetId}/history`, { params: { days } })
     return data
   },
 

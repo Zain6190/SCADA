@@ -424,6 +424,56 @@ export interface MLAnomalyTrainResult {
   }>
 }
 
+export interface MLAnomalyPoint {
+  observed_at: string
+  anomaly_score: number
+  is_anomaly: boolean
+  severity: string
+  anomaly_features: string[]
+  level_ft: number
+  inflow_cusecs: number
+  outflow_cusecs: number
+}
+
+export interface MLAnomalyHistory {
+  asset_id: number
+  asset_name: string
+  model_version: string
+  model_status: string
+  trained_at?: string | null
+  training_samples?: number | null
+  contamination?: number | null
+  window_days: number
+  scored_count: number
+  anomaly_count: number
+  points: MLAnomalyPoint[]
+}
+
+export interface MLAnomalyAssetSummary {
+  asset_id: number
+  asset_name: string
+  asset_type: string
+  has_model: boolean
+  model_version?: string | null
+  model_status?: string | null
+  trained_at?: string | null
+  training_samples?: number | null
+  contamination?: number | null
+  observations_scored: number
+  anomaly_count: number
+  worst_severity?: string | null
+  latest_anomaly?: MLAnomalyPoint | null
+}
+
+export interface MLAnomalySummary {
+  generated_at: string
+  window_days: number
+  assets_total: number
+  assets_with_models: number
+  total_anomalies: number
+  assets: MLAnomalyAssetSummary[]
+}
+
 // ─── Weekly Observation Summary (Analyst Workspace) ──────────────────────
 
 export interface WeeklyObservationRow {
